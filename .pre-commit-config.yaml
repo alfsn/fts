@@ -1,0 +1,31 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0 # Use the latest revision
+  hooks:
+  - id: check-ast # Basic syntax check, catches malformed imports
+  - id: debug-statements # Catches 'import pdb', 'breakpoint()', etc.
+
+- repo: https://github.com/psf/black
+  rev: 25.9.0 # Use the latest revision
+  hooks:
+  - id: black # Excellent for formatting
+    stages: [pre-commit, manual] # **<-- ADDED THIS LINE**
+
+- repo: https://github.com/pycqa/isort
+  rev: 7.0.0 # Use the latest revision
+  hooks:
+  - id: isort # Sorts/formats imports (helps with consistency)
+    stages: [pre-commit, manual] # **<-- ADDED THIS LINE**
+
+- repo: https://github.com/pycqa/flake8
+  rev: 7.3.0 # Use the latest revision
+  hooks:
+  - id: flake8
+    # F401: unused imports, F821: undefined name (often a missing package)
+    # Flake8 (or its plugins) will catch many "invalid" import issues.
+
+- repo: https://github.com/hadialqattan/pycln
+  rev: v2.6.0 # Use the latest revision
+  hooks:
+  - id: pycln # Removes unused imports (can be an alternative to Flake8's F401)
+    stages: [pre-commit, manual] # **<-- ADDED THIS LINE**
