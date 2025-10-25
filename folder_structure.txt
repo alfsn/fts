@@ -1,0 +1,83 @@
+fts/
+├── .env.example               # Example environment variables (API keys, DB URL, private key)
+├── .gitignore                 # Standard Python .gitignore
+├── README.md                  # Project overview, setup, and run instructions
+├── pyproject.toml             # Project dependencies (pydantic, sqlalchemy, py-clob-client)
+├── data/                      # For storing historical data for backtesting
+│   ├── market_data/           # e.g., historical order books, trades
+│   └── external_data/         # e.g., historical event data
+├── notebooks/                 # Jupyter notebooks for research and backtest analysis
+│   ├── 01_data_exploration.ipynb
+│   └── 02_strategy_backtest.ipynb
+├── src/
+│   └── trading_bot/
+│       ├── __init__.py
+│       ├── __main__.py            # Main entrypoint to start the bot
+│       ├── config.py              # Loads configuration from .env using Pydantic BaseSettings
+│       │
+│       ├── core/                  # Shared data structures and database logic
+│       │   ├── __init__.py
+│       │   ├── database.py        # SQLAlchemy engine, session setup, and Base
+│       │   ├── enums.py           # Core enumerations (e.g., OrderSide, Market, SignalType)
+│       │   ├── models.py          # SQLAlchemy ORM Models (e.g., Trade, Position, EventLog)
+│       │   └── schemas.py         # Pydantic data contracts (e.g., MarketData, OrderBook, TradeSignal)
+│       │
+│       ├── data_ingestion/        # Module 1: Data Ingestion Engine
+│       │   ├── __init__.py
+│       │   ├── abc.py             # Abstract Base Classes (BaseMarketDataProvider, BaseExternalDataProvider)
+│       │   ├── engine.py          # Main engine to coordinate data providers and feed the strategy
+│       │   └── clients/           # Concrete implementations of data providers
+│       │       ├── __init__.py
+│       │       ├── polymarket_client.py # Concrete class for Polymarket's CLOB API
+│       │       └── kalshi_client.py     # Concrete class for Kalshi's API
+│       │
+│       ├── strategy/              # Module 2: Strategy Engine
+│       │   ├── __init__.py
+│       │   ├── abc.py             # Abstract BaseStrategy class
+│       │   ├── engine.py          # The core engine that receives data and produces signals
+│       │   ├── universe.py        # Logic for filtering and defining the "investable universe"
+│       │   └── strategies/        # Folder for all concrete strategy implementations
+│       │       ├── __init__.py
+│       │       └── dummy_strategy.py # A simple placeholder strategy
+│       │
+│       ├── risk_management/       # Module 3: Risk & Position Management
+│       │   ├── __init__.py
+│       │   ├── abc.py             # Abstract BaseSizingStrategy
+│       │   ├── manager.py         # Main RiskManager class (applies limits, sizing)
+│       │   ├── portfolio.py       # The specific Portfolio class for tracking positions, P&L
+│       │   └── sizing/            # Concrete sizing formula implementations
+│       │       ├── __init__.py
+│       │       └── kelly_criterion.py # Concrete implementation of Kelly Criterion sizer
+│       │
+│       ├── execution/             # Module 4: Execution Engine
+│       │   ├── __init__.py
+│       │   ├── abc.py             # Abstract BaseExecutionHandler
+│       │   ├── engine.py          # Main engine to process orders, handle retries
+│       │   ├── wallet.py          # Securely manages private keys for signing
+│       │   └── handlers/          # Concrete execution implementations
+│       │       ├── __init__.py
+│       │       └── polymarket_handler.py # Uses py-clob-client to sign & send orders
+│       │
+│       ├── monitoring/            # Module 5: Monitoring, Logging, & Alerting
+│       │   ├── __init__.py
+│       │   ├── alerter.py         # Service for sending alerts (e.g., to Telegram)
+│       │   ├── dashboard.py       # (Optional) A simple terminal dashboard
+│       │   └── logger.py          # Configures system-wide logging
+│       │
+│       ├── backtesting/           # Module 6: Research and Backtesting Engine
+│       │   ├── __init__.py
+│       │   ├── engine.py          # Core backtesting event loop
+│       │   ├── results.py         # Calculates and presents backtest metrics
+│       │   └── simulator.py       # Simulates the execution engine and market fills
+│       │
+│       └── utils/                 # General helper functions
+│           ├── __init__.py
+│           └── time_utils.py
+│
+└── tests/                         # Unit and integration tests
+    ├── __init__.py
+    ├── test_core_schemas.py
+    ├── test_data_ingestion.py
+    ├── test_execution.py
+    ├── test_risk_management.py
+    └── test_strategy.py
