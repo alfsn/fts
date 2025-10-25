@@ -13,7 +13,8 @@ from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
-from .enums import MarketOutcome, OrderSide, OrderStatus, SignalType
+from .enums import (AlertSeverity, MarketOutcome, OrderSide, OrderStatus,
+                    SignalType)
 
 # --- Module 1: Data Ingestion Engine Schemas ---
 
@@ -211,3 +212,17 @@ class ExecutionResult(BaseModel):
     )
     avg_price: float = Field(..., description="The average price at which the shares were filled.", ge=0)
     timestamp: datetime = Field(..., description="The timestamp of this execution status update.")
+
+
+# --- Module 5: Monitoring Schemas (Add to schemas.py) ---
+
+
+class Alert(BaseModel):
+    """
+    A data contract for sending an alert to the monitoring system
+    (e.g., to Telegram or a dashboard).
+    """
+
+    message: str = Field(..., description="The content of the alert message.")
+    severity: AlertSeverity = Field(..., description="The severity level of the alert.")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="The time the alert was generated.")
