@@ -9,8 +9,8 @@ canceling, and monitoring orders on a specific exchange.
 from abc import ABC, abstractmethod
 from typing import Dict
 
-from ...core.enums import MarketName
-from ...core.schemas import ExecutionResult, OrderRequest
+from ..core.enums import MarketProvider
+from ..core.schemas import ExecutionResult, OrderRequest
 
 
 class BaseExecutionHandler(ABC):
@@ -26,12 +26,12 @@ class BaseExecutionHandler(ABC):
 
     @property
     @abstractmethod
-    def market_name(self) -> MarketName:
+    def market_name(self) -> MarketProvider:
         """
         The specific market this handler is built for (e.g.,
-        MarketName.POLYMARKET).
+        MarketProvider.POLYMARKET).
 
-        :return: A MarketName enum member.
+        :return: A MarketProvider enum member.
         """
         pass
 
