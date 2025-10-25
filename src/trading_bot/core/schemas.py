@@ -24,7 +24,8 @@ class PriceLevel(BaseModel):
     Represents a single price level in an order book (either a bid or an ask).
     """
 
-    price: float = Field(..., description="The price of the orders at this level.", gt=0)  # Price must be positive
+    price: float = Field(..., 
+                         description="The price of the orders at this level.", gt=0)  # Price must be positive
     size: float = Field(
         ...,
         description="The total volume (number of shares) of orders at this price level.",
@@ -39,10 +40,12 @@ class OrderBook(BaseModel):
     """
 
     bids: List[PriceLevel] = Field(
-        ..., description="A list of price levels for buy orders (bids), typically sorted highest to lowest."
+        ..., 
+        description="A list of price levels for buy orders (bids), typically sorted highest to lowest."
     )
     asks: List[PriceLevel] = Field(
-        ..., description="A list of price levels for sell orders (asks), typically sorted lowest to highest."
+        ..., 
+        description="A list of price levels for sell orders (asks), typically sorted lowest to highest."
     )
 
 
@@ -54,7 +57,8 @@ class Trade(BaseModel):
     price: float = Field(..., description="The price at which the trade was executed.", gt=0)
     size: float = Field(..., description="The volume (number of shares) of the trade.", gt=0)
     timestamp: datetime = Field(..., description="The timestamp when the trade was executed.")
-    side: OrderSide = Field(..., description="The side of the trade (buy or sell) from the taker's perspective.")
+    side: OrderSide = Field(..., 
+                            description="The side of the trade (buy or sell) from the taker's perspective.")
 
 
 class MarketDetails(BaseModel):
