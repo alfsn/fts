@@ -86,3 +86,12 @@ class AlertSeverity(str, Enum):
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
+
+
+class PositionStatus(str, Enum):
+    """
+    Represents the state of a held position.
+    """
+
+    OPEN = "open"
+    CLOSED = "closed"

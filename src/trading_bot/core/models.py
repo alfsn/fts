@@ -18,7 +18,7 @@ from sqlalchemy.orm import relationship
 from .database import Base
 
 # Import the enums we defined in core.enums [cite: 233]
-from .enums import AlertSeverity, MarketOutcome, OrderSide, OrderStatus
+from .enums import AlertSeverity, MarketOutcome, OrderSide, OrderStatus, PositionStatus
 
 
 class Market(Base):
@@ -155,4 +155,42 @@ class EventLog(Base):
         return (
             f"<EventLog(timestamp='{self.timestamp}', "
             f"severity='{self.severity}', message='{self.message[:50]}...')>"
+        )
+
+
+class Position(Base):
+    """
+    SQLAlchemy ORM Model for persisting the bot's current positions.
+
+    This table allows the Portfolio Manager to reconstruct its
+    state after a restart.
+    """
+
+    __tablename__ = "positions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    market_id = Column(
+        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    )
+    outcome = Column(Enum(MarketOutcome), nullable=False)
+
+    # The current number of shares held
+    size = Column(Float, nullable=False)
+    # The average price at which the shares were acquired
+    entry_price = Column(Float, nullable=False)
+
+    # Tracks if the position is active or has been fully closed
+    status = Column(Enum(PositionStatus), default=PositionStatus.OPEN, index=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    market = relationship("Market")
+
+    def __repr__(self):
+        return (
+            f"<Position(market_id='{self.market_id}', outcome='{self.outcome}', "
+            f"size={self.size}, status='{self.status}')>"
         )
