@@ -17,7 +17,7 @@ from sqlalchemy.orm import relationship
 # Import the Base from our database setup
 from .database import Base
 
-# Import the enums we defined in core.enums [cite: 233]
+# Import the enums we defined in core.enums
 from .enums import AlertSeverity, MarketOutcome, OrderSide, OrderStatus, PositionStatus
 
 
@@ -26,13 +26,13 @@ class Market(Base):
     SQLAlchemy ORM Model for storing market details.
 
     This table persists the static data from the
-    MarketDetails Pydantic schema. [cite: 253]
+    MarketDetails Pydantic schema.
     """
 
     __tablename__ = "markets"
 
     id = Column(Integer, primary_key=True, index=True)
-    # The unique ID from the exchange (e.g., Polymarket) [cite: 253]
+    # The unique ID from the exchange (e.g., Polymarket)
     market_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
     end_date = Column(DateTime, nullable=False)
@@ -75,7 +75,7 @@ class OrderLog(Base):
     requested_size = Column(Float, nullable=False)
     requested_price = Column(Float, nullable=False)
 
-    # --- Data from ExecutionResult [cite: 270, 271, 272] ---
+    # --- Data from ExecutionResult ---
     status = Column(Enum(OrderStatus), nullable=False, index=True)
     filled_size = Column(Float, default=0.0)
     avg_fill_price = Column(Float, default=0.0)
