@@ -100,6 +100,21 @@ class ExternalData(BaseModel):
     content: Dict = Field(..., description="The actual data content, as a flexible dictionary.")
 
 
+class IngestionEngineOutput(BaseModel):
+    """
+    A container for all data gathered by the Ingestion Engine during one
+    'tick' or update cycle. This is the primary input for the Strategy Engine.
+    """
+
+    timestamp: datetime = Field(..., description="The time this data packet was generated.")
+    market_data: Dict[str, MarketData] = Field(
+        ..., description="A dictionary mapping market_id to its latest MarketData."
+    )
+    external_data: List[ExternalData] = Field(
+        ..., description="A list of all new external data points fetched in this cycle."
+    )
+
+
 class TradeSignal(BaseModel):
     """
     The primary output of the Strategy Engine. This represents a
@@ -128,6 +143,38 @@ class Position(BaseModel):
     outcome: MarketOutcome = Field(..., description="The outcome held (YES or NO).")
     size: float = Field(..., description="The number of shares held. Can be positive (long) or negative (short).")
     entry_price: float = Field(..., description="The average price at which the position was entered.", ge=0)
+
+
+class PortfolioState(BaseModel):
+    """
+    A snapshot of the portfolio's current state, used for risk calculations.
+    """
+
+    total_balance_usdc: float = Field(..., description="Total account value in USDC.")
+    available_balance_usdc: float = Field(..., description="USDC not tied up in orders or positions.")
+    positions: List[Position] = Field(..., description="List of all currently held positions.")
+    open_orders: List[OrderRequest] = Field(..., description="List of all orders active on the exchange.")
+
+
+class SizingInput(BaseModel):
+    """
+    The data packet required by a BaseSizingStrategy to calculate an order size.
+    It contains the signal, the current market state, and the portfolio state.
+    """
+
+    signal: TradeSignal = Field(..., description="The signal from the Strategy Engine.")
+    market_data: MarketData = Field(..., description="The current market data for the signaled market.")
+    portfolio_state: PortfolioState = Field(..., description="The current state of the portfolio.")
+
+
+class SizingOutput(BaseModel):
+    """
+    The output of a BaseSizingStrategy, specifying the exact size of the
+    order to be placed.
+    """
+
+    amount_usdc: float = Field(..., description="The amount of USDC to allocate. 0 means no trade.", ge=0)
+    size_shares: float = Field(..., description="The number of shares to trade. 0 means no trade.", ge=0)
 
 
 # --- Module 4: Execution Engine Schemas ---
