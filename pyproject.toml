@@ -8,6 +8,7 @@ authors = [
 dependencies = [
     "pre-commit>=4.3.0",
     "pydantic>=2.0.0",
+    "sqlalchemy>=2.0.44",
 ]
 requires-python = ">=3.12"
 readme = "README.md"
@@ -26,7 +27,7 @@ dev = [
 ]
 
 [tool.black]
-line-length = 120
+line-length = 88
 target-version = ['py39']
 include = '\.pyi?$'
 exclude = '''
@@ -42,5 +43,8 @@ exclude = '''
   | dist
 )/
 '''
+
+[tool.isort]
+profile = "black"
 
 [tool.uv]
