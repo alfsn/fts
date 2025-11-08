@@ -6,8 +6,8 @@ This file defines the interface for position sizing strategies.
 
 from abc import ABC, abstractmethod
 
-from ...core.enums import SizingStrategyType
-from ...core.schemas import SizingInput, SizingOutput
+from ..core.enums import SizingStrategyType
+from ..core.schemas import SizingInput, SizingOutput
 
 
 class BaseSizingStrategy(ABC):

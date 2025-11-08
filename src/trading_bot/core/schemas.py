@@ -14,7 +14,6 @@ from typing import Dict, List
 from pydantic import BaseModel, Field
 
 from .enums import AlertSeverity, MarketOutcome, OrderSide, OrderStatus, SignalType
-from .schemas import OrderRequest
 
 # --- Module 1: Data Ingestion Engine Schemas ---
 
@@ -208,7 +207,7 @@ class PortfolioState(BaseModel):
     positions: List[Position] = Field(
         ..., description="List of all currently held positions."
     )
-    open_orders: List[OrderRequest] = Field(
+    open_orders: List["OrderRequest"] = Field(
         ..., description="List of all orders active on the exchange."
     )
 
