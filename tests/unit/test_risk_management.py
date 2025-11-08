@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 # Import Enums from your project
 from trading_bot.core.enums import (
-    MarketOutcome,
     OrderSide,
     OrderStatus,
     PositionStatus,
@@ -98,7 +97,6 @@ def mock_buy_signal():
         market_id="MARKET_01",
         strategy_name="test_strat",
         signal_type=SignalType.BUY,
-        outcome=MarketOutcome.YES,
         confidence=0.6,
     )
 
@@ -110,7 +108,6 @@ def mock_sell_signal():
         market_id="MARKET_01",
         strategy_name="test_strat",
         signal_type=SignalType.SELL,
-        outcome=MarketOutcome.YES,
         confidence=0.4,
     )
 
@@ -131,7 +128,6 @@ class TestPortfolio:
         order = OrderRequest(
             market_id="MKT1",
             side=OrderSide.BUY,
-            outcome=MarketOutcome.YES,
             size=100,
             price=0.5,
         )
@@ -150,7 +146,6 @@ class TestPortfolio:
         order = OrderRequest(
             market_id="MKT1",
             side=OrderSide.BUY,
-            outcome=MarketOutcome.YES,
             size=100,
             price=0.5,
         )
@@ -168,7 +163,6 @@ class TestPortfolio:
         order = OrderRequest(
             market_id="MKT1",
             side=OrderSide.BUY,
-            outcome=MarketOutcome.YES,
             size=200,
             price=0.5,
         )
@@ -187,7 +181,7 @@ class TestPortfolio:
         assert base_portfolio._cash_balance == 9900.0  # 10000 - (200 * 0.5)
         assert len(base_portfolio._open_orders) == 0
 
-        pos_key = ("MKT1", MarketOutcome.YES.value)
+        pos_key = "MKT1"
         assert pos_key in base_portfolio._positions
         assert base_portfolio._positions[pos_key].size == 200
         assert base_portfolio._positions[pos_key].entry_price == 0.5
@@ -200,7 +194,6 @@ class TestPortfolio:
         order = OrderRequest(
             market_id="MKT1",
             side=OrderSide.SELL,
-            outcome=MarketOutcome.YES,
             size=100,
             price=0.6,
         )
@@ -218,7 +211,7 @@ class TestPortfolio:
 
         assert base_portfolio._cash_balance == 10060.0  # 10000 + (100 * 0.6)
 
-        pos_key = ("MKT1", MarketOutcome.YES.value)
+        pos_key = "MKT1"
         assert pos_key in base_portfolio._positions
         assert base_portfolio._positions[pos_key].size == -100
         assert base_portfolio._positions[pos_key].entry_price == 0.6
@@ -229,17 +222,14 @@ class TestPortfolio:
         self, base_portfolio: Portfolio, mock_db_session
     ):
         # 1. Create initial position
-        pos = Position(
-            market_id="MKT1", outcome=MarketOutcome.YES, size=100, entry_price=0.4
-        )
-        base_portfolio._positions[("MKT1", "yes")] = pos
+        pos = Position(market_id="MKT1", size=100, entry_price=0.4)
+        base_portfolio._positions["MKT1"] = pos
         base_portfolio._cash_balance = 9960.0  # 10000 - (100 * 0.4)
 
         # 2. Add new order
         order = OrderRequest(
             market_id="MKT1",
             side=OrderSide.BUY,
-            outcome=MarketOutcome.YES,
             size=100,
             price=0.6,
         )
@@ -258,7 +248,7 @@ class TestPortfolio:
         # Cash = 9960 - (100 * 0.6) = 9900
         assert base_portfolio._cash_balance == 9900.0
 
-        pos_key = ("MKT1", MarketOutcome.YES.value)
+        pos_key = "MKT1"
         assert pos_key in base_portfolio._positions
 
         # Size = 100 + 100 = 200
@@ -272,17 +262,14 @@ class TestPortfolio:
         self, base_portfolio: Portfolio, mock_db_session
     ):
         # 1. Create initial position
-        pos = Position(
-            market_id="MKT1", outcome=MarketOutcome.YES, size=100, entry_price=0.4
-        )
-        base_portfolio._positions[("MKT1", "yes")] = pos
+        pos = Position(market_id="MKT1", size=100, entry_price=0.4)
+        base_portfolio._positions["MKT1"] = pos
         base_portfolio._cash_balance = 9960.0  # 10000 - (100 * 0.4)
 
         # 2. Add sell order
         order = OrderRequest(
             market_id="MKT1",
             side=OrderSide.SELL,
-            outcome=MarketOutcome.YES,
             size=100,
             price=0.7,
         )
@@ -303,7 +290,7 @@ class TestPortfolio:
         assert base_portfolio._cash_balance == 10060.0
 
         # Position should be closed
-        pos_key = ("MKT1", MarketOutcome.YES.value)
+        pos_key = "MKT1"
         assert pos_key not in base_portfolio._positions
         mock_db_session.commit.assert_called_once()
 
@@ -311,7 +298,6 @@ class TestPortfolio:
         order = OrderRequest(
             market_id="MKT1",
             side=OrderSide.BUY,
-            outcome=MarketOutcome.YES,
             size=100,
             price=0.5,
         )
@@ -336,15 +322,11 @@ class TestPortfolio:
         self, base_portfolio: Portfolio, mock_market_data
     ):
         # Long position
-        pos_long = Position(
-            market_id="MARKET_01", outcome=MarketOutcome.YES, size=100, entry_price=0.4
-        )
-        base_portfolio._positions[("MARKET_01", "yes")] = pos_long
+        pos_long = Position(market_id="MARKET_01", size=100, entry_price=0.4)
+        base_portfolio._positions["MARKET_01"] = pos_long
 
         # Short position
-        pos_short = Position(
-            market_id="MARKET_01", outcome=MarketOutcome.NO, size=-100, entry_price=0.6
-        )
+        pos_short = Position(market_id="MARKET_01", size=-100, entry_price=0.6)
         base_portfolio._positions[("MARKET_01", "no")] = pos_short
 
         pnl_map = base_portfolio.calculate_unrealized_pnl(
@@ -352,15 +334,10 @@ class TestPortfolio:
         )
 
         # Long P&L = size * (current_price - entry_price) = 100 * (0.49 - 0.40) = 9.0
-        assert pnl_map[("MARKET_01", "yes")] == pytest.approx(9.0)
+        assert pnl_map["MARKET_01"] == pytest.approx(9.0)
 
-        # Short 'NO' position - for this test, we assume 'NO' prices are inversely
-        # related or we'd need a separate order book.
-        # Let's test a short 'YES' position for a clearer test against the fixture.
-        pos_short_yes = Position(
-            market_id="MARKET_01", outcome=MarketOutcome.YES, size=-100, entry_price=0.6
-        )
-        base_portfolio._positions[("MARKET_01", "yes")] = pos_short_yes
+        pos_short_yes = Position(market_id="MARKET_01", size=-100, entry_price=0.6)
+        base_portfolio._positions["MARKET_01"] = pos_short_yes
 
         pnl_map = base_portfolio.calculate_unrealized_pnl(
             {"MARKET_01": mock_market_data}
@@ -368,13 +345,12 @@ class TestPortfolio:
 
         # Short 'YES' P&L = size * (current_price - entry_price)
         #                 = -100 * (0.51 - 0.60) = 9.0
-        assert pnl_map[("MARKET_01", "yes")] == pytest.approx(9.0)
+        assert pnl_map["MARKET_01"] == pytest.approx(9.0)
 
     def test_load_positions(self, base_portfolio: Portfolio, mock_db_session):
         mock_pos_orm = PositionModel(
             id=1,
             market_id="MKT_DB",
-            outcome=MarketOutcome.YES,
             size=50,
             entry_price=0.2,
             status=PositionStatus.OPEN,
@@ -385,16 +361,14 @@ class TestPortfolio:
 
         base_portfolio.load_positions(mock_db_session)
 
-        pos_key = ("MKT_DB", "yes")
+        pos_key = "MKT_DB"
         assert pos_key in base_portfolio._positions
         assert base_portfolio._positions[pos_key].size == 50
         assert base_portfolio._positions[pos_key].entry_price == 0.2
 
     def test_persist_position_create(self, mock_db_session):
         # Test _persist_position when no position exists
-        pos_schema = Position(
-            market_id="MKT_NEW", outcome=MarketOutcome.NO, size=-10, entry_price=0.3
-        )
+        pos_schema = Position(market_id="MKT_NEW", size=-10, entry_price=0.3)
         portfolio = Portfolio(100)
 
         # Mock query to find no existing position
@@ -452,7 +426,6 @@ class TestRiskManager:
             market_id="MARKET_01",
             strategy_name="test",
             signal_type=SignalType.HOLD,
-            outcome=MarketOutcome.YES,
             confidence=0.5,
         )
         order = rm.process_signal(signal, market_data_map)
@@ -513,7 +486,6 @@ class TestRiskManager:
         assert isinstance(order, OrderRequest)
         assert order.market_id == "MARKET_01"
         assert order.side == OrderSide.BUY
-        assert order.outcome == MarketOutcome.YES
 
         # Sizer is 100 USDC. Price is 0.51 (best ask).
         # Size = 100 / 0.51 = 196.078...
@@ -545,7 +517,6 @@ class TestRiskManager:
             market_id="MKT1",
             strategy_name="test",
             signal_type=SignalType.BUY,
-            outcome=MarketOutcome.YES,
             confidence=0.7,
         )
         portfolio_state = PortfolioState(
@@ -575,7 +546,6 @@ class TestRiskManager:
         portfolio_state.positions = [
             Position(
                 market_id="OTHER_MKT",
-                outcome=MarketOutcome.NO,
                 size=10,
                 entry_price=0.1,
             )
@@ -595,12 +565,10 @@ class TestRiskManager:
         # sizing_output.amount_usdc is 1000.
 
         portfolio_state.positions = [
-            Position(
-                market_id="MKT1", outcome=MarketOutcome.YES, size=10, entry_price=0.1
-            )
+            Position(market_id="MKT1", size=10, entry_price=0.1)
         ]
         # Mock PnL calculation on the RiskManager's portfolio instance
-        rm.portfolio.calculate_unrealized_pnl.return_value = {("MKT1", "yes"): 0.0}
+        rm.portfolio.calculate_unrealized_pnl.return_value = {"MKT1": 0.0}
 
         passes = rm._passes_risk_checks(
             sizing_output, signal, portfolio_state, market_map

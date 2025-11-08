@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from trading_bot.core.enums import (
     AlertSeverity,
-    MarketOutcome,
     OrderSide,
     OrderStatus,
     SignalType,
@@ -92,7 +91,6 @@ def valid_trade_signal() -> TradeSignal:
         market_id="market-123",
         strategy_name="test_strategy_v1",
         signal_type=SignalType.BUY,
-        outcome=MarketOutcome.YES,
         confidence=0.85,
     )
 
@@ -102,7 +100,6 @@ def valid_position() -> Position:
     """Provides a valid Position object."""
     return Position(
         market_id="market-123",
-        outcome=MarketOutcome.YES,
         size=100.0,
         entry_price=0.45,
     )
@@ -114,7 +111,6 @@ def valid_order_request() -> OrderRequest:
     return OrderRequest(
         market_id="market-456",
         side=OrderSide.SELL,
-        outcome=MarketOutcome.NO,
         size=25.0,
         price=0.75,
     )
@@ -288,7 +284,6 @@ def test_trade_signal_valid():
         market_id="market-123",
         strategy_name="test_strat",
         signal_type=SignalType.BUY,
-        outcome=MarketOutcome.YES,
         confidence=1.0,
     )
     assert signal.confidence == 1.0
@@ -298,7 +293,6 @@ def test_trade_signal_valid():
         market_id="market-123",
         strategy_name="test_strat",
         signal_type=SignalType.HOLD,
-        outcome=MarketOutcome.NO,  # Outcome can be anything for HOLD
         confidence=0.0,
     )
     assert signal_hold.confidence == 0.0
@@ -315,7 +309,6 @@ def test_trade_signal_invalid():
             market_id="m1",
             strategy_name="s1",
             signal_type=SignalType.BUY,
-            outcome=MarketOutcome.YES,
             confidence=1.01,
         )
     with pytest.raises(
@@ -325,7 +318,6 @@ def test_trade_signal_invalid():
             market_id="m1",
             strategy_name="s1",
             signal_type=SignalType.SELL,
-            outcome=MarketOutcome.NO,
             confidence=-0.1,
         )
 
@@ -335,7 +327,6 @@ def test_trade_signal_invalid():
             market_id="m1",
             strategy_name="s1",
             signal_type="INVALID",
-            outcome=MarketOutcome.YES,
             confidence=0.5,
         )
 
@@ -344,12 +335,10 @@ def test_position_valid():
     """Tests successful creation of a Position."""
     pos = Position(
         market_id="market-123",
-        outcome=MarketOutcome.NO,
         size=50.0,
         entry_price=0.25,
     )
     assert pos.size == 50.0
-    assert pos.outcome == MarketOutcome.NO
 
 
 def test_position_invalid():
@@ -358,7 +347,7 @@ def test_position_invalid():
     with pytest.raises(
         ValidationError, match="Input should be greater than or equal to 0"
     ):
-        Position(market_id="m1", outcome=MarketOutcome.YES, size=10, entry_price=-0.01)
+        Position(market_id="m1", size=10, entry_price=-0.01)
 
 
 def test_portfolio_state_valid(
@@ -425,7 +414,6 @@ def test_order_request_valid():
     req = OrderRequest(
         market_id="market-123",
         side=OrderSide.BUY,
-        outcome=MarketOutcome.YES,
         size=100.0,
         price=0.65,
     )
@@ -440,7 +428,6 @@ def test_order_request_invalid():
         OrderRequest(
             market_id="m1",
             side=OrderSide.BUY,
-            outcome=MarketOutcome.YES,
             size=0,
             price=0.5,
         )
@@ -450,7 +437,6 @@ def test_order_request_invalid():
         OrderRequest(
             market_id="m1",
             side=OrderSide.BUY,
-            outcome=MarketOutcome.YES,
             size=10,
             price=0,
         )
