@@ -8,7 +8,7 @@ acting as the "contracts" between different modules. Using Pydantic
 ensures that all data is validated, typed, and well-documented.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List
 
 from pydantic import BaseModel, Field
@@ -292,7 +292,7 @@ class ExecutionResult(BaseModel):
     )
 
 
-# --- Module 5: Monitoring Schemas (Add to schemas.py) ---
+# --- Module 5: Monitoring Schemas ---
 
 
 class Alert(BaseModel):
@@ -304,5 +304,6 @@ class Alert(BaseModel):
     message: str = Field(..., description="The content of the alert message.")
     severity: AlertSeverity = Field(..., description="The severity level of the alert.")
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow, description="The time the alert was generated."
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="The time the alert was generated.",
     )
