@@ -56,7 +56,7 @@ def mock_db_session():
 @pytest.fixture
 def base_portfolio():
     """Returns a new Portfolio with 10,000 USDC."""
-    return Portfolio(initial_balance_usdc=10000.0)
+    return Portfolio(initial_balance=10000.0)
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ class TestPortfolio:
     """Tests the Portfolio class logic."""
 
     def test_initialization(self):
-        portfolio = Portfolio(initial_balance_usdc=5000.0)
+        portfolio = Portfolio(initial_balance=5000.0)
         assert portfolio._cash_balance == 5000.0
         assert portfolio._positions == {}
         assert portfolio._open_orders == {}
@@ -137,8 +137,8 @@ class TestPortfolio:
 
     def test_get_state_initial(self, base_portfolio: Portfolio):
         state = base_portfolio.get_state({})
-        assert state.total_balance_usdc == 10000.0
-        assert state.available_balance_usdc == 10000.0
+        assert state.total_balance_quote == 10000.0
+        assert state.available_balance_quote == 10000.0
         assert state.positions == []
         assert state.open_orders == []
 
@@ -153,8 +153,8 @@ class TestPortfolio:
         state = base_portfolio.get_state({})
 
         # Total balance is unchanged, available is reduced
-        assert state.total_balance_usdc == 10000.0
-        assert state.available_balance_usdc == 9950.0  # 10000 - (100 * 0.5)
+        assert state.total_balance_quote == 10000.0
+        assert state.available_balance_quote == 9950.0  # 10000 - (100 * 0.5)
         assert len(state.open_orders) == 1
 
     def test_update_order_status_buy_new_long(
@@ -401,8 +401,8 @@ class TestRiskManager:
         portfolio = MagicMock(spec=Portfolio)
         # Default state
         portfolio.get_state.return_value = PortfolioState(
-            total_balance_usdc=10000.0,
-            available_balance_usdc=10000.0,
+            total_balance_quote=10000.0,
+            available_balance_quote=10000.0,
             positions=[],
             open_orders=[],
         )
@@ -463,8 +463,8 @@ class TestRiskManager:
     ):
         # Make available balance too low
         low_balance_state = PortfolioState(
-            total_balance_usdc=50.0,
-            available_balance_usdc=50.0,
+            total_balance_quote=50.0,
+            available_balance_quote=50.0,
             positions=[],
             open_orders=[],
         )
@@ -520,8 +520,8 @@ class TestRiskManager:
             confidence=0.7,
         )
         portfolio_state = PortfolioState(
-            total_balance_usdc=10000,
-            available_balance_usdc=10000,
+            total_balance_quote=10000,
+            available_balance_quote=10000,
             positions=[],
             open_orders=[],
         )
@@ -531,7 +531,7 @@ class TestRiskManager:
     def test_passes_risk_checks_insufficient_balance(self, risk_check_deps, caplog):
         rm, sizing_output, signal, portfolio_state, market_map = risk_check_deps
 
-        portfolio_state.available_balance_usdc = 500  # Less than 1000
+        portfolio_state.available_balance_quote = 500  # Less than 1000
 
         passes = rm._passes_risk_checks(
             sizing_output, signal, portfolio_state, market_map

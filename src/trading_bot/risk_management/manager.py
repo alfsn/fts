@@ -142,12 +142,12 @@ class RiskManager:
         # Check 2: Available Balance (for BUYs)
         if (
             signal.signal_type == SignalType.BUY
-            and order_amount_usdc > portfolio_state.available_balance_usdc
+            and order_amount_usdc > portfolio_state.available_balance_quote
         ):
             logger.warning(
                 f"Order for {signal.market_id} rejected. "
                 f"Cost ${order_amount_usdc:.2f} exceeds available "
-                f"balance ${portfolio_state.available_balance_usdc:.2f}."
+                f"balance ${portfolio_state.available_balance_quote:.2f}."
             )
             return False
 
@@ -173,7 +173,7 @@ class RiskManager:
             return False
 
         # Check 4: Max Allocation per Market
-        total_equity = portfolio_state.total_balance_usdc
+        total_equity = portfolio_state.total_balance_quote
         if total_equity <= 0:
             logger.error("Total equity is zero or negative. Cannot trade.")
             return False

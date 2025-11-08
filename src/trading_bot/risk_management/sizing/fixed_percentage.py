@@ -80,7 +80,7 @@ class FixedPercentageSizer(BaseSizingStrategy):
             return SizingOutput(amount_usdc=0, size_shares=0)
 
         # Calculate the USDC amount based on total portfolio equity
-        total_equity = input_data.portfolio_state.total_balance_usdc
+        total_equity = input_data.portfolio_state.total_balance_quote
         amount_usdc = total_equity * self.default_percentage
 
         size_shares = amount_usdc / price
