@@ -7,7 +7,7 @@ from typing import Dict, List
 import pytest
 
 # Import ABCs and Schemas
-from src.trading_bot.core.schemas import (
+from trading_bot.core.schemas import (
     ExternalData,
     IngestionEngineOutput,
     MarketData,
@@ -16,13 +16,13 @@ from src.trading_bot.core.schemas import (
     PriceLevel,
     Trade,
 )
-from src.trading_bot.data_ingestion.abc import (
+from trading_bot.data_ingestion.abc import (
     BaseExternalDataProvider,
     BaseMarketDataProvider,
 )
 
 # Import the class we are testing
-from src.trading_bot.data_ingestion.engine import DataIngestionEngine
+from trading_bot.data_ingestion.engine import DataIngestionEngine
 
 # --- Fake (Stub) Implementations for Testing ---
 
