@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ..core.enums import MarketOutcome, OrderSide
+from ..core.enums import OrderSide
 from ..core.models import OrderLog as OrderLogModel
 from ..core.schemas import (
     ExecutionResult,
@@ -303,7 +303,6 @@ class ExecutionEngine:
                 market_id=order.market_id,
                 strategy_name=strategy_name,
                 side=order.side,
-                outcome=order.outcome,
                 requested_size=order.size,
                 requested_price=order.price,
             )
@@ -406,7 +405,6 @@ class ExecutionEngine:
                 market_id="UNKNOWN_MARKET",  # Would need to fetch from exchange
                 strategy_name="reconciled",
                 side=OrderSide.BUY,  # Would need to fetch from exchange
-                outcome=MarketOutcome.YES,  # Would need to fetch from exchange
                 requested_size=result.filled_size,
                 requested_price=result.avg_price,
                 status=result.status,

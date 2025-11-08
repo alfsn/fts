@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # Import Schemas, Models, and Enums
-from trading_bot.core.enums import MarketOutcome, OrderSide, OrderStatus
+from trading_bot.core.enums import OrderSide, OrderStatus
 from trading_bot.core.models import OrderLog as OrderLogModel
 from trading_bot.core.schemas import ExecutionResult, OrderRequest
 
@@ -75,7 +75,6 @@ def sample_order_request() -> OrderRequest:
     return OrderRequest(
         market_id="MKT_123",
         side=OrderSide.BUY,
-        outcome=MarketOutcome.YES,
         size=100.0,
         price=0.50,
     )
@@ -114,7 +113,6 @@ def sample_order_log_open(sample_result_open: ExecutionResult) -> OrderLogModel:
         market_id="MKT_123",
         strategy_name="test_strat",
         side=OrderSide.BUY,
-        outcome=MarketOutcome.YES,
         requested_size=100.0,
         requested_price=0.50,
         filled_size=0,
