@@ -9,7 +9,7 @@ external event-driven data (like API results).
 from abc import ABC, abstractmethod
 from typing import List
 
-from ...core.schemas import ExternalData, MarketData, MarketDetails, OrderBook, Trade
+from ..core.schemas import ExternalData, MarketData, MarketDetails, OrderBook, Trade
 
 
 class BaseMarketDataProvider(ABC):
