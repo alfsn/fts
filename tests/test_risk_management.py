@@ -1,8 +1,8 @@
 # tests/test_risk_management.py
 
 import logging
-from datetime import datetime
-from unittest.mock import MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.orm import Session
@@ -32,9 +32,9 @@ from src.trading_bot.core.schemas import (
     SizingOutput,
     TradeSignal,
 )
-from src.trading_bot.risk_management.abc import BaseSizingStrategy
 
 # Import Classes to test
+from src.trading_bot.risk_management.abc import BaseSizingStrategy
 from src.trading_bot.risk_management.manager import RiskManager
 from src.trading_bot.risk_management.portfolio import Portfolio
 from src.trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
@@ -79,7 +79,7 @@ def mock_market_data():
         details=MarketDetails(
             market_id="MARKET_01",
             name="Test Market",
-            end_date=datetime.utcnow(),
+            end_date=datetime.now(timezone.utc),
             resolution_source="test",
         ),
     )
@@ -179,7 +179,7 @@ class TestPortfolio:
             status=OrderStatus.FILLED,
             filled_size=200,
             avg_price=0.5,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         base_portfolio.update_order_status(mock_db_session, fill)
@@ -211,7 +211,7 @@ class TestPortfolio:
             status=OrderStatus.FILLED,
             filled_size=100,
             avg_price=0.6,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         base_portfolio.update_order_status(mock_db_session, fill)
@@ -251,7 +251,7 @@ class TestPortfolio:
             status=OrderStatus.FILLED,
             filled_size=100,
             avg_price=0.6,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         base_portfolio.update_order_status(mock_db_session, fill)
 
@@ -294,7 +294,7 @@ class TestPortfolio:
             status=OrderStatus.FILLED,
             filled_size=100,
             avg_price=0.7,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         base_portfolio.update_order_status(mock_db_session, fill)
 
@@ -322,7 +322,7 @@ class TestPortfolio:
             status=OrderStatus.CANCELLED,
             filled_size=0,
             avg_price=0,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         base_portfolio.update_order_status(MagicMock(), result)
@@ -354,11 +354,9 @@ class TestPortfolio:
         # Long P&L = size * (current_price - entry_price) = 100 * (0.49 - 0.40) = 9.0
         assert pnl_map[("MARKET_01", "yes")] == pytest.approx(9.0)
 
-        # Short P&L = size * (current_price - entry_price) = -100 * (0.51 - 0.60) = 9.0
-        # (Note: for NO outcome, we'd need market data for NO,
-        # but we'll assume it's vs the 'yes' book)
-        # Re-using 'yes' book for simplicity. Short 'NO' is long 'YES'.
-        # Let's adjust the test to be short 'YES'
+        # Short 'NO' position - for this test, we assume 'NO' prices are inversely
+        # related or we'd need a separate order book.
+        # Let's test a short 'YES' position for a clearer test against the fixture.
         pos_short_yes = Position(
             market_id="MARKET_01", outcome=MarketOutcome.YES, size=-100, entry_price=0.6
         )
@@ -479,7 +477,10 @@ class TestRiskManager:
         )
 
         rm = RiskManager(portfolio=mock_portfolio, sizer=zero_sizer)
-        order = rm.process_signal(mock_buy_signal, market_data_map)
+
+        # Set caplog level to capture INFO messages
+        with caplog.at_level(logging.INFO):
+            order = rm.process_signal(mock_buy_signal, market_data_map)
 
         assert order is None
         assert "Sizer returned zero size" in caplog.text
@@ -538,7 +539,7 @@ class TestRiskManager:
     @pytest.fixture
     def risk_check_deps(self, mock_market_data):
         """Dependencies for testing _passes_risk_checks directly."""
-        rm = RiskManager(MagicMock(), MagicMock())
+        rm = RiskManager(MagicMock(spec=Portfolio), MagicMock())  # Mock portfolio
         sizing_output = SizingOutput(amount_usdc=1000, size_shares=2000)
         signal = TradeSignal(
             market_id="MKT1",
@@ -592,22 +593,18 @@ class TestRiskManager:
         rm.max_allocation_per_market = 0.1  # 10%
         # total_equity is 10000. max_alloc is 1000.
         # sizing_output.amount_usdc is 1000.
-        # This should pass, but let's add an existing position.
 
         portfolio_state.positions = [
             Position(
                 market_id="MKT1", outcome=MarketOutcome.YES, size=10, entry_price=0.1
             )
         ]
-        # Mock PnL calculation
-        with patch.object(
-            rm.portfolio,
-            "calculate_unrealized_pnl",
-            return_value={("MKT1", "yes"): 0.0},
-        ):
-            passes = rm._passes_risk_checks(
-                sizing_output, signal, portfolio_state, market_map
-            )
+        # Mock PnL calculation on the RiskManager's portfolio instance
+        rm.portfolio.calculate_unrealized_pnl.return_value = {("MKT1", "yes"): 0.0}
+
+        passes = rm._passes_risk_checks(
+            sizing_output, signal, portfolio_state, market_map
+        )
 
         assert not passes
         # (10 * 0.1) + 1000 = 1001. 1001 / 10000 = 10.01%
@@ -619,6 +616,9 @@ class TestRiskManager:
         # Use default risk params
         rm.max_total_positions = 10
         rm.max_allocation_per_market = 0.25
+
+        # Mock PnL calculation
+        rm.portfolio.calculate_unrealized_pnl.return_value = {}
 
         passes = rm._passes_risk_checks(
             sizing_output, signal, portfolio_state, market_map
