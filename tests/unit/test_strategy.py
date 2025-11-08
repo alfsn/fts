@@ -73,7 +73,6 @@ def mock_signal_1() -> TradeSignal:
         market_id="MKT1",
         strategy_name="strat_A",
         signal_type=SignalType.BUY,
-        outcome="yes",
         confidence=0.7,
     )
 
@@ -85,7 +84,6 @@ def mock_signal_2() -> TradeSignal:
         market_id="MKT2",
         strategy_name="strat_B",
         signal_type=SignalType.SELL,
-        outcome="no",
         confidence=0.8,
     )
 

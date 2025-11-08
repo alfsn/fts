@@ -6,7 +6,6 @@ from typing import Dict, List
 import pytest
 
 from trading_bot.core.enums import (
-    MarketOutcome,
     SignalType,
 )
 
@@ -112,7 +111,6 @@ class SimpleBuyStrategy(BaseStrategy):
                         market_id="MKT1",
                         strategy_name=self.name,
                         signal_type=SignalType.BUY,
-                        outcome=MarketOutcome.YES,
                         confidence=1.0,  # Max confidence for this simple rule
                     )
                 )
@@ -206,7 +204,6 @@ def test_pipeline_generates_buy_signal_on_low_ask(
     signal = signals[0]
     assert signal.market_id == "MKT1"
     assert signal.signal_type == SignalType.BUY
-    assert signal.outcome == MarketOutcome.YES
     assert signal.strategy_name == "SimpleTakerStrategy"
 
 

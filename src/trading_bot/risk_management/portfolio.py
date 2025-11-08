@@ -30,21 +30,27 @@ class Portfolio:
     of the current portfolio state.
     """
 
-    def __init__(self, initial_balance_usdc: float):
+    def __init__(self, initial_balance: float, quote_currency: str = "USD"):
         """
         Initializes the portfolio with a starting balance.
 
-        :param initial_balance_usdc: The total starting capital in USDC.
+        :param initial_balance: The total starting capital in the quote currency.
+        :param quote_currency: The primary currency for accounting (e.g., "USD").
         """
-        self._cash_balance: float = initial_balance_usdc
+        self._cash_balance: float = initial_balance
+        self.quote_currency: str = quote_currency
 
         # In-memory state
-        # Key: (market_id, outcome_str) -> Position schema
-        self._positions: Dict[tuple[str, str], Position] = {}
+        # Key: market_id (str) -> Position schema
+        self._positions: Dict[str, Position] = {}
         # Key: order_id -> OrderRequest schema
         self._open_orders: Dict[str, OrderRequest] = {}
 
-        logger.info(f"Portfolio initialized with cash: {initial_balance_usdc:.2f} USDC")
+        # Refactor 1: Update logger message
+        logger.info(
+            f"Portfolio initialized with cash: {initial_balance:.2f} "
+            f"{self.quote_currency}"
+        )
 
     def load_positions(self, db: Session) -> None:
         """
@@ -61,11 +67,12 @@ class Portfolio:
         for pos_model in open_positions:
             pos_schema = Position(
                 market_id=pos_model.market_id,
-                outcome=pos_model.outcome,
+                # 'outcome' is removed per partial_agnostic.diff
                 size=pos_model.size,
                 entry_price=pos_model.entry_price,
             )
-            key = (pos_schema.market_id, pos_schema.outcome.value)
+            # The key is now just the market_id
+            key = pos_schema.market_id
             self._positions[key] = pos_schema
             count += 1
 
@@ -127,84 +134,78 @@ class Portfolio:
             )
             return
 
-        # --- Process the Fill ---
+        # --- Process the Fill (Agnostic Logic) ---
         fill_cost = result.filled_size * result.avg_price
-        key = (order.market_id, order.outcome.value)
+        key = order.market_id
         pos = self._positions.get(key)
         realized_pnl = 0.0
         trade_size = result.filled_size
         trade_price = result.avg_price
 
+        # Signed size: positive for BUY, negative for SELL
+        trade_delta = trade_size if order.side == OrderSide.BUY else -trade_size
+
+        # Adjust cash balance based on trade
         if order.side == OrderSide.BUY:
             self._cash_balance -= fill_cost
-            if pos is None:  # New long position
-                pos = Position(
-                    market_id=order.market_id,
-                    outcome=order.outcome,
-                    size=trade_size,
-                    entry_price=trade_price,
-                )
-                self._positions[key] = pos
-                self._persist_position(db, pos, create=True)
-            else:  # Existing position
-                old_size = pos.size
-                if old_size > 0:  # Adding to a long
-                    new_avg_price = (
-                        old_size * pos.entry_price + trade_size * trade_price
-                    ) / (old_size + trade_size)
-                    pos.size += trade_size
-                    pos.entry_price = new_avg_price
-                else:  # old_size < 0 (Closing/flipping a short)
-                    size_closed = min(abs(old_size), trade_size)
-                    realized_pnl = size_closed * (pos.entry_price - trade_price)
-                    self._cash_balance += realized_pnl
-                    pos.size += trade_size
-                    if pos.size == 0:
-                        self._positions.pop(key)
-                        self._persist_position(db, pos, delete=True)
-                        pos = None  # Mark for no update
-                    elif pos.size > 0:  # Flipped to long
-                        pos.entry_price = trade_price
-
-                if pos:
-                    self._persist_position(db, pos, update=True)
-
-        elif order.side == OrderSide.SELL:
+        else:  # SELL
             self._cash_balance += fill_cost
-            if pos is None:  # New short position
-                pos = Position(
-                    market_id=order.market_id,
-                    outcome=order.outcome,
-                    size=-trade_size,
-                    entry_price=trade_price,
-                )
-                self._positions[key] = pos
-                self._persist_position(db, pos, create=True)
-            else:  # Existing position
-                old_size = pos.size
-                if old_size < 0:  # Adding to a short
-                    new_avg_price = (
-                        abs(old_size) * pos.entry_price + trade_size * trade_price
-                    ) / (abs(old_size) + trade_size)
-                    pos.size -= trade_size
-                    pos.entry_price = new_avg_price
-                else:  # old_size > 0 (Closing/flipping a long)
-                    size_closed = min(old_size, trade_size)
-                    realized_pnl = size_closed * (trade_price - pos.entry_price)
-                    self._cash_balance += realized_pnl
-                    pos.size -= trade_size
-                    if pos.size == 0:
-                        self._positions.pop(key)
-                        self._persist_position(db, pos, delete=True)
-                        pos = None
-                    elif pos.size < 0:  # Flipped to short
-                        pos.entry_price = trade_price
 
-                if pos:
-                    self._persist_position(db, pos, update=True)
+        if pos is None:  # Opening a new position
+            pos = Position(
+                market_id=order.market_id,
+                size=trade_delta,
+                entry_price=trade_price,
+            )
+            self._positions[key] = pos
+            self._persist_position(db, pos, create=True)
+
+        else:  # Modifying an existing position
+            old_size = pos.size
+            new_size = old_size + trade_delta
+
+            is_flipping = (old_size * new_size) < 0
+            is_adding = abs(new_size) > abs(old_size)
+            is_reducing = abs(new_size) < abs(old_size) and not is_flipping
+
+            if is_adding:
+                # Calculate new average entry price
+                old_value = abs(old_size) * pos.entry_price
+                new_trade_value = trade_size * trade_price
+                new_avg_price = (old_value + new_trade_value) / abs(new_size)
+                pos.entry_price = new_avg_price
+                pos.size = new_size
+
+            elif is_reducing:
+                # Realize P&L, entry price remains the same
+                if old_size > 0:  # Closing part of a long
+                    realized_pnl = trade_size * (trade_price - pos.entry_price)
+                else:  # Closing part of a short
+                    realized_pnl = trade_size * (pos.entry_price - trade_price)
+                self._cash_balance += realized_pnl
+                pos.size = new_size
+
+            elif is_flipping:
+                # Realize P&L on the closed portion, set new entry price
+                size_closed = abs(old_size)
+                if old_size > 0:  # Flipping long to short
+                    realized_pnl = size_closed * (trade_price - pos.entry_price)
+                else:  # Flipping short to long
+                    realized_pnl = size_closed * (pos.entry_price - trade_price)
+                self._cash_balance += realized_pnl
+                pos.size = new_size
+                pos.entry_price = trade_price  # New entry price is the flip price
+
+            # Check if position was closed out
+            if abs(new_size) < 1e-9:
+                self._positions.pop(key)
+                self._persist_position(db, pos, delete=True)
+            else:
+                self._persist_position(db, pos, update=True)
 
         logger.info(
             f"Fill processed for order {result.order_id}. "
+            f"Market: {key}, New Size: {pos.size if pos else 0:.4f}. "
             f"Realized P&L: {realized_pnl:.2f}. New cash: {self._cash_balance:.2f}"
         )
 
@@ -226,9 +227,7 @@ class Portfolio:
         :param delete: Flag to mark a record as CLOSED.
         """
         pos_model = (
-            db.query(PositionModel)
-            .filter_by(market_id=pos_schema.market_id, outcome=pos_schema.outcome)
-            .first()
+            db.query(PositionModel).filter_by(market_id=pos_schema.market_id).first()
         )
 
         try:
@@ -239,7 +238,6 @@ class Portfolio:
             elif create and not pos_model:
                 pos_model = PositionModel(
                     market_id=pos_schema.market_id,
-                    outcome=pos_schema.outcome,
                     size=pos_schema.size,
                     entry_price=pos_schema.entry_price,
                     status=PositionStatus.OPEN,
@@ -257,16 +255,16 @@ class Portfolio:
 
     def calculate_unrealized_pnl(
         self, market_data_map: Dict[str, MarketData]
-    ) -> Dict[tuple[str, str], float]:
+    ) -> Dict[str, float]:
         """
         Calculates the unrealized P&L for all open positions.
 
         :param market_data_map: A map of market_id to MarketData.
-        :return: A dictionary mapping (market_id, outcome) to its
-                 unrealized P&L.
+        :return: A dictionary mapping market_id to its unrealized P&L.
         """
         pnl_map = {}
         for key, pos in self._positions.items():
+            # key is now market_id
             market_data = market_data_map.get(pos.market_id)
             current_price = pos.entry_price  # Default to no P&L
 
@@ -309,8 +307,12 @@ class Portfolio:
         unrealized_pnl_map = self.calculate_unrealized_pnl(market_data_map)
 
         for pos in positions_list:
-            key = (pos.market_id, pos.outcome.value)
+            # key is now just market_id
+            key = pos.market_id
             pnl = unrealized_pnl_map.get(key, 0.0)
+            # Market value is size * current_price.
+            # (size * entry) + (size * (current - entry)) = size * current
+            # We can get current_price from the P&L map logic
             cost_basis = pos.size * pos.entry_price
             market_value = cost_basis + pnl
             total_market_value += market_value
@@ -318,9 +320,10 @@ class Portfolio:
         # 3. Total balance = current cash + current market value of positions
         total_balance = self._cash_balance + total_market_value
 
+        # Refactor 2: Rename fields in PortfolioState constructor
         return PortfolioState(
-            total_balance_usdc=total_balance,
-            available_balance_usdc=available_balance,
+            total_balance_quote=total_balance,
+            available_balance_quote=available_balance,
             positions=positions_list,
             open_orders=open_orders_list,
         )

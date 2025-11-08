@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, sessionmaker
 # Import your project's components
 from trading_bot.core.database import Base
 from trading_bot.core.enums import (
-    MarketOutcome,
     OrderSide,
     OrderStatus,
     PositionStatus,
@@ -87,7 +86,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     """
 
     # --- 1. ARRANGE (Initial Setup) ---
-    portfolio = Portfolio(initial_balance_usdc=10000.0)
+    portfolio = Portfolio(initial_balance=10000.0)
 
     sizer = FixedAmountSizer(default_amount_usdc=600.0)
     risk_manager = RiskManager(portfolio=portfolio, sizer=sizer)
@@ -99,7 +98,6 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
         market_id="MKT-01",
         strategy_name="test_strat",
         signal_type=SignalType.BUY,
-        outcome=MarketOutcome.YES,
         confidence=0.7,  # Confidence for Kelly, ignored by FixedAmount
     )
 
@@ -115,7 +113,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     assert len(pre_trade_state.open_orders) == 1
     # Best ask is 0.60, sizer is 600 USDC. Size = 600 / 0.60 = 1000 shares
 
-    assert pre_trade_state.available_balance_usdc == 9400.0  # 10000 - 600
+    assert pre_trade_state.available_balance_quote == 9400.0  # 10000 - 600
 
     # --- 4. ACT (Simulate Execution Fill) ---
 
@@ -145,8 +143,8 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     assert position.entry_price == 0.60
 
     # P&L calculation (Unrealized P&L: 1000 * (0.59 - 0.60) = -10)
-    assert post_buy_state.total_balance_usdc == 9990.0  # 9400 cash + (1000 * 0.59)
-    assert post_buy_state.available_balance_usdc == 9400.0
+    assert post_buy_state.total_balance_quote == 9990.0  # 9400 cash + (1000 * 0.59)
+    assert post_buy_state.available_balance_quote == 9400.0
 
     # Check database state
     db_pos = db_session.query(PositionModel).filter_by(market_id="MKT-01").one()
@@ -164,7 +162,6 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
         market_id="MKT-01",
         strategy_name="test_strat",
         signal_type=SignalType.SELL,
-        outcome=MarketOutcome.YES,
         confidence=0.3,
     )
 

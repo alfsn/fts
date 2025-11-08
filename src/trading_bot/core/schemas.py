@@ -8,12 +8,13 @@ acting as the "contracts" between different modules. Using Pydantic
 ensures that all data is validated, typed, and well-documented.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
-from .enums import AlertSeverity, MarketOutcome, OrderSide, OrderStatus, SignalType
+# Refactored: MarketOutcome removed
+from .enums import AlertSeverity, OrderSide, OrderStatus, SignalType
 
 # --- Module 1: Data Ingestion Engine Schemas ---
 
@@ -25,11 +26,11 @@ class PriceLevel(BaseModel):
 
     price: float = Field(
         ..., description="The price of the orders at this level.", gt=0
-    )  # Price must be positive
+    )
     size: float = Field(
         ...,
-        description="The total volume (number of shares) of orders at this price level",
-        ge=0,  # Size can be zero if a level is cleared
+        description="The total volume (number of shares) of orders at price level.",
+        ge=0,
     )
 
 
@@ -47,7 +48,7 @@ class OrderBook(BaseModel):
     asks: List[PriceLevel] = Field(
         ...,
         description="""A list of price levels for sell orders (asks),
-        typically sorted lowest to highest.""",
+                        typically sorted lowest to highest.""",
     )
 
 
@@ -81,14 +82,15 @@ class MarketDetails(BaseModel):
     name: str = Field(
         ...,
         description="""The human-readable name or question of the market
-        (e.g., 'Will X happen by Y?').""",
+        (e.g., 'Will X happen by Y?' or 'AAPL Stock').""",
     )
     end_date: datetime = Field(
         ..., description="The timestamp when the market is scheduled to resolve."
     )
     resolution_source: str = Field(
         ...,
-        description="The official source used to determine the market's outcome.",
+        description="""The official source that will be used to
+        determine the market's outcome.""",
     )
 
 
@@ -143,7 +145,8 @@ class IngestionEngineOutput(BaseModel):
         ..., description="A dictionary mapping market_id to its latest MarketData."
     )
     external_data: List[ExternalData] = Field(
-        ..., description="A list of all new external data points fetched in this cycle."
+        ...,
+        description="A list of all new external data points fetched in this cycle.",
     )
 
 
@@ -163,9 +166,7 @@ class TradeSignal(BaseModel):
     signal_type: SignalType = Field(
         ..., description="The type of signal (BUY, SELL, or HOLD)."
     )
-    outcome: MarketOutcome = Field(
-        ..., description="The specific outcome to trade (e.g., YES or NO)."
-    )
+    # 'outcome' field removed to be asset-agnostic
     confidence: float = Field(
         ...,
         description="""The strategy's confidence in this signal,
@@ -184,11 +185,10 @@ class Position(BaseModel):
     """
 
     market_id: str = Field(..., description="The market this position is in.")
-    outcome: MarketOutcome = Field(..., description="The outcome held (YES or NO).")
+    # 'outcome' field removed to be asset-agnostic
     size: float = Field(
         ...,
-        description="""The number of shares held.
-        Can be positive (long) or negative (short).""",
+        description="The number of shares held. Positive for long, negative for short.",
     )
     entry_price: float = Field(
         ..., description="The average price at which the position was entered.", ge=0
@@ -200,10 +200,13 @@ class PortfolioState(BaseModel):
     A snapshot of the portfolio's current state, used for risk calculations.
     """
 
-    total_balance_usdc: float = Field(..., description="Total account value in USDC.")
-    available_balance_usdc: float = Field(
-        ..., description="USDC not tied up in orders or positions."
+    total_balance_quote: float = Field(
+        ..., description="Total account value in the quote currency (e.g., USD)."
     )
+    available_balance_quote: float = Field(
+        ..., description="Quote currency not tied up in orders or positions."
+    )
+
     positions: List[Position] = Field(
         ..., description="List of all currently held positions."
     )
@@ -253,14 +256,12 @@ class OrderRequest(BaseModel):
 
     market_id: str = Field(..., description="The market to place the order in.")
     side: OrderSide = Field(..., description="The side of the order (BUY or SELL).")
-    outcome: MarketOutcome = Field(
-        ..., description="The specific outcome to trade (YES or NO)."
-    )
+    # 'outcome' field removed to be asset-agnostic
     size: float = Field(..., description="The exact number of shares to trade.", gt=0)
     price: float = Field(
         ...,
-        description="The limit price for the order. "
-        "The order should not be filled at a worse price.",
+        description="""The limit price for the order.
+        The order should not be filled at a worse price.""",
         gt=0,
     )
 
@@ -292,7 +293,7 @@ class ExecutionResult(BaseModel):
     )
 
 
-# --- Module 5: Monitoring Schemas ---
+# --- Module 5: Monitoring Schemas (Add to schemas.py) ---
 
 
 class Alert(BaseModel):
@@ -304,6 +305,6 @@ class Alert(BaseModel):
     message: str = Field(..., description="The content of the alert message.")
     severity: AlertSeverity = Field(..., description="The severity level of the alert.")
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=datetime.utcnow,
         description="The time the alert was generated.",
     )
