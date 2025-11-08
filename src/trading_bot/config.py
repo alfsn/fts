@@ -15,6 +15,16 @@ from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def get_env_filename() -> str:
+    """
+    Determines which .env file to load based on the APP_ENV variable.
+    """
+    # We need to manually check the OS environ first for APP_ENV
+    # to decide which .env file to load.
+    app_env = os.environ.get("APP_ENV", "dev")
+    return f".env.{app_env}"
+
+
 class Settings(BaseSettings):
     """
     Defines the application's configuration settings.
@@ -37,16 +47,6 @@ class Settings(BaseSettings):
     # Example for dev (SQLite): "sqlite+pysqlite:///./dev.db"
     # Example for prod (PostgreSQL): "postgresql+psycopg2://user:pass@db:5432/trading"
     DATABASE_URL: str
-
-    @classmethod
-    def get_env_filename(cls) -> str:
-        """
-        Determines which .env file to load based on the APP_ENV variable.
-        """
-        # We need to manually check the OS environ first for APP_ENV
-        # to decide which .env file to load.
-        app_env = os.environ.get("APP_ENV", "dev")
-        return f".env.{app_env}"
 
     # Configure the settings model to load from the .env file
     # determined by the `get_env_filename` method.
