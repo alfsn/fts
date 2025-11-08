@@ -10,7 +10,7 @@ This module allows the bot to send notifications to multiple destinations
 import logging
 from typing import List
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..core.enums import AlertSeverity
 from ..core.models import EventLog
@@ -44,20 +44,30 @@ class DatabaseAlerter(BaseAlerter):
     `event_logs` table in the database.
     """
 
-    def send_alert(self, alert: Alert, db: Session) -> bool:
+    def __init__(self, session_factory: sessionmaker[Session]):
+        """
+        Initializes the alerter with a session factory.
+
+        :param session_factory: The SQLAlchemy SessionLocal factory.
+        """
+        self.session_factory = session_factory
+
+    def send_alert(self, alert: Alert) -> bool:
         """
         Writes the alert to the EventLog table.
+        (Note: The `db` parameter is gone, matching the BaseAlerter)
 
         :param alert: The Alert object to persist.
-        :param db: The SQLAlchemy database session.
         :return: True if successful, False otherwise.
         """
+        # Create a new, short-lived session just for this task
+        db = self.session_factory()
         try:
-            # Create the SQLAlchemy ORM model from the Pydantic schema
             log_entry = EventLog(
                 severity=alert.severity,
                 message=alert.message,
-                source_module=alert.message.split(":")[0],  # Simple module parsing
+                # Simple parsing. You could pass 'module' in the Alert schema too.
+                source_module=alert.message.split(":")[0],
             )
             db.add(log_entry)
             db.commit()
@@ -66,53 +76,40 @@ class DatabaseAlerter(BaseAlerter):
             logger.error(f"Failed to write alert to database: {e}", exc_info=True)
             db.rollback()
             return False
+        finally:
+            db.close()
 
 
 class AlerterService:
     """
     Coordinates all active alerter implementations.
-
-    This service is intended to be injected (using Dependency Injection)
-    into other core modules like the ExecutionEngine or RiskManager,
-    providing a single `notify` method.
+    ...
     """
 
     def __init__(self, handlers: List[BaseAlerter]):
-        """
-        Initializes the service with a list of concrete alerter handlers.
-
-        :param handlers: A list of objects that implement BaseAlerter
-                         (e.g., [LogAlerter(), DatabaseAlerter()]).
-        """
         self.handlers = handlers
         logger.info(f"AlerterService initialized with {len(handlers)} handlers.")
 
     def notify(
         self,
-        db: Session,
+        # The `db` parameter is removed. It's no longer this service's job.
         message: str,
         severity: AlertSeverity,
         module: str = "System",
     ):
         """
         Creates an Alert and sends it to all configured handlers.
-
-        :param db: The SQLAlchemy database session (required by DatabaseAlerter).
-        :param message: The text of the alert message.
-        :param severity: The severity (e.g., INFO, ERROR, CRITICAL).
-        :param module: The name of the module originating the alert.
         """
         full_message = f"{module}: {message}"
         alert = Alert(message=full_message, severity=severity)
 
+        # This loop is now OCP-compliant.
+        # It doesn't know or care what kind of handlers it has.
         for handler in self.handlers:
             try:
-                if isinstance(handler, DatabaseAlerter):
-                    handler.send_alert(alert, db=db)
-                else:
-                    handler.send_alert(alert)
+                # All handlers now have the same, simple signature
+                handler.send_alert(alert)
             except Exception as e:
-                # Log failure of one handler but continue with others
                 logger.error(
                     f"Alerter handler {type(handler).__name__} failed: {e}",
                     exc_info=True,
