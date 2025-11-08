@@ -8,7 +8,7 @@ A strategy's role is to receive data and produce signals.
 from abc import ABC, abstractmethod
 from typing import List
 
-from ...core.schemas import IngestionEngineOutput, TradeSignal
+from ..core.schemas import IngestionEngineOutput, TradeSignal
 
 
 class BaseStrategy(ABC):
