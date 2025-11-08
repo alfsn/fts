@@ -204,7 +204,7 @@ class Portfolio:
                     self._persist_position(db, pos, update=True)
 
         logger.info(
-            f"Fill processed for order {order.order_id}. "
+            f"Fill processed for order {result.order_id}. "
             f"Realized P&L: {realized_pnl:.2f}. New cash: {self._cash_balance:.2f}"
         )
 
