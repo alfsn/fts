@@ -18,7 +18,6 @@ from sqlalchemy.orm import relationship
 from .database import Base
 
 # Import the enums we defined in core.enums
-# MarketOutcome has been removed to make the core agnostic.
 from .enums import AlertSeverity, OrderSide, OrderStatus, PositionStatus
 
 

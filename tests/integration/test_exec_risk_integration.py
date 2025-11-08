@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from trading_bot.core.database import Base
 from trading_bot.core.enums import (
-    MarketOutcome,
     OrderSide,
     OrderStatus,
     SignalType,
@@ -136,7 +135,6 @@ def mock_buy_signal() -> TradeSignal:
         market_id="MARKET_01",
         strategy_name="integration_test_strat",
         signal_type=SignalType.BUY,
-        outcome=MarketOutcome.YES,
         confidence=0.7,  # High confidence
     )
 
@@ -261,7 +259,6 @@ def test_full_order_lifecycle_integration(
         db.query(PositionModel)
         .filter_by(
             market_id="MARKET_01",
-            outcome=MarketOutcome.YES,
         )
         .first()
     )

@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, sessionmaker
 # Import your project's components
 from trading_bot.core.database import Base
 from trading_bot.core.enums import (
-    MarketOutcome,
     OrderSide,
     OrderStatus,
     PositionStatus,
@@ -99,7 +98,6 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
         market_id="MKT-01",
         strategy_name="test_strat",
         signal_type=SignalType.BUY,
-        outcome=MarketOutcome.YES,
         confidence=0.7,  # Confidence for Kelly, ignored by FixedAmount
     )
 
@@ -164,7 +162,6 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
         market_id="MKT-01",
         strategy_name="test_strat",
         signal_type=SignalType.SELL,
-        outcome=MarketOutcome.YES,
         confidence=0.3,
     )
 
