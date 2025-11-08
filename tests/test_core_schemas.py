@@ -1,6 +1,6 @@
 # tests/test_core_schemas.py
 
-from datetime import datetime, timezone  # <-- IMPORT timezone
+from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -36,7 +36,7 @@ from src.trading_bot.core.schemas import (
 @pytest.fixture
 def sample_datetime() -> datetime:
     """Provides a consistent datetime object for testing."""
-    return datetime.now(timezone.utc)  # <-- Use timezone.utc
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture
