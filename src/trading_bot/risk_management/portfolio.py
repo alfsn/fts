@@ -30,22 +30,27 @@ class Portfolio:
     of the current portfolio state.
     """
 
-    def __init__(self, initial_balance_usdc: float):
+    def __init__(self, initial_balance: float, quote_currency: str = "USD"):
         """
         Initializes the portfolio with a starting balance.
 
-        :param initial_balance_usdc: The total starting capital in USDC.
+        :param initial_balance: The total starting capital in the quote currency.
+        :param quote_currency: The primary currency for accounting (e.g., "USD").
         """
-        self._cash_balance: float = initial_balance_usdc
+        self._cash_balance: float = initial_balance
+        self.quote_currency: str = quote_currency
 
         # In-memory state
         # Key: market_id (str) -> Position schema
-        # The (market_id, outcome) tuple key has been replaced.
         self._positions: Dict[str, Position] = {}
         # Key: order_id -> OrderRequest schema
         self._open_orders: Dict[str, OrderRequest] = {}
 
-        logger.info(f"Portfolio initialized with cash: {initial_balance_usdc:.2f} USDC")
+        # Refactor 1: Update logger message
+        logger.info(
+            f"Portfolio initialized with cash: {initial_balance:.2f} "
+            f"{self.quote_currency}"
+        )
 
     def load_positions(self, db: Session) -> None:
         """
@@ -62,6 +67,7 @@ class Portfolio:
         for pos_model in open_positions:
             pos_schema = Position(
                 market_id=pos_model.market_id,
+                # 'outcome' is removed per partial_agnostic.diff
                 size=pos_model.size,
                 entry_price=pos_model.entry_price,
             )
@@ -93,7 +99,6 @@ class Portfolio:
         """
         Updates the portfolio state based on an execution result.
         This is the primary method for processing fills, cancels, or failures.
-        This logic is now fully agnostic of 'outcome'.
 
         :param db: The SQLAlchemy database session for persistence.
         :param result: The ExecutionResult schema object from the engine.
@@ -221,7 +226,6 @@ class Portfolio:
         :param update: Flag to update an existing record.
         :param delete: Flag to mark a record as CLOSED.
         """
-        # Query by market_id only, 'outcome' is removed
         pos_model = (
             db.query(PositionModel).filter_by(market_id=pos_schema.market_id).first()
         )
@@ -234,7 +238,6 @@ class Portfolio:
             elif create and not pos_model:
                 pos_model = PositionModel(
                     market_id=pos_schema.market_id,
-                    # 'outcome' removed
                     size=pos_schema.size,
                     entry_price=pos_schema.entry_price,
                     status=PositionStatus.OPEN,
@@ -317,9 +320,10 @@ class Portfolio:
         # 3. Total balance = current cash + current market value of positions
         total_balance = self._cash_balance + total_market_value
 
+        # Refactor 2: Rename fields in PortfolioState constructor
         return PortfolioState(
-            total_balance_usdc=total_balance,
-            available_balance_usdc=available_balance,
+            total_balance_quote=total_balance,
+            available_balance_quote=available_balance,
             positions=positions_list,
             open_orders=open_orders_list,
         )
