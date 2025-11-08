@@ -108,7 +108,6 @@ class RiskManager:
         final_order = OrderRequest(
             market_id=signal.market_id,
             side=order_side,
-            outcome=signal.outcome,
             size=order_shares,
             price=limit_price,
         )
@@ -159,7 +158,7 @@ class RiskManager:
         # Check 3: Max Total Positions (if opening a new position)
         is_new_position = True
         for pos in portfolio_state.positions:
-            if pos.market_id == signal.market_id and pos.outcome == signal.outcome:
+            if pos.market_id == signal.market_id:
                 is_new_position = False
                 break
 
@@ -184,7 +183,7 @@ class RiskManager:
         pnl_map = self.portfolio.calculate_unrealized_pnl(market_data_map)
         for pos in portfolio_state.positions:
             if pos.market_id == signal.market_id:
-                pnl = pnl_map.get((pos.market_id, pos.outcome.value), 0.0)
+                pnl = pnl_map.get(pos.market_id, 0.0)
                 current_market_value += (pos.size * pos.entry_price) + pnl
 
         new_total_allocation = current_market_value + order_amount_usdc
