@@ -65,7 +65,7 @@ class ExecutionEngine:
 
         logger.info(
             f"ExecutionEngine initialized with handler for: "
-            f"{self.handler.market_name.value}, "
+            f"{self.handler.market_name}, "
             f"max_retries={max_retry_attempts}, "
             f"auto_reconciliation={enable_auto_reconciliation}"
         )

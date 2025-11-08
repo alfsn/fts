@@ -3,18 +3,6 @@
 from enum import Enum
 
 
-class MarketProvider(str, Enum):
-    """
-    Enumeration of the supported market providers.
-
-    This allows data ingestion and execution engines to be
-    switched out based on the target platform.
-    """
-
-    POLYMARKET = "polymarket"
-    KALSHI = "kalshi"
-
-
 class OrderSide(str, Enum):
     """
     Represents the side of an order.
