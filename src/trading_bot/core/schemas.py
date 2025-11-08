@@ -13,6 +13,7 @@ from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
+# Refactored: MarketOutcome removed
 from .enums import AlertSeverity, OrderSide, OrderStatus, SignalType
 
 # --- Module 1: Data Ingestion Engine Schemas ---
@@ -199,10 +200,13 @@ class PortfolioState(BaseModel):
     A snapshot of the portfolio's current state, used for risk calculations.
     """
 
-    total_balance_usdc: float = Field(..., description="Total account value in USDC.")
-    available_balance_usdc: float = Field(
-        ..., description="USDC not tied up in orders or positions."
+    total_balance_quote: float = Field(
+        ..., description="Total account value in the quote currency (e.g., USD)."
     )
+    available_balance_quote: float = Field(
+        ..., description="Quote currency not tied up in orders or positions."
+    )
+
     positions: List[Position] = Field(
         ..., description="List of all currently held positions."
     )
