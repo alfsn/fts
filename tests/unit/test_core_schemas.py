@@ -1,18 +1,18 @@
-# tests/test_core_schemas.py
+# tests/unit/test_core_schemas.py
 
 from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
 
-from src.trading_bot.core.enums import (
+from trading_bot.core.enums import (
     AlertSeverity,
     MarketOutcome,
     OrderSide,
     OrderStatus,
     SignalType,
 )
-from src.trading_bot.core.schemas import (
+from trading_bot.core.schemas import (
     Alert,
     ExecutionResult,
     ExternalData,

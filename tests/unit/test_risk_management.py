@@ -1,4 +1,4 @@
-# tests/test_risk_management.py
+# tests/unit/test_risk_management.py
 
 import logging
 from datetime import datetime, timezone
@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 # Import Enums from your project
-from src.trading_bot.core.enums import (
+from trading_bot.core.enums import (
     MarketOutcome,
     OrderSide,
     OrderStatus,
@@ -17,10 +17,10 @@ from src.trading_bot.core.enums import (
 )
 
 # Import ORM Models from your project
-from src.trading_bot.core.models import Position as PositionModel
+from trading_bot.core.models import Position as PositionModel
 
 # Import Schemas from your project
-from src.trading_bot.core.schemas import (
+from trading_bot.core.schemas import (
     ExecutionResult,
     MarketData,
     MarketDetails,
@@ -34,10 +34,10 @@ from src.trading_bot.core.schemas import (
 )
 
 # Import Classes to test
-from src.trading_bot.risk_management.abc import BaseSizingStrategy
-from src.trading_bot.risk_management.manager import RiskManager
-from src.trading_bot.risk_management.portfolio import Portfolio
-from src.trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
+from trading_bot.risk_management.abc import BaseSizingStrategy
+from trading_bot.risk_management.manager import RiskManager
+from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
 
 # Set up logging for tests
 logging.basicConfig(level=logging.INFO)
