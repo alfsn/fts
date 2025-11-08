@@ -17,7 +17,7 @@ class BaseMarketDataProvider(ABC):
     Abstract base class for a market data provider.
 
     Defines the interface for connecting to an exchange's API
-    (e.g., Polymarket, Kalshi) to fetch internal market data.
+    (e.g., Polymarket, InteractiveBrokers) to fetch internal market data.
     A concrete implementation of this class will exist for each
     supported exchange.
     """
