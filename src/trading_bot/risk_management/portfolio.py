@@ -60,7 +60,6 @@ class Portfolio:
 
         count = 0
         for pos_model in open_positions:
-            # Position schema no longer has 'outcome'
             pos_schema = Position(
                 market_id=pos_model.market_id,
                 size=pos_model.size,
@@ -159,11 +158,10 @@ class Portfolio:
         else:  # Modifying an existing position
             old_size = pos.size
             new_size = old_size + trade_delta
-            is_adding = (old_size > 0 and new_size > 0) or (
-                old_size < 0 and new_size < 0
-            )
-            is_reducing = abs(new_size) < abs(old_size)
+
             is_flipping = (old_size * new_size) < 0
+            is_adding = abs(new_size) > abs(old_size)
+            is_reducing = abs(new_size) < abs(old_size) and not is_flipping
 
             if is_adding:
                 # Calculate new average entry price
