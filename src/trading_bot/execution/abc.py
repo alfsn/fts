@@ -1,3 +1,5 @@
+# src/trading_bot/execution/abc.py
+
 """
 Abstract Base Classes for the Execution Engine (Module 4).
 
@@ -86,6 +88,6 @@ class BaseExecutionHandler(ABC):
         available capital, as well as the gas token balance.
 
         :return: A dictionary containing key balances, e.g.,
-                 {'USDC': 10000.0, 'MATIC': 10.5}
+                 {'USD': 5000.0, 'EUR': 1000.0, 'AAPL': 10, 'BTC': 0.5}
         """
         pass
