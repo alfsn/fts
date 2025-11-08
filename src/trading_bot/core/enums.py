@@ -26,15 +26,12 @@ class OrderSide(str, Enum):
     SELL = "sell"
 
 
-class MarketOutcome(str, Enum):
-    """
-    Represents the specific outcome being traded within a market.
-
-    e.g., "Will X happen?" has two outcomes: YES and NO.
-    """
-
-    YES = "yes"
-    NO = "no"
+#
+# MarketOutcome(str, Enum) has been REMOVED
+# to make the core asset-agnostic.
+# The `market_id` (e.g., "AAPL" or "MARKET_ABC-YES")
+# is now the single source of truth for the asset.
+#
 
 
 class SignalType(str, Enum):

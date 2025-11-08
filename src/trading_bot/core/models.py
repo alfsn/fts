@@ -18,7 +18,8 @@ from sqlalchemy.orm import relationship
 from .database import Base
 
 # Import the enums we defined in core.enums
-from .enums import AlertSeverity, MarketOutcome, OrderSide, OrderStatus, PositionStatus
+# MarketOutcome has been removed to make the core agnostic.
+from .enums import AlertSeverity, OrderSide, OrderStatus, PositionStatus
 
 
 class Market(Base):
@@ -32,7 +33,7 @@ class Market(Base):
     __tablename__ = "markets"
 
     id = Column(Integer, primary_key=True, index=True)
-    # The unique ID from the exchange (e.g., Polymarket)
+    # The unique ID from the exchange, e.g., "AAPL" or "MARKET-ABC-YES"
     market_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
     end_date = Column(DateTime, nullable=False)
@@ -71,7 +72,7 @@ class OrderLog(Base):
 
     # --- Data from OrderRequest ---
     side = Column(Enum(OrderSide), nullable=False)
-    outcome = Column(Enum(MarketOutcome), nullable=False)
+    # 'outcome' column removed to be asset-agnostic
     requested_size = Column(Float, nullable=False)
     requested_price = Column(Float, nullable=False)
 
@@ -112,7 +113,7 @@ class TradeLog(Base):
         String, ForeignKey("markets.market_id"), index=True, nullable=False
     )
     side = Column(Enum(OrderSide), nullable=False)
-    outcome = Column(Enum(MarketOutcome), nullable=False)
+    # 'outcome' column removed to be asset-agnostic
 
     # The size and price of this specific fill
     fill_size = Column(Float, nullable=False)
@@ -169,10 +170,11 @@ class Position(Base):
     __tablename__ = "positions"
 
     id = Column(Integer, primary_key=True, index=True)
+    # market_id is now the sole unique identifier for the asset
     market_id = Column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False
     )
-    outcome = Column(Enum(MarketOutcome), nullable=False)
+    # 'outcome' column removed to be asset-agnostic
 
     # The current number of shares held
     size = Column(Float, nullable=False)
@@ -190,7 +192,8 @@ class Position(Base):
     market = relationship("Market")
 
     def __repr__(self):
+        # Removed 'outcome' from the repr string
         return (
-            f"<Position(market_id='{self.market_id}', outcome='{self.outcome}', "
+            f"<Position(market_id='{self.market_id}', "
             f"size={self.size}, status='{self.status}')>"
         )
