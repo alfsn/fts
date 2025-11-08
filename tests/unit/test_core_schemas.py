@@ -1,4 +1,4 @@
-# tests/test_core_schemas.py
+# tests/unit/test_core_schemas.py
 
 from datetime import datetime, timezone
 
