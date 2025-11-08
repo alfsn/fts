@@ -122,8 +122,8 @@ def valid_portfolio_state(
 ) -> PortfolioState:
     """Provides a valid, composite PortfolioState object."""
     return PortfolioState(
-        total_balance_usdc=10000.0,
-        available_balance_usdc=7500.0,
+        total_balance_quote=10000.0,
+        available_balance_quote=7500.0,
         positions=[valid_position],
         open_orders=[valid_order_request],
     )
@@ -355,12 +355,12 @@ def test_portfolio_state_valid(
 ):
     """Tests successful creation of a composite PortfolioState."""
     state = PortfolioState(
-        total_balance_usdc=1000.0,
-        available_balance_usdc=500.0,
+        total_balance_quote=1000.0,
+        available_balance_quote=500.0,
         positions=[valid_position],
         open_orders=[valid_order_request],
     )
-    assert state.available_balance_usdc == 500.0
+    assert state.available_balance_quote == 500.0
     assert len(state.positions) == 1
     assert state.positions[0] == valid_position
     assert len(state.open_orders) == 1

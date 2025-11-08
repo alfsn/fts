@@ -67,7 +67,7 @@ def mock_handler() -> MagicMock:
 @pytest.fixture
 def real_portfolio() -> Portfolio:
     """Returns a real Portfolio instance with 10,000 USDC."""
-    return Portfolio(initial_balance_usdc=10000.0)
+    return Portfolio(initial_balance=10000.0)
 
 
 @pytest.fixture
@@ -227,9 +227,9 @@ def test_full_order_lifecycle_integration(
     portfolio_state_open = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_open.open_orders) == 1
     assert portfolio_state_open.open_orders[0].market_id == "MARKET_01"
-    assert portfolio_state_open.total_balance_usdc == 10000.0  # No P&L yet
+    assert portfolio_state_open.total_balance_quote == 10000.0  # No P&L yet
     # Available balance = 10000 - (100 / 0.51) * 0.51 = 9900.0
-    assert portfolio_state_open.available_balance_usdc == pytest.approx(9900.0)
+    assert portfolio_state_open.available_balance_quote == pytest.approx(9900.0)
     assert len(portfolio_state_open.positions) == 0  # No position yet
 
     # --- 4. ACT (Flow 2: ExecutionEngine -> Portfolio) ---
@@ -276,7 +276,7 @@ def test_full_order_lifecycle_integration(
     # Check cash: 10000 (start) - 100 (fill cost) = 9900
     assert real_portfolio._cash_balance == pytest.approx(9900.0)
     # Available and total should be equal now (minus unrealized P&L)
-    assert portfolio_state_filled.available_balance_usdc == pytest.approx(9900.0)
+    assert portfolio_state_filled.available_balance_quote == pytest.approx(9900.0)
 
     # Total balance = 9900 (cash) + (position_size * current_bid_price)
     # position_size = 196.0784
@@ -284,7 +284,7 @@ def test_full_order_lifecycle_integration(
     # market_value = 196.0784 * 0.49 = 96.0784
     # total_balance = 9900 + 96.0784 = 9996.0784
     # This reflects the immediate unrealized loss from crossing the spread.
-    assert portfolio_state_filled.total_balance_usdc == pytest.approx(
+    assert portfolio_state_filled.total_balance_quote == pytest.approx(
         9900.0 + (filled_result.filled_size * 0.49)
     )
     logger.info("--- Integration test successful ---")
@@ -348,8 +348,8 @@ def test_order_rejection_integration(
     portfolio_state_rejected = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_rejected.open_orders) == 0
     assert len(portfolio_state_rejected.positions) == 0
-    assert portfolio_state_rejected.available_balance_usdc == 10000.0
-    assert portfolio_state_rejected.total_balance_usdc == 10000.0
+    assert portfolio_state_rejected.available_balance_quote == 10000.0
+    assert portfolio_state_rejected.total_balance_quote == 10000.0
     assert real_portfolio._cash_balance == 10000.0
 
 
@@ -404,7 +404,7 @@ def test_order_cancellation_integration(
     logger.info("--- Asserting Setup: Order is OPEN ---")
     portfolio_state_open = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_open.open_orders) == 1
-    assert portfolio_state_open.available_balance_usdc == pytest.approx(9900.0)
+    assert portfolio_state_open.available_balance_quote == pytest.approx(9900.0)
     db_log = db.query(OrderLogModel).filter_by(order_id=order_id).first()
     assert db_log is not None
     assert db_log.status == OrderStatus.OPEN
@@ -428,6 +428,6 @@ def test_order_cancellation_integration(
     portfolio_state_cancelled = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_cancelled.open_orders) == 0
     assert len(portfolio_state_cancelled.positions) == 0
-    assert portfolio_state_cancelled.available_balance_usdc == 10000.0
-    assert portfolio_state_cancelled.total_balance_usdc == 10000.0
+    assert portfolio_state_cancelled.available_balance_quote == 10000.0
+    assert portfolio_state_cancelled.total_balance_quote == 10000.0
     assert real_portfolio._cash_balance == 10000.0
