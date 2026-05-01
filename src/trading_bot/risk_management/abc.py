@@ -33,7 +33,7 @@ class BaseSizingStrategy(ABC):
     @abstractmethod
     def calculate_size(self, input_data: SizingInput) -> SizingOutput:
         """
-        Calculates the exact trade size in shares and/or USDC.
+        Calculates the exact trade size in shares and/or quote currency.
 
         The logic inside this method will implement a specific
         formula (e.g., Kelly Criterion, fixed percentage).
@@ -41,10 +41,10 @@ class BaseSizingStrategy(ABC):
         :param input_data: A SizingInput object containing the
                          TradeSignal, current PortfolioState,
                          and relevant MarketData.
-        :return: A SizingOutput object specifying the amount_usdc
+        :return: A SizingOutput object specifying the amount_quote
                  and/or size_shares for the trade. If the
                  strategy decides not to trade (e.g., risk limit
                  hit or zero confidence), it should return a
-                 SizingOutput with amount_usdc=0 and size_shares=0.
+                 SizingOutput with amount_quote=0 and size_shares=0.
         """
         pass

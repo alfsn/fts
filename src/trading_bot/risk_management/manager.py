@@ -98,9 +98,9 @@ class RiskManager:
         # 5. All checks passed. Create the final OrderRequest.
         # We use the price calculated by the sizer (amount / shares)
         # as the limit price for the order.
-        order_amount_usdc = sizing_output.amount_usdc
+        order_amount_quote = sizing_output.amount_quote
         order_shares = sizing_output.size_shares
-        limit_price = order_amount_usdc / order_shares
+        limit_price = order_amount_quote / order_shares
         order_side = (
             OrderSide.BUY if signal.signal_type == SignalType.BUY else OrderSide.SELL
         )
@@ -129,11 +129,11 @@ class RiskManager:
         """
         A helper method to run a chain of risk validation checks.
         """
-        order_amount_usdc = sizing_output.amount_usdc
+        order_amount_quote = sizing_output.amount_quote
         order_shares = sizing_output.size_shares
 
         # Check 1: Sizer returned non-zero size
-        if order_amount_usdc <= 1e-6 or order_shares <= 1e-6:
+        if order_amount_quote <= 1e-6 or order_shares <= 1e-6:
             logger.info(
                 f"Sizer returned zero size for {signal.market_id}. " "No order."
             )
@@ -142,11 +142,11 @@ class RiskManager:
         # Check 2: Available Balance (for BUYs)
         if (
             signal.signal_type == SignalType.BUY
-            and order_amount_usdc > portfolio_state.available_balance_quote
+            and order_amount_quote > portfolio_state.available_balance_quote
         ):
             logger.warning(
                 f"Order for {signal.market_id} rejected. "
-                f"Cost ${order_amount_usdc:.2f} exceeds available "
+                f"Cost ${order_amount_quote:.2f} exceeds available "
                 f"balance ${portfolio_state.available_balance_quote:.2f}."
             )
             return False
@@ -186,7 +186,7 @@ class RiskManager:
                 pnl = pnl_map.get(pos.market_id, 0.0)
                 current_market_value += (pos.size * pos.entry_price) + pnl
 
-        new_total_allocation = current_market_value + order_amount_usdc
+        new_total_allocation = current_market_value + order_amount_quote
         allocation_pct = new_total_allocation / total_equity
 
         if allocation_pct > self.max_allocation_per_market:

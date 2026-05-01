@@ -88,7 +88,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     # --- 1. ARRANGE (Initial Setup) ---
     portfolio = Portfolio(initial_balance=10000.0)
 
-    sizer = FixedAmountSizer(default_amount_usdc=600.0)
+    sizer = FixedAmountSizer(default_amount_quote=600.0)
     risk_manager = RiskManager(portfolio=portfolio, sizer=sizer)
 
     # --- 2. ACT (First Trade: BUY) ---

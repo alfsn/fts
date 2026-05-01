@@ -99,7 +99,7 @@ def strategy_engine() -> StrategyEngine:
 def risk_manager() -> RiskManager:
     """Provides a full RiskManager setup."""
     portfolio = Portfolio(initial_balance=1000.0)
-    sizer = FixedAmountSizer(default_amount_usdc=10.0)
+    sizer = FixedAmountSizer(default_amount_quote=10.0)
     return RiskManager(portfolio=portfolio, sizer=sizer)
 
 
