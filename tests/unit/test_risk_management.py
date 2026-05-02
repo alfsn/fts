@@ -506,6 +506,32 @@ class TestRiskManager:
         assert order.size == pytest.approx(100.0 / 0.49)
         assert order.price == 0.49
 
+    def test_process_signal_flat(self, mock_portfolio, fixed_sizer, market_data_map):
+        rm = RiskManager(portfolio=mock_portfolio, sizer=fixed_sizer)
+
+        # Setup a position to flatten (Long 100 shares)
+        pos = Position(market_id="MARKET_01", size=100, entry_price=0.4)
+        mock_portfolio.get_state.return_value = PortfolioState(
+            total_balance_quote=10000.0,
+            available_balance_quote=9960.0,
+            positions=[pos],
+            open_orders=[],
+        )
+
+        signal = TradeSignal(
+            market_id="MARKET_01",
+            strategy_name="test",
+            signal_type=SignalType.FLAT,
+            confidence=1.0,
+        )
+
+        order = rm.process_signal(signal, market_data_map)
+
+        assert order is not None
+        assert order.side == OrderSide.SELL
+        assert order.size == 100
+        assert order.price == 0.49  # Best bid from market_data_map fixture
+
     # --- Direct tests for _passes_risk_checks ---
 
     @pytest.fixture

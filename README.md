@@ -1,6 +1,6 @@
-# fts: Automated Trading System
+# fts: Automated Trading System (Core)
 
-An automated, event-driven trading system.
+An automated, event-driven trading system. **This repository serves as the agnostic core (/fts/) of the system.**
 
 This repository contains the complete architectural skeleton for a modular trading bot, built with a focus on type-safety, extensibility, and clear data contracts.
 
