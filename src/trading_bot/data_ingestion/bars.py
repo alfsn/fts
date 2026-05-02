@@ -3,7 +3,7 @@
 import math
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Literal, Optional, overload
 
 from ..core.enums import BarType
 from ..core.schemas import BarData, Trade
@@ -16,7 +16,7 @@ class BaseBarAggregator(ABC):
     different types of bar aggregation (Time, Volume, Dollar).
     """
 
-    def __init__(self, market_id: str, bar_type: BarType):
+    def __init__(self, market_id: str, bar_type: BarType) -> None:
         self.market_id = market_id
         self.bar_type = bar_type
         self.current_bar: Optional[BarData] = None
@@ -29,7 +29,7 @@ class BaseBarAggregator(ABC):
         """
         pass
 
-    def _initialize_bar(self, trade: Trade, bar_timestamp: datetime):
+    def _initialize_bar(self, trade: Trade, bar_timestamp: datetime) -> None:
         """Initializes a new BarData object."""
         self.current_bar = BarData(
             timestamp=bar_timestamp,
@@ -43,7 +43,7 @@ class BaseBarAggregator(ABC):
             dollar_volume=trade.price * trade.size,
         )
 
-    def _update_bar(self, trade: Trade):
+    def _update_bar(self, trade: Trade) -> None:
         """Updates the current bar with new trade data."""
         if not self.current_bar:
             return
@@ -60,7 +60,7 @@ class TimeBarAggregator(BaseBarAggregator):
     Aggregates trades into time-based bars (e.g., 5-minute, 1-hour, Daily).
     """
 
-    def __init__(self, market_id: str, interval: timedelta):
+    def __init__(self, market_id: str, interval: timedelta) -> None:
         super().__init__(market_id, BarType.TIME)
         self.interval = interval
         self.next_bar_boundary: Optional[datetime] = None
@@ -98,7 +98,7 @@ class VolumeBarAggregator(BaseBarAggregator):
     Aggregates trades into bars based on a fixed volume threshold.
     """
 
-    def __init__(self, market_id: str, volume_threshold: float):
+    def __init__(self, market_id: str, volume_threshold: float) -> None:
         super().__init__(market_id, BarType.VOLUME)
         self.threshold = volume_threshold
 
@@ -108,7 +108,7 @@ class VolumeBarAggregator(BaseBarAggregator):
         else:
             self._update_bar(trade)
 
-        if self.current_bar.volume >= self.threshold:
+        if self.current_bar and self.current_bar.volume >= self.threshold:
             completed_bar = self.current_bar
             # Update timestamp to the exact time the threshold was met
             completed_bar.timestamp = trade.timestamp
@@ -123,7 +123,7 @@ class DollarBarAggregator(BaseBarAggregator):
     Aggregates trades into bars based on a fixed dollar volume (PxQ) threshold.
     """
 
-    def __init__(self, market_id: str, dollar_threshold: float):
+    def __init__(self, market_id: str, dollar_threshold: float) -> None:
         super().__init__(market_id, BarType.DOLLAR)
         self.threshold = dollar_threshold
 
@@ -133,7 +133,7 @@ class DollarBarAggregator(BaseBarAggregator):
         else:
             self._update_bar(trade)
 
-        if self.current_bar.dollar_volume >= self.threshold:
+        if self.current_bar and self.current_bar.dollar_volume >= self.threshold:
             completed_bar = self.current_bar
             # Update timestamp to the exact time the threshold was met
             completed_bar.timestamp = trade.timestamp
@@ -150,10 +150,29 @@ class BarFactory:
     all possible bar variations in the main logic.
     """
 
+    @overload
     @staticmethod
     def create_aggregator(
-        bar_type: BarType, market_id: str, **kwargs
+        bar_type: Literal[BarType.TIME], market_id: str, *, interval: timedelta
+    ) -> TimeBarAggregator: ...
+
+    @overload
+    @staticmethod
+    def create_aggregator(
+        bar_type: Literal[BarType.VOLUME], market_id: str, *, threshold: float
+    ) -> VolumeBarAggregator: ...
+
+    @overload
+    @staticmethod
+    def create_aggregator(
+        bar_type: Literal[BarType.DOLLAR], market_id: str, *, threshold: float
+    ) -> DollarBarAggregator: ...
+
+    @staticmethod
+    def create_aggregator(
+        bar_type: BarType, market_id: str, **kwargs: Any
     ) -> BaseBarAggregator:
+
         if bar_type == BarType.TIME:
             if "interval" not in kwargs:
                 raise ValueError("Time bars require an 'interval' (timedelta).")

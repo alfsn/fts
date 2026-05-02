@@ -17,7 +17,7 @@ class FixedAmountSizer(BaseSizingStrategy):
     every trade, regardless of portfolio size or confidence.
     """
 
-    def __init__(self, default_amount_quote: float = 10.0):
+    def __init__(self, default_amount_quote: float = 10.0) -> None:
         """
         :param default_amount_quote: The fixed amount of quote currency to
                                     allocate per trade.

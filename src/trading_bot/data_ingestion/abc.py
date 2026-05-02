@@ -7,7 +7,7 @@ external event-driven data (like API results).
 """
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Sequence
 
 from ..core.schemas import (
     BarData,
@@ -30,12 +30,12 @@ class BaseMarketDataProvider(ABC):
     """
 
     @abstractmethod
-    def list_tradable_markets(self) -> List[MarketDetails]:
+    def list_tradable_markets(self) -> Sequence[MarketDetails]:
         """
         Fetches a list of all available or tradable markets
         from the exchange.
 
-        :return: A list of MarketDetails objects.
+        :return: A sequence of MarketDetails objects.
         """
         pass
 
@@ -61,23 +61,23 @@ class BaseMarketDataProvider(ABC):
         pass
 
     @abstractmethod
-    def get_trade_history(self, market_id: str) -> List[Trade]:
+    def get_trade_history(self, market_id: str) -> Sequence[Trade]:
         """
         Fetches the recent trade history for a specific market.
 
         :param market_id: The unique identifier for the market.
-        :return: A list of Trade objects, typically sorted by time.
+        :return: A sequence of Trade objects, typically sorted by time.
         """
         pass
 
     @abstractmethod
-    def get_bars(self, market_id: str, count: int = 100) -> List[BarData]:
+    def get_bars(self, market_id: str, count: int = 100) -> Sequence[BarData]:
         """
         Fetches the recent aggregated bars for a specific market.
 
         :param market_id: The unique identifier for the market.
         :param count: The number of recent bars to fetch.
-        :return: A list of BarData objects.
+        :return: A sequence of BarData objects.
         """
         pass
 
@@ -116,14 +116,14 @@ class BaseExternalDataProvider(ABC):
         pass
 
     @abstractmethod
-    def fetch_data(self) -> List[ExternalData]:
+    def fetch_data(self) -> Sequence[ExternalData]:
         """
         Fetches new external data points.
 
         The implementation should handle its own state (e.g., knowing
         what data it has already fetched) if necessary.
 
-        :return: A list of ExternalData objects. Can be an empty
+        :return: A sequence of ExternalData objects. Can be an empty
                  list if no new data is available.
         """
         pass

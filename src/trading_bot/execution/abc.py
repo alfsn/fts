@@ -9,7 +9,7 @@ canceling, and monitoring orders on a specific exchange.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Mapping
 
 from ..core.schemas import ExecutionResult, OrderRequest
 
@@ -79,14 +79,14 @@ class BaseExecutionHandler(ABC):
         pass
 
     @abstractmethod
-    def get_account_balances(self) -> Dict[str, float]:
+    def get_account_balances(self) -> Mapping[str, float]:
         """
         Fetches the bot's wallet balances from the exchange/blockchain.
 
         This is crucial for the Risk Manager to know the total and
         available capital, as well as the gas token balance.
 
-        :return: A dictionary containing key balances, e.g.,
+        :return: A mapping containing key balances, e.g.,
                  {'USD': 5000.0, 'EUR': 1000.0, 'AAPL': 10, 'BTC': 0.5}
         """
         pass
