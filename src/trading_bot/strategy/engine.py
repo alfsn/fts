@@ -8,7 +8,7 @@ orchestrating one or more trading strategies.
 """
 
 import logging
-from typing import List
+from typing import List, Sequence
 
 from ..core.schemas import IngestionEngineOutput, TradeSignal
 from .abc import BaseStrategy
@@ -36,11 +36,11 @@ class StrategyEngine:
     Principle), as new strategies can be added without modifying this engine.
     """
 
-    def __init__(self, strategies: List[BaseStrategy]):
+    def __init__(self, strategies: Sequence[BaseStrategy]) -> None:
         """
         Initializes the engine using Dependency Injection.
 
-        :param strategies: A list of concrete implementations of
+        :param strategies: A sequence of concrete implementations of
                            BaseStrategy (e.g., [DummyStrategy(),
                            KellyMomentumStrategy()]).
         """

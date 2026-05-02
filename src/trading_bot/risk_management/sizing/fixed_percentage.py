@@ -17,7 +17,7 @@ class FixedPercentageSizer(BaseSizingStrategy):
     equity to each trade.
     """
 
-    def __init__(self, default_percentage: float = 0.01):
+    def __init__(self, default_percentage: float = 0.01) -> None:
         """
         :param default_percentage: The fixed percentage of total equity
                                    to allocate (e.g., 0.01 for 1%).

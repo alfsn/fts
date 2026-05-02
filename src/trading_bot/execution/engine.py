@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -46,7 +46,7 @@ class ExecutionEngine:
         portfolio: Portfolio,
         max_retry_attempts: int = 3,
         enable_auto_reconciliation: bool = True,
-    ):
+    ) -> None:
         """
         Initializes the engine with error handling configuration.
 
@@ -61,7 +61,7 @@ class ExecutionEngine:
         self.enable_auto_reconciliation = enable_auto_reconciliation
 
         # Track pending reconciliation items
-        self._reconciliation_queue = []
+        self._reconciliation_queue: List[Any] = []
 
         logger.info(
             f"ExecutionEngine initialized with handler for: "
@@ -456,7 +456,7 @@ class ExecutionEngine:
             f"Starting reconciliation of {len(self._reconciliation_queue)} orders"
         )
 
-        results = {
+        results: Dict[str, Any] = {
             "total": len(self._reconciliation_queue),
             "success": 0,
             "failed": 0,

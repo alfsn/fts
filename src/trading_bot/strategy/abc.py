@@ -6,7 +6,7 @@ A strategy's role is to receive data and produce signals.
 """
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Sequence
 
 from ..core.schemas import IngestionEngineOutput, TradeSignal
 
@@ -33,18 +33,18 @@ class BaseStrategy(ABC):
         pass
 
     @abstractmethod
-    def evaluate(self, data: IngestionEngineOutput) -> List[TradeSignal]:
+    def evaluate(self, data: IngestionEngineOutput) -> Sequence[TradeSignal]:
         """
         The core logic method. This method is called by the Strategy
         Engine on each 'tick' (e.g., new data packet, or time
         interval) with the latest available data.
 
-        The strategy should analyze the market and external data to
-        generate a list of trading signals.
+        The strategy should analyze the market and external data to generate
+        a sequence of trading signals.
 
         :param data: The IngestionEngineOutput object containing all
                      the latest market and external data.
-        :return: A list of TradeSignal objects. Can be an empty list
+        :return: A sequence of TradeSignal objects. Can be an empty sequence
                  if the strategy decides to do nothing.
         """
         pass

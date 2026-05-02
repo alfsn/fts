@@ -31,7 +31,7 @@ class KellyCriterionSizer(BaseSizingStrategy):
     - `f = (q * b - p) / b`
     """
 
-    def __init__(self, kelly_fraction: float = 0.5):
+    def __init__(self, kelly_fraction: float = 0.5) -> None:
         """
         :param kelly_fraction: A safety multiplier (e.g., 0.5 for
                              "half-Kelly") to reduce risk.

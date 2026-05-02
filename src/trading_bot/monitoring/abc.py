@@ -8,7 +8,7 @@ allowing the bot to send notifications to different platforms
 
 from abc import ABC, abstractmethod
 
-from ...core.schemas import Alert
+from ..core.schemas import Alert
 
 
 class BaseAlerter(ABC):

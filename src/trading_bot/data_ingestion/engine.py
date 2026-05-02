@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 from ..core.schemas import ExternalData, IngestionEngineOutput, MarketData
 from .abc import BaseExternalDataProvider, BaseMarketDataProvider
@@ -28,17 +28,17 @@ class DataIngestionEngine:
     def __init__(
         self,
         market_provider: BaseMarketDataProvider,
-        external_providers: List[BaseExternalDataProvider],
-        market_ids: List[str],
-    ):
+        external_providers: Sequence[BaseExternalDataProvider],
+        market_ids: Sequence[str],
+    ) -> None:
         """
         Initializes the engine using Dependency Injection.
 
         :param market_provider: A concrete implementation of
                                 BaseMarketDataProvider (e.g., PolymarketClient).
-        :param external_providers: A list of concrete external data
+        :param external_providers: A sequence of concrete external data
                                    providers (e.g., TwitterSentimentProvider).
-        :param market_ids: The specific list of market IDs this engine
+        :param market_ids: The specific sequence of market IDs this engine
                            should poll from the `market_provider`.
         """
         self.market_provider = market_provider
