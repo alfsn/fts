@@ -1,7 +1,9 @@
 # src/trading_bot/core/database.py
 
+from typing import Generator
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 # Import the settings object from your config file
 # This assumes your config file defines a 'settings' instance
@@ -31,7 +33,7 @@ class Base(DeclarativeBase):
     pass
 
 
-def init_db():
+def init_db() -> None:
     """
     A utility function to create all tables in the database.
     This should be called once on application startup.
@@ -39,7 +41,7 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     """
     A generator function that acts as a session context manager.
 

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # TheDATABASE_URL is used by SQLAlchemy in core/database.py.
     # Example for dev (SQLite): "sqlite+pysqlite:///./dev.db"
     # Example for prod (PostgreSQL): "postgresql+psycopg2://user:pass@db:5432/trading"
-    DATABASE_URL: str
+    DATABASE_URL: str = "sqlite+pysqlite:///./dev.db"
 
     # Configure the settings model to load from the .env file
     # determined by the `get_env_filename` method.
