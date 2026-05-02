@@ -81,7 +81,11 @@ class RiskManager:
             )
             return None
 
-        # 3. Delegate to the Sizing Strategy
+        # 3. Handle FLAT signals (v0: exit position)
+        if signal.signal_type == SignalType.FLAT:
+            return self._flatten_position(signal, portfolio_state, market_data)
+
+        # 4. Delegate to the Sizing Strategy (for BUY/SELL)
         sizing_input = SizingInput(
             signal=signal,
             market_data=market_data,
@@ -89,13 +93,13 @@ class RiskManager:
         )
         sizing_output = self.sizer.calculate_size(sizing_input)
 
-        # 4. Run Risk Checks
+        # 5. Run Risk Checks
         if not self._passes_risk_checks(
             sizing_output, signal, portfolio_state, market_data_map
         ):
             return None  # Risk checks failed, (logs inside)
 
-        # 5. All checks passed. Create the final OrderRequest.
+        # 6. All checks passed. Create the final OrderRequest.
         # We use the price calculated by the sizer (amount / shares)
         # as the limit price for the order.
         order_amount_quote = sizing_output.amount_quote
@@ -118,6 +122,56 @@ class RiskManager:
             f"@ ${limit_price:.4f}"
         )
         return final_order
+
+    def _flatten_position(
+        self,
+        signal: TradeSignal,
+        portfolio_state: PortfolioState,
+        market_data: MarketData,
+    ) -> Optional[OrderRequest]:
+        """
+        v0 logic: Immediately exits the full position for a given market.
+        Bypasses standard sizing and risk checks as it is a mandatory exit.
+        """
+        # Find position for this market
+        position = next(
+            (p for p in portfolio_state.positions if p.market_id == signal.market_id),
+            None,
+        )
+
+        if not position or abs(position.size) < 1e-9:
+            logger.info(f"No active position to flatten for {signal.market_id}")
+            return None
+
+        # If size > 0 (Long), we need to SELL. If size < 0 (Short), we need to BUY.
+        side = OrderSide.SELL if position.size > 0 else OrderSide.BUY
+        size_to_exit = abs(position.size)
+
+        # For v0 exit, we use the best available price to cross the spread
+        if side == OrderSide.SELL:
+            price = (
+                market_data.order_book.bids[0].price
+                if market_data.order_book.bids
+                else position.entry_price
+            )
+        else:
+            price = (
+                market_data.order_book.asks[0].price
+                if market_data.order_book.asks
+                else position.entry_price
+            )
+
+        logger.info(
+            f"RiskManager generating FLAT order for {signal.market_id}: "
+            f"{side.value} {size_to_exit:.4f} shares to exit."
+        )
+
+        return OrderRequest(
+            market_id=signal.market_id,
+            side=side,
+            size=size_to_exit,
+            price=price,
+        )
 
     def _passes_risk_checks(
         self,
