@@ -1,0 +1,22 @@
+[project]
+name = "fts"
+version = "0.1.0"
+description = "FTS Core - Automated Trading System"
+authors = [
+    { name = "Alfredo Sampron", email = "alfredosampronnoel@gmail.com" },
+]
+dependencies = [
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0", 
+    "sqlalchemy>=2.0.44",
+]
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"trading_bot" = "."}
+packages = ["trading_bot"]
