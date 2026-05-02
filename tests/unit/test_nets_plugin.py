@@ -4,9 +4,9 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+from nets.data_providers import CCLProvider
+from nets.flat_buckets import DummyFlat, DynamicFlat
 
-from plugins.nets.data_providers import CCLProvider
-from plugins.nets.flat_buckets import DummyFlat, DynamicFlat
 from trading_bot.core.enums import BarType
 from trading_bot.core.schemas import BarData, OrderBook, PriceLevel
 from trading_bot.core.transforms import LogReturnTransform
