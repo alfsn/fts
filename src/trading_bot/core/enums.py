@@ -21,11 +21,23 @@ class SignalType(str, Enum):
     - BUY: A signal to enter a long position.
     - SELL: A signal to enter a short position (or exit a long).
     - HOLD: A signal to take no action.
+    - FLAT: Specific for classification models (neutral/no bias).
     """
 
     BUY = "buy"
     SELL = "sell"
     HOLD = "hold"
+    FLAT = "flat"
+
+
+class BarType(str, Enum):
+    """
+    Type of data aggregation bar.
+    """
+
+    TIME = "time"  # Sampled every X minutes
+    VOLUME = "volume"  # Sampled every X shares traded
+    DOLLAR = "dollar"  # Sampled every X currency units traded
 
 
 class OrderStatus(str, Enum):
