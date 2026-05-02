@@ -7,12 +7,55 @@ This module uses pydantic-settings to load configuration from
 environment variables and .env files, providing a single, validated
 source of truth for all other modules.
 """
-
+import importlib
 import os
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Dict, List, Literal, Type
 
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ComponentConfig(BaseModel):
+    """Configuration for a dynamically loaded component."""
+
+    class_path: str = Field(
+        ...,
+        description="Full module path to the class "
+        "(e.g., 'trading_bot.strategy.strategies.dummy_strategy.DummyStrategy')",
+    )
+    params: Dict[str, Any] = Field(
+        default_factory=dict, description="Arguments to pass to the constructor"
+    )
+
+
+class TaskConfig(BaseModel):
+    """Configuration for a specific trading or backtesting task."""
+
+    name: str
+    market_provider: ComponentConfig
+    external_providers: List[ComponentConfig] = Field(default_factory=list)
+    strategies: List[ComponentConfig]
+    sizing_strategy: ComponentConfig
+    market_ids: List[str]
+    extra_models: List[str] = Field(
+        default_factory=list, description="Plugin DB models to register"
+    )
+
+
+class PluginLoader:
+    """Utility to dynamically load and instantiate components."""
+
+    @staticmethod
+    def load_class(class_path: str) -> Type[Any]:
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+
+    @classmethod
+    def instantiate(cls, config: ComponentConfig) -> Any:
+        klass = cls.load_class(config.class_path)
+        return klass(**config.params)
 
 
 def get_env_filename() -> str:

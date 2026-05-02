@@ -33,11 +33,29 @@ class Base(DeclarativeBase):
     pass
 
 
-def init_db() -> None:
+def init_db(extra_models: list[str] | None = None) -> None:
     """
     A utility function to create all tables in the database.
     This should be called once on application startup.
+
+    :param extra_models: A list of module strings
+    (e.g., ['plugins.forecasting.db_models'])
+                         to import before creating tables, ensuring plugin models
+                         are registered with Base.metadata.
     """
+    if extra_models:
+        import importlib
+
+        for module_name in extra_models:
+            try:
+                importlib.import_module(module_name)
+            except ImportError as e:
+                # We could log this or re-raise. For now, we'll re-raise
+                # as missing models are a critical failure for DB init.
+                raise ImportError(
+                    f"Failed to import extra models from {module_name}: {e}"
+                ) from e
+
     Base.metadata.create_all(bind=engine)
 
 

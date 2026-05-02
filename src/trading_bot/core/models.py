@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 # Import the enums we defined in core.enums
-from .enums import AlertSeverity, OrderSide, OrderStatus, PositionStatus
+from .enums import AlertSeverity, BarType, OrderSide, OrderStatus, PositionStatus
 
 
 class Market(Base):
@@ -50,9 +50,50 @@ class Market(Base):
     # Relationships
     orders: Mapped[List["OrderLog"]] = relationship("OrderLog", back_populates="market")
     trades: Mapped[List["TradeLog"]] = relationship("TradeLog", back_populates="market")
+    bars: Mapped[List["BarDataLog"]] = relationship(
+        "BarDataLog", back_populates="market"
+    )
 
     def __repr__(self) -> str:
         return f"<Market(market_id='{self.market_id}', name='{self.name}')>"
+
+
+class BarDataLog(Base):
+    """
+    SQLAlchemy ORM Model for persisting OHLCV bar data.
+
+    This table stores aggregated bar data (Time, Volume, or Dollar bars)
+    for historical analysis and ML feature engineering.
+    """
+
+    __tablename__ = "bar_data_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    market_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    )
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+
+    open: Mapped[float] = mapped_column(nullable=False)
+    high: Mapped[float] = mapped_column(nullable=False)
+    low: Mapped[float] = mapped_column(nullable=False)
+    close: Mapped[float] = mapped_column(nullable=False)
+    volume: Mapped[float] = mapped_column(nullable=False)
+
+    bar_type: Mapped[BarType] = mapped_column(Enum(BarType), nullable=False, index=True)
+    ticks_count: Mapped[int] = mapped_column(nullable=False)
+    dollar_volume: Mapped[float] = mapped_column(nullable=False)
+
+    # Relationships
+    market: Mapped["Market"] = relationship("Market", back_populates="bars")
+
+    def __repr__(self) -> str:
+        return (
+            f"<BarDataLog(market_id='{self.market_id}', "
+            f"timestamp='{self.timestamp}', type='{self.bar_type}')>"
+        )
 
 
 class OrderLog(Base):
