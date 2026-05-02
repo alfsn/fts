@@ -31,7 +31,7 @@ To use the `nets` plugin, you must define a **Task** in a YAML configuration fil
 ```yaml
 name: "nets_forecasting_ggal"
 market_ids: ["GGAL_ARS"]
-extra_models: ["plugins.nets.db_models"] # If plugin defines extra tables
+extra_models: ["nets.db_models"] # If plugin defines extra tables
 
 market_provider:
   class_path: "trading_bot.data_ingestion.providers.MockProvider" # Replace with real provider
@@ -83,3 +83,14 @@ simulator.run()
 *   **Decoupled Transforms**: Pre-processing (Log-returns) lives in the Core to be shared across any ML plugin.
 *   **Interface Segregation**: The plugin only knows about `BaseStrategy` and `BaseSizingStrategy` abstractions from the Core.
 *   **Market Isolation**: All Argentinian-specific logic (CCL) is encapsulated within the plugin's `CCLProvider`.
+
+## 5. Package Management
+
+This plugin is a discrete package within the `uv` workspace. It depends on the `fts` core package.
+
+*   **Package Name**: `fts-plugin-nets`
+*   **Import Name**: `nets`
+*   **Location**: `src/plugins/nets/`
+
+Dependencies are managed in `src/plugins/nets/pyproject.toml`.
+
