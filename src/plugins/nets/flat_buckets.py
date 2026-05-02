@@ -1,4 +1,4 @@
-# src/plugins/forecasting/flat_buckets.py
+# src/plugins/nets/flat_buckets.py
 
 from abc import ABC, abstractmethod
 from typing import Sequence

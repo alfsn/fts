@@ -1,4 +1,4 @@
-# src/plugins/forecasting/data_providers.py
+# src/plugins/nets/data_providers.py
 
 from datetime import datetime, timezone
 from typing import Sequence
