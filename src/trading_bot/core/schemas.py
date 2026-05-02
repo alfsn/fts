@@ -14,7 +14,7 @@ from typing import Dict, List
 from pydantic import BaseModel, Field
 
 # Refactored: MarketOutcome removed
-from .enums import AlertSeverity, OrderSide, OrderStatus, SignalType
+from .enums import AlertSeverity, BarType, OrderSide, OrderStatus, SignalType
 
 # --- Module 1: Data Ingestion Engine Schemas ---
 
@@ -94,6 +94,26 @@ class MarketDetails(BaseModel):
     )
 
 
+class BarData(BaseModel):
+    """
+    Represents a single aggregated data bar (OHLCV).
+    """
+
+    timestamp: datetime = Field(..., description="The end time of the bar.")
+    open: float = Field(..., description="The opening price.", gt=0)
+    high: float = Field(..., description="The highest price during the interval.", gt=0)
+    low: float = Field(..., description="The lowest price during the interval.", gt=0)
+    close: float = Field(..., description="The closing price.", gt=0)
+    volume: float = Field(..., description="The total volume traded.", ge=0)
+    bar_type: BarType = Field(
+        ..., description="The type of bar (Time, Volume, Dollar)."
+    )
+    ticks_count: int = Field(..., description="Number of ticks in this bar.", ge=1)
+    dollar_volume: float = Field(
+        ..., description="Total currency units traded in this bar.", ge=0
+    )
+
+
 class MarketData(BaseModel):
     """
     A composite snapshot of a single market's current state. This is the
@@ -108,6 +128,10 @@ class MarketData(BaseModel):
         ..., description="A list of recently executed trades for this market."
     )
     details: MarketDetails = Field(..., description="The static details of the market.")
+    recent_bars: List[BarData] = Field(
+        default_factory=list,
+        description="A list of recent aggregated bars for this market.",
+    )
 
 
 # --- Module 2: Strategy Engine Schemas ---
@@ -147,6 +171,10 @@ class IngestionEngineOutput(BaseModel):
     external_data: List[ExternalData] = Field(
         ...,
         description="A list of all new external data points fetched in this cycle.",
+    )
+    bars: Dict[str, List[BarData]] = Field(
+        default_factory=dict,
+        description="A dictionary mapping market_id to its latest aggregated bars.",
     )
 
 
@@ -236,8 +264,10 @@ class SizingOutput(BaseModel):
     order to be placed.
     """
 
-    amount_usdc: float = Field(
-        ..., description="The amount of USDC to allocate. 0 means no trade.", ge=0
+    amount_quote: float = Field(
+        ...,
+        description="The amount of quote currency to allocate. 0 means no trade.",
+        ge=0,
     )
     size_shares: float = Field(
         ..., description="The number of shares to trade. 0 means no trade.", ge=0

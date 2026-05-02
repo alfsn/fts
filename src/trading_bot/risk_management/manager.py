@@ -81,7 +81,11 @@ class RiskManager:
             )
             return None
 
-        # 3. Delegate to the Sizing Strategy
+        # 3. Handle FLAT signals (v0: exit position)
+        if signal.signal_type == SignalType.FLAT:
+            return self._flatten_position(signal, portfolio_state, market_data)
+
+        # 4. Delegate to the Sizing Strategy (for BUY/SELL)
         sizing_input = SizingInput(
             signal=signal,
             market_data=market_data,
@@ -89,18 +93,18 @@ class RiskManager:
         )
         sizing_output = self.sizer.calculate_size(sizing_input)
 
-        # 4. Run Risk Checks
+        # 5. Run Risk Checks
         if not self._passes_risk_checks(
             sizing_output, signal, portfolio_state, market_data_map
         ):
             return None  # Risk checks failed, (logs inside)
 
-        # 5. All checks passed. Create the final OrderRequest.
+        # 6. All checks passed. Create the final OrderRequest.
         # We use the price calculated by the sizer (amount / shares)
         # as the limit price for the order.
-        order_amount_usdc = sizing_output.amount_usdc
+        order_amount_quote = sizing_output.amount_quote
         order_shares = sizing_output.size_shares
-        limit_price = order_amount_usdc / order_shares
+        limit_price = order_amount_quote / order_shares
         order_side = (
             OrderSide.BUY if signal.signal_type == SignalType.BUY else OrderSide.SELL
         )
@@ -119,6 +123,56 @@ class RiskManager:
         )
         return final_order
 
+    def _flatten_position(
+        self,
+        signal: TradeSignal,
+        portfolio_state: PortfolioState,
+        market_data: MarketData,
+    ) -> Optional[OrderRequest]:
+        """
+        v0 logic: Immediately exits the full position for a given market.
+        Bypasses standard sizing and risk checks as it is a mandatory exit.
+        """
+        # Find position for this market
+        position = next(
+            (p for p in portfolio_state.positions if p.market_id == signal.market_id),
+            None,
+        )
+
+        if not position or abs(position.size) < 1e-9:
+            logger.info(f"No active position to flatten for {signal.market_id}")
+            return None
+
+        # If size > 0 (Long), we need to SELL. If size < 0 (Short), we need to BUY.
+        side = OrderSide.SELL if position.size > 0 else OrderSide.BUY
+        size_to_exit = abs(position.size)
+
+        # For v0 exit, we use the best available price to cross the spread
+        if side == OrderSide.SELL:
+            price = (
+                market_data.order_book.bids[0].price
+                if market_data.order_book.bids
+                else position.entry_price
+            )
+        else:
+            price = (
+                market_data.order_book.asks[0].price
+                if market_data.order_book.asks
+                else position.entry_price
+            )
+
+        logger.info(
+            f"RiskManager generating FLAT order for {signal.market_id}: "
+            f"{side.value} {size_to_exit:.4f} shares to exit."
+        )
+
+        return OrderRequest(
+            market_id=signal.market_id,
+            side=side,
+            size=size_to_exit,
+            price=price,
+        )
+
     def _passes_risk_checks(
         self,
         sizing_output: SizingOutput,
@@ -129,11 +183,11 @@ class RiskManager:
         """
         A helper method to run a chain of risk validation checks.
         """
-        order_amount_usdc = sizing_output.amount_usdc
+        order_amount_quote = sizing_output.amount_quote
         order_shares = sizing_output.size_shares
 
         # Check 1: Sizer returned non-zero size
-        if order_amount_usdc <= 1e-6 or order_shares <= 1e-6:
+        if order_amount_quote <= 1e-6 or order_shares <= 1e-6:
             logger.info(
                 f"Sizer returned zero size for {signal.market_id}. " "No order."
             )
@@ -142,11 +196,11 @@ class RiskManager:
         # Check 2: Available Balance (for BUYs)
         if (
             signal.signal_type == SignalType.BUY
-            and order_amount_usdc > portfolio_state.available_balance_quote
+            and order_amount_quote > portfolio_state.available_balance_quote
         ):
             logger.warning(
                 f"Order for {signal.market_id} rejected. "
-                f"Cost ${order_amount_usdc:.2f} exceeds available "
+                f"Cost ${order_amount_quote:.2f} exceeds available "
                 f"balance ${portfolio_state.available_balance_quote:.2f}."
             )
             return False
@@ -186,7 +240,7 @@ class RiskManager:
                 pnl = pnl_map.get(pos.market_id, 0.0)
                 current_market_value += (pos.size * pos.entry_price) + pnl
 
-        new_total_allocation = current_market_value + order_amount_usdc
+        new_total_allocation = current_market_value + order_amount_quote
         allocation_pct = new_total_allocation / total_equity
 
         if allocation_pct > self.max_allocation_per_market:

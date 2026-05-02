@@ -72,8 +72,8 @@ def real_portfolio() -> Portfolio:
 
 @pytest.fixture
 def real_sizer() -> FixedAmountSizer:
-    """Returns a real FixedAmountSizer of 100 USDC."""
-    return FixedAmountSizer(default_amount_usdc=100.0)
+    """Returns a real FixedAmountSizer of 100 quote currency units."""
+    return FixedAmountSizer(default_amount_quote=100.0)
 
 
 @pytest.fixture

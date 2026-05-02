@@ -9,7 +9,14 @@ external event-driven data (like API results).
 from abc import ABC, abstractmethod
 from typing import List
 
-from ..core.schemas import ExternalData, MarketData, MarketDetails, OrderBook, Trade
+from ..core.schemas import (
+    BarData,
+    ExternalData,
+    MarketData,
+    MarketDetails,
+    OrderBook,
+    Trade,
+)
 
 
 class BaseMarketDataProvider(ABC):
@@ -60,6 +67,17 @@ class BaseMarketDataProvider(ABC):
 
         :param market_id: The unique identifier for the market.
         :return: A list of Trade objects, typically sorted by time.
+        """
+        pass
+
+    @abstractmethod
+    def get_bars(self, market_id: str, count: int = 100) -> List[BarData]:
+        """
+        Fetches the recent aggregated bars for a specific market.
+
+        :param market_id: The unique identifier for the market.
+        :param count: The number of recent bars to fetch.
+        :return: A list of BarData objects.
         """
         pass
 

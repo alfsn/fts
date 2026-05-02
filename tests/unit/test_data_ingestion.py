@@ -8,6 +8,7 @@ import pytest
 
 # Import ABCs and Schemas
 from trading_bot.core.schemas import (
+    BarData,
     ExternalData,
     IngestionEngineOutput,
     MarketData,
@@ -58,6 +59,9 @@ class FakeMarketProvider(BaseMarketDataProvider):
 
     def get_trade_history(self, market_id: str) -> List[Trade]:
         return self.data_to_return.get(market_id).recent_trades
+
+    def get_bars(self, market_id: str, count: int = 100) -> List[BarData]:
+        return getattr(self.data_to_return.get(market_id), "recent_bars", [])
 
 
 class FakeExternalProvider(BaseExternalDataProvider):

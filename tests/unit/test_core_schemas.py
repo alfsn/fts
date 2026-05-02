@@ -385,28 +385,28 @@ def test_sizing_input_valid(
 
 def test_sizing_output_valid():
     """Tests successful creation of a SizingOutput."""
-    output = SizingOutput(amount_usdc=100.0, size_shares=150.0)
-    assert output.amount_usdc == 100.0
+    output = SizingOutput(amount_quote=100.0, size_shares=150.0)
+    assert output.amount_quote == 100.0
     assert output.size_shares == 150.0
 
     # A "no trade" output is also valid
-    output_zero = SizingOutput(amount_usdc=0.0, size_shares=0.0)
-    assert output_zero.amount_usdc == 0.0
+    output_zero = SizingOutput(amount_quote=0.0, size_shares=0.0)
+    assert output_zero.amount_quote == 0.0
 
 
 def test_sizing_output_invalid():
     """Tests validation errors for SizingOutput."""
-    # Test amount_usdc constraint (ge=0)
+    # Test amount_quote constraint (ge=0)
     with pytest.raises(
         ValidationError, match="Input should be greater than or equal to 0"
     ):
-        SizingOutput(amount_usdc=-1.0, size_shares=100.0)
+        SizingOutput(amount_quote=-1.0, size_shares=100.0)
 
     # Test size_shares constraint (ge=0)
     with pytest.raises(
         ValidationError, match="Input should be greater than or equal to 0"
     ):
-        SizingOutput(amount_usdc=100.0, size_shares=-1.0)
+        SizingOutput(amount_quote=100.0, size_shares=-1.0)
 
 
 def test_order_request_valid():

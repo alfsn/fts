@@ -55,14 +55,14 @@ def mock_db_session():
 
 @pytest.fixture
 def base_portfolio():
-    """Returns a new Portfolio with 10,000 USDC."""
+    """Returns a new Portfolio with 10,000 quote currency."""
     return Portfolio(initial_balance=10000.0)
 
 
 @pytest.fixture
 def fixed_sizer():
-    """Returns a FixedAmountSizer of 100 USDC."""
-    return FixedAmountSizer(default_amount_usdc=100.0)
+    """Returns a FixedAmountSizer of 100 quote currency."""
+    return FixedAmountSizer(default_amount_quote=100.0)
 
 
 @pytest.fixture
@@ -446,7 +446,7 @@ class TestRiskManager:
         # Use a sizer that will return 0
         zero_sizer = MagicMock(spec=BaseSizingStrategy)
         zero_sizer.calculate_size.return_value = SizingOutput(
-            amount_usdc=0, size_shares=0
+            amount_quote=0, size_shares=0
         )
 
         rm = RiskManager(portfolio=mock_portfolio, sizer=zero_sizer)
@@ -470,7 +470,7 @@ class TestRiskManager:
         )
         mock_portfolio.get_state.return_value = low_balance_state
 
-        # Fixed sizer is 100 USDC, which is > 50
+        # Fixed sizer is 100 quote currency, which is > 50
         rm = RiskManager(portfolio=mock_portfolio, sizer=fixed_sizer)
         order = rm.process_signal(mock_buy_signal, market_data_map)
 
@@ -487,7 +487,7 @@ class TestRiskManager:
         assert order.market_id == "MARKET_01"
         assert order.side == OrderSide.BUY
 
-        # Sizer is 100 USDC. Price is 0.51 (best ask).
+        # Sizer is 100 quote currency. Price is 0.51 (best ask).
         # Size = 100 / 0.51 = 196.078...
         assert order.size == pytest.approx(100.0 / 0.51)
         assert order.price == 0.51
@@ -501,10 +501,36 @@ class TestRiskManager:
         assert isinstance(order, OrderRequest)
         assert order.side == OrderSide.SELL
 
-        # Sizer is 100 USDC. Price is 0.49 (best bid).
+        # Sizer is 100 quote currency. Price is 0.49 (best bid).
         # Size = 100 / 0.49 = 204.08...
         assert order.size == pytest.approx(100.0 / 0.49)
         assert order.price == 0.49
+
+    def test_process_signal_flat(self, mock_portfolio, fixed_sizer, market_data_map):
+        rm = RiskManager(portfolio=mock_portfolio, sizer=fixed_sizer)
+
+        # Setup a position to flatten (Long 100 shares)
+        pos = Position(market_id="MARKET_01", size=100, entry_price=0.4)
+        mock_portfolio.get_state.return_value = PortfolioState(
+            total_balance_quote=10000.0,
+            available_balance_quote=9960.0,
+            positions=[pos],
+            open_orders=[],
+        )
+
+        signal = TradeSignal(
+            market_id="MARKET_01",
+            strategy_name="test",
+            signal_type=SignalType.FLAT,
+            confidence=1.0,
+        )
+
+        order = rm.process_signal(signal, market_data_map)
+
+        assert order is not None
+        assert order.side == OrderSide.SELL
+        assert order.size == 100
+        assert order.price == 0.49  # Best bid from market_data_map fixture
 
     # --- Direct tests for _passes_risk_checks ---
 
@@ -512,7 +538,7 @@ class TestRiskManager:
     def risk_check_deps(self, mock_market_data):
         """Dependencies for testing _passes_risk_checks directly."""
         rm = RiskManager(MagicMock(spec=Portfolio), MagicMock())  # Mock portfolio
-        sizing_output = SizingOutput(amount_usdc=1000, size_shares=2000)
+        sizing_output = SizingOutput(amount_quote=1000, size_shares=2000)
         signal = TradeSignal(
             market_id="MKT1",
             strategy_name="test",
@@ -562,7 +588,7 @@ class TestRiskManager:
 
         rm.max_allocation_per_market = 0.1  # 10%
         # total_equity is 10000. max_alloc is 1000.
-        # sizing_output.amount_usdc is 1000.
+        # sizing_output.amount_quote is 1000.
 
         portfolio_state.positions = [
             Position(market_id="MKT1", size=10, entry_price=0.1)
