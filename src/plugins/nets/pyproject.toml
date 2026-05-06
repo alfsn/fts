@@ -7,6 +7,14 @@ authors = [
 ]
 dependencies = [
     "fts",
+    "onnxruntime",
+    "numpy",
+    "xgboost",
+    "scikit-learn",
+    "torch",
+    "onnxmltools",
+    "skl2onnx",
+    "onnx",
 ]
 requires-python = ">=3.12"
 license = { text = "MIT" }
