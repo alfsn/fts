@@ -1,34 +1,36 @@
 # src/plugins/nets/strategies/nets_strategy.py
 
 import logging
-from typing import Any, Sequence
+from typing import Sequence
 
 from trading_bot.core.schemas import IngestionEngineOutput, SignalType, TradeSignal
 from trading_bot.core.transforms import BaseTransform
 from trading_bot.strategy.abc import BaseStrategy
 
-from ..flat_buckets import BaseFlatBucket
+from ..classifiers import BaseClassifier
+from ..enums import PredictionSignal
+from ..inference import ONNXPredictor
 
 logger = logging.getLogger(__name__)
 
 
 class NetsStrategy(BaseStrategy):
     """
-    A strategy that uses a neural net or ML model to generate signals.
-    Orchestrates transforms, inference, and flat-bucket classification.
+    A strategy that uses an ONNX model to generate forecasts and classifies
+    them into UP, FLAT, or DOWN signals.
     """
 
     def __init__(
         self,
-        model: Any,  # Placeholder for XGBoost/CNN model
+        predictor: ONNXPredictor,
         transform: BaseTransform,
-        flat_bucket: BaseFlatBucket,
+        classifier: BaseClassifier,
         lookback_period: int = 20,
         name_suffix: str = "v1",
     ) -> None:
-        self.model = model
+        self.predictor = predictor
         self.transform = transform
-        self.flat_bucket = flat_bucket
+        self.classifier = classifier
         self.lookback_period = lookback_period
         self._name = f"nets_strategy_{name_suffix}"
 
@@ -48,18 +50,19 @@ class NetsStrategy(BaseStrategy):
             prices = [b.close for b in bars[-self.lookback_period :]]
             features = self.transform.transform(prices)
 
-            # 2. Inference (Mock for v0)
-            # In reality, this would be: predicted_return = self.model.predict(features)
-            # For v0, let's assume the model returns the last return + a small bias
-            predicted_return = features[-1] * 1.1 if features else 0.0
+            # 2. Inference via ONNX
+            predicted_return = self.predictor.predict(features)
 
-            # 3. Classify using Flat Bucket
-            if self.flat_bucket.is_flat(predicted_return, bars):
+            # 3. Classify using the Classifier (UFD)
+            signal_direction = self.classifier.classify(predicted_return, bars)
+
+            # 4. Map UFD to TradeSignal
+            if signal_direction == PredictionSignal.FLAT:
                 signal_type = SignalType.FLAT
                 confidence = 0.5
-            elif predicted_return > 0:
+            elif signal_direction == PredictionSignal.UP:
                 signal_type = SignalType.BUY
-                confidence = min(abs(predicted_return) * 10, 1.0)  # Simple scaling
+                confidence = min(abs(predicted_return) * 10, 1.0)
             else:
                 signal_type = SignalType.SELL
                 confidence = min(abs(predicted_return) * 10, 1.0)
