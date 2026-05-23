@@ -1,55 +1,59 @@
 # Nets Plugin (Forecasting & ML)
 
-The `nets` plugin provides a modular framework for implementing machine learning based forecasting strategies within the FTS (Financial Trading System) core. It specifically addresses the complexities of the Argentinian market (CCL conversion) and implements S.O.L.I.D. and DRY principles for ML inference and training.
+The `nets` plugin provides a standardized, S.O.L.I.D. framework for implementing machine learning based forecasting strategies within the FTS (Financial Trading System) core. It leverages **ONNX** for cross-framework inference and a **UFD (Up/Flat/Down)** classification system for robust signal generation.
 
-## 1. Pending Implementation (To-Do)
+## 1. Architecture & Design
 
-While the architectural foundation is complete, the following data and logic components are pending:
+The plugin follows a decoupled pipeline to ensure that trading logic is isolated from ML model specifics:
 
-*   **Real Data Ingestion**: The plugin currently relies on placeholders for market data. Integration with a live Argentinian stock provider (e.g., BYMA/Rofex API) via `BaseMarketDataProvider` is required.
-*   **Historical Data Population**: Scripts to fetch and store historical ticks/trades into `BarDataLog` (Dollar Bars) to enable model training.
-*   **Concrete Model Artifacts**: Transition from "Mock Models" to actual serialized model files (`.json` for XGBoost, `.pt` for PyTorch/CNN).
-*   **Offline Training Pipeline**: A dedicated script to process `BarDataLog` data, generate features via `LogReturnTransform`, and save trained models.
-*   **Real inference in NetsStrategy**.
+1.  **Structural Conversion**: `DatasetBuilder` in core converts raw bars into feature matrices and sliding windows.
+2.  **Inference (ONNX)**: An `.onnx` model (often an exported `sklearn.pipeline.Pipeline`) predicts the next return. This standardized approach allows models trained in PyTorch, XGBoost, or Scikit-Learn to be used interchangeably, often with preprocessing like scaling baked directly into the artifact.
+3.  **Classification (UFD)**: The predicted return is classified as `UP`, `FLAT`, or `DOWN` based on dynamic or fixed thresholds.
+4.  **Signal Generation**: The classification is mapped to a `TradeSignal` (BUY, SELL, or FLAT).
 
-## 2. Current v0 Status
+## 2. Core Components
 
-The current implementation is a functional "v0" prototype:
+### `ONNXPredictor`
+The heart of the inference engine. It loads an ONNX model file and performs standardized inference. 
+*   **Contract**: Accepts arbitrary `numpy.ndarray` or `Dict[str, np.ndarray]` inputs and returns an `ndarray` of predictions. Input preparation is delegated to the `Transform` layer or the Strategy.
 
-*   **NetsStrategy**: Uses a mock inference logic (extrapolating from the last return).
-*   **DynamicFlat**: Implements a simplified ATR-based neutral zone calculation. It currently uses a rolling average of (High-Low) as an approximation.
-*   **CCLProvider**: Implements a midpoint approach for `GGAL` (Local vs. ADR) with a fixed 10:1 ratio.
-*   **ModelTrainer**: Interfaces are defined as placeholders (`XGBoostTrainer`, `CNNTrainer`) but do not yet contain training algorithms.
-*   **ConfidenceSizer**: Performs linear scaling of position sizes based on a 0.0-1.0 confidence score.
+### `BaseClassifier` (UFD)
+Classifies model output into actionable signals.
+*   **`SimpleThresholdClassifier`**: Uses a fixed threshold (e.g., 0.1%) to filter noise.
+*   **`DynamicThresholdClassifier`**: Uses ATR (Average True Range) to adjust the "Flat" zone based on current market volatility.
 
-## 3. Usage & Implementation
+### `BaseModelTrainer`
+Standardized interfaces for offline training and ONNX export:
+*   **`LinearRegressionTrainer`**: Baseline statistical model.
+*   **`XGBoostTrainer`**: Gradient boosting for non-linear patterns.
+*   **`CNNTrainer`**: Convolutional Neural Network for sequence/pattern recognition.
 
-To use the `nets` plugin, you must define a **Task** in a YAML configuration file. The `PluginLoader` will handle the instantiation of all components.
+## 3. Usage & Configuration
+
+To use the `nets` plugin, define a **Task** in a YAML configuration file.
 
 ### Example Configuration (`nets_task.yaml`)
 
 ```yaml
-name: "nets_forecasting_ggal"
-market_ids: ["GGAL_ARS"]
-extra_models: ["nets.db_models"] # If plugin defines extra tables
-
-market_provider:
-  class_path: "trading_bot.data_ingestion.providers.MockProvider" # Replace with real provider
-  params: {}
+name: "nets_forecasting_example"
+market_ids: ["BTC_USD"]
 
 strategies:
   - class_path: "nets.strategies.nets_strategy.NetsStrategy"
     params:
       lookback_period: 20
       name_suffix: "v1"
+      predictor:
+        class_path: "nets.inference.ONNXPredictor"
+        params:
+          model_path: "models/my_xgboost_model.onnx"
       transform:
         class_path: "trading_bot.core.transforms.LogReturnTransform"
-      flat_bucket:
-        class_path: "nets.flat_buckets.DynamicFlat"
+      classifier:
+        class_path: "nets.classifiers.DynamicThresholdClassifier"
         params:
           k: 0.5
           period: 10
-      model: "path/to/model.json"
 
 sizing_strategy:
   class_path: "nets.sizing.confidence_sizer.ConfidenceSizer"
@@ -57,40 +61,21 @@ sizing_strategy:
     base_amount_quote: 1000.0
 ```
 
-### Running a Backtest with the Plugin
+## 4. Development Workflow
 
-```python
-from trading_bot.config import TaskConfig, PluginLoader
-from trading_bot.backtesting.simulator import BacktestSimulator
-import yaml
+### Adding a New Trainer
+1.  Implement `BaseModelTrainer` in `training.py`.
+2.  Ensure the `train()` method returns the serialized ONNX bytes.
+3.  Add any new dependencies to `pyproject.toml`.
 
-# 1. Load Config
-with open("nets_task.yaml") as f:
-    config = TaskConfig(**yaml.safe_load(f))
+### Adding a New Classifier
+1.  Implement `BaseClassifier` in `classifiers.py`.
+2.  Return a `PredictionSignal` (UP, FLAT, DOWN).
 
-# 2. Instantiate Components via PluginLoader
-market_provider = PluginLoader.instantiate(config.market_provider)
-strategies = [PluginLoader.instantiate(s) for s in config.strategies]
-# ... (instantiate other components)
+## 5. Verification
 
-# 3. Run Simulator
-simulator = BacktestSimulator(db=db, strategy_engine=engine, ...)
-simulator.run()
+Run the test suite to ensure architectural integrity:
+```bash
+uv run pytest tests/unit/test_nets_plugin.py tests/unit/test_nets_integration.py tests/unit/test_argentina_plugin.py
 ```
-
-## 4. Design Philosophy
-
-*   **Decoupled Transforms**: Pre-processing (Log-returns) lives in the Core to be shared across any ML plugin.
-*   **Interface Segregation**: The plugin only knows about `BaseStrategy` and `BaseSizingStrategy` abstractions from the Core.
-*   **Market Isolation**: All Argentinian-specific logic (CCL) is encapsulated within the plugin's `CCLProvider`.
-
-## 5. Package Management
-
-This plugin is a discrete package within the `uv` workspace. It depends on the `fts` core package.
-
-*   **Package Name**: `fts-plugin-nets`
-*   **Import Name**: `nets`
-*   **Location**: `src/plugins/nets/`
-
-Dependencies are managed in `src/plugins/nets/pyproject.toml`.
 
