@@ -10,7 +10,7 @@ source of truth for all other modules.
 import importlib
 import os
 from functools import lru_cache
-from typing import Any, Dict, List, Literal, Type
+from typing import Any, Dict, List, Literal, Optional, Type
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,10 +33,17 @@ class TaskConfig(BaseModel):
     """Configuration for a specific trading or backtesting task."""
 
     name: str
+    loop_driver: Optional[ComponentConfig] = Field(
+        None, description="Dynamic event loop timing/scheduling configuration"
+    )
     market_provider: ComponentConfig
     external_providers: List[ComponentConfig] = Field(default_factory=list)
     strategies: List[ComponentConfig]
     sizing_strategy: ComponentConfig
+    execution_handler: Optional[ComponentConfig] = Field(
+        None,
+        description="Dynamic execution handler configuration (e.g., PolymarketHandler)",
+    )
     market_ids: List[str]
     extra_models: List[str] = Field(
         default_factory=list, description="Plugin DB models to register"
@@ -53,9 +60,28 @@ class PluginLoader:
         return getattr(module, class_name)
 
     @classmethod
+    def _resolve_params(cls, val: Any) -> Any:
+        """Recursively checks and instantiates nested configurations."""
+        if isinstance(val, dict):
+            if "class_path" in val:
+                # Resolve inner params first
+                inner_params = cls._resolve_params(val.get("params", {}))
+                resolved_config = ComponentConfig(
+                    class_path=val["class_path"], params=inner_params
+                )
+                return cls.instantiate(resolved_config)
+            else:
+                return {k: cls._resolve_params(v) for k, v in val.items()}
+        elif isinstance(val, list):
+            return [cls._resolve_params(item) for item in val]
+        return val
+
+    @classmethod
     def instantiate(cls, config: ComponentConfig) -> Any:
         klass = cls.load_class(config.class_path)
-        return klass(**config.params)
+        # Recursively resolve any nested component configs in parameters
+        resolved_params = {k: cls._resolve_params(v) for k, v in config.params.items()}
+        return klass(**resolved_params)
 
 
 def get_env_filename() -> str:
