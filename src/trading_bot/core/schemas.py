@@ -9,12 +9,12 @@ ensures that all data is validated, typed, and well-documented.
 """
 
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 # Refactored: MarketOutcome removed
-from .enums import AlertSeverity, BarType, OrderSide, OrderStatus, SignalType
+from .enums import AlertSeverity, BarType, OrderSide, OrderStatus, OrderType, SignalType
 
 # --- Module 1: Data Ingestion Engine Schemas ---
 
@@ -70,6 +70,13 @@ class Trade(BaseModel):
         ...,
         description="The side of the trade (buy or sell) from the taker's perspective.",
     )
+    outcome: Optional[str] = Field(
+        None,
+        description="""
+        The specific outcome traded,
+        if this is a prediction market (e.g. 'yes' or 'no').
+        """,
+    )
 
 
 class MarketDetails(BaseModel):
@@ -123,9 +130,12 @@ class MarketData(BaseModel):
     market_id: str = Field(
         ..., description="The unique identifier for the market this data pertains to."
     )
-    order_book: OrderBook = Field(..., description="The current order book state.")
-    recent_trades: List[Trade] = Field(
-        ..., description="A list of recently executed trades for this market."
+    order_book: Optional[OrderBook] = Field(
+        None, description="The current order book state, if available."
+    )
+    recent_trades: Optional[List[Trade]] = Field(
+        None,
+        description="A list of recently executed trades for this market, if available.",
     )
     details: MarketDetails = Field(..., description="The static details of the market.")
     recent_bars: List[BarData] = Field(
@@ -194,7 +204,13 @@ class TradeSignal(BaseModel):
     signal_type: SignalType = Field(
         ..., description="The type of signal (BUY, SELL, or HOLD)."
     )
-    # 'outcome' field removed to be asset-agnostic
+    outcome: Optional[str] = Field(
+        None,
+        description="""
+        The specific outcome to trade,
+        if this is a prediction market (e.g. 'yes' or 'no').
+        """,
+    )
     confidence: float = Field(
         ...,
         description="""The strategy's confidence in this signal,
@@ -213,7 +229,12 @@ class Position(BaseModel):
     """
 
     market_id: str = Field(..., description="The market this position is in.")
-    # 'outcome' field removed to be asset-agnostic
+    outcome: Optional[str] = Field(
+        None,
+        description="""
+        The prediction market outcome, if applicable (e.g. 'yes' or 'no').
+        """,
+    )
     size: float = Field(
         ...,
         description="The number of shares held. Positive for long, negative for short.",
@@ -286,13 +307,23 @@ class OrderRequest(BaseModel):
 
     market_id: str = Field(..., description="The market to place the order in.")
     side: OrderSide = Field(..., description="The side of the order (BUY or SELL).")
-    # 'outcome' field removed to be asset-agnostic
+    outcome: Optional[str] = Field(
+        None,
+        description="""
+        The specific outcome to trade,
+        if this is a prediction market (e.g. 'yes' or 'no').
+        """,
+    )
     size: float = Field(..., description="The exact number of shares to trade.", gt=0)
     price: float = Field(
         ...,
         description="""The limit price for the order.
         The order should not be filled at a worse price.""",
         gt=0,
+    )
+    order_type: OrderType = Field(
+        OrderType.LIMIT,
+        description="The type of order (LIMIT, MARKET, STOP).",
     )
 
 
@@ -320,6 +351,10 @@ class ExecutionResult(BaseModel):
     )
     timestamp: datetime = Field(
         ..., description="The timestamp of this execution status update."
+    )
+    order_type: OrderType = Field(
+        OrderType.LIMIT,
+        description="The type of order (LIMIT, MARKET, STOP).",
     )
 
 
