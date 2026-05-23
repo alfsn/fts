@@ -44,3 +44,18 @@ This `ExecutionResult` is then used to update the `PortfolioState`, which feeds 
 * **Pydantic**: For all data contracts and settings management.
 * **SQLAlchemy**: For database session management and ORM models.
 * **uv**: For dependency management (see `uv.lock`).
+
+---
+
+## Project Structure & Workspace
+
+The project is organized as a `uv` workspace to support modular development of the core system and its plugins.
+
+*   **Workspace Root**: Managed by the root `pyproject.toml`.
+*   **Core (`fts`)**: Located in `src/trading_bot/`, containing the main trading engine.
+*   **Plugins**: Modular extensions located in `src/plugins/` (e.g., `src/plugins/nets/`).
+
+To install all packages and dependencies:
+```bash
+uv sync --all-packages
+```

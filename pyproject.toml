@@ -1,22 +1,18 @@
 [project]
-name = "fts"
+name = "fts-workspace"
 version = "0.1.0"
-description = "An automated trading system for Polymarket or Kalshi"
+description = "Workspace for the fts trading system"
 authors = [
     { name = "Alfredo Sampron", email = "alfredosampronnoel@gmail.com" },
-]
-dependencies = [
-    "pre-commit>=4.3.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0", 
-    "sqlalchemy>=2.0.44",
 ]
 requires-python = ">=3.12"
 readme = "README.md"
 license = { text = "MIT" }
+dependencies = [
+    "pre-commit>=4.3.0",
+]
 
 [project.optional-dependencies]
-# Dependencies only needed for development, testing, and linting
 dev = [
     "pytest>=7.0",
     "pre-commit",
@@ -24,8 +20,11 @@ dev = [
     "pycln",
     "isort",
     "flake8",
-    "mypy", # Static type checker
+    "mypy",
 ]
+
+[tool.uv.workspace]
+members = ["src/trading_bot", "src/plugins/nets", "src/plugins/argentina"]
 
 [tool.black]
 line-length = 88
@@ -47,8 +46,5 @@ exclude = '''
 
 [tool.isort]
 profile = "black"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/trading_bot"] 
 
 [tool.uv]
