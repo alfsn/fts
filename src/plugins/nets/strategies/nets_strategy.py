@@ -3,6 +3,8 @@
 import logging
 from typing import Sequence
 
+import numpy as np
+
 from trading_bot.core.schemas import IngestionEngineOutput, SignalType, TradeSignal
 from trading_bot.core.transforms import BaseTransform
 from trading_bot.strategy.abc import BaseStrategy
@@ -43,15 +45,19 @@ class NetsStrategy(BaseStrategy):
 
         for market_id, market_data in data.market_data.items():
             bars = market_data.recent_bars
-            if len(bars) < self.lookback_period:
+            if len(bars) < self.lookback_period + 1:
                 continue
 
             # 1. Extract prices and transform
-            prices = [b.close for b in bars[-self.lookback_period :]]
-            features = self.transform.transform(prices)
+            prices = [b.close for b in bars[-self.lookback_period - 1 :]]
+            features = self.transform.transform(np.array(prices).reshape(-1, 1))
 
             # 2. Inference via ONNX
-            predicted_return = self.predictor.predict(features)
+            # Ensure features are in the correct shape
+            # (1, lookback) for the pipeline/model
+            input_data = features.flatten().reshape(1, -1).astype(np.float32)
+            prediction = self.predictor.predict(input_data)
+            predicted_return = float(prediction.flatten()[0])
 
             # 3. Classify using the Classifier (UFD)
             signal_direction = self.classifier.classify(predicted_return, bars)
