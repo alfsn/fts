@@ -1,6 +1,9 @@
 # tests/unit/test_nets_integration.py
 
 from datetime import datetime
+from unittest.mock import MagicMock
+
+import numpy as np
 
 from trading_bot.config import ComponentConfig, PluginLoader
 from trading_bot.core.enums import BarType, SignalType
@@ -13,21 +16,24 @@ from trading_bot.core.schemas import (
     SizingInput,
 )
 
+...
+
 
 def test_plugin_component_loading():
     # 1. Test loading NetsStrategy
+    mock_predictor = MagicMock()
     strategy_config = ComponentConfig(
         class_path="nets.strategies.nets_strategy.NetsStrategy",
         params={
-            "model": "mock_model",
+            "predictor": mock_predictor,
             "transform": PluginLoader.instantiate(
                 ComponentConfig(
                     class_path="trading_bot.core.transforms.LogReturnTransform"
                 )
             ),
-            "flat_bucket": PluginLoader.instantiate(
+            "classifier": PluginLoader.instantiate(
                 ComponentConfig(
-                    class_path="nets.flat_buckets.DummyFlat",
+                    class_path="nets.classifiers.SimpleThresholdClassifier",
                     params={"threshold": 0.001},
                 )
             ),
@@ -36,6 +42,9 @@ def test_plugin_component_loading():
     )
     strategy = PluginLoader.instantiate(strategy_config)
     assert strategy.name == "nets_strategy_v1"
+
+    # Set mock return for predictor
+    mock_predictor.predict.return_value = np.array([0.01])
 
     # 2. Test evaluate
     bars = [
