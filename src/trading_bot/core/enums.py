@@ -84,3 +84,13 @@ class PositionStatus(str, Enum):
 
     OPEN = "open"
     CLOSED = "closed"
+
+
+class OrderType(str, Enum):
+    """
+    Represents the type of an order.
+    """
+
+    LIMIT = "limit"
+    MARKET = "market"
+    STOP = "stop"

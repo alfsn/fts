@@ -119,6 +119,7 @@ class OrderLog(Base):
 
     # --- Data from OrderRequest ---
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     requested_size: Mapped[float] = mapped_column(nullable=False)
     requested_price: Mapped[float] = mapped_column(nullable=False)
 
@@ -167,6 +168,7 @@ class TradeLog(Base):
         String, ForeignKey("markets.market_id"), index=True, nullable=False
     )
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide), nullable=False)
+    outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # The size and price of this specific fill
     fill_size: Mapped[float] = mapped_column(nullable=False)
@@ -235,6 +237,7 @@ class Position(Base):
     market_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False
     )
+    outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # The current number of shares held
     size: Mapped[float] = mapped_column(nullable=False)
@@ -259,6 +262,6 @@ class Position(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<Position(market_id='{self.market_id}', "
+            f"<Position(market_id='{self.market_id}', outcome='{self.outcome}', "
             f"size={self.size}, status='{self.status}')>"
         )
