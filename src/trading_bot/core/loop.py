@@ -3,11 +3,11 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from ..backtesting.abc import BaseBacktestDataReader
 from .pipeline import TradingPipeline
 from .schemas import IngestionEngineOutput, MarketData, MarketDetails
 
@@ -97,43 +97,49 @@ class HistoricalReplayLoop(BaseEventLoop):
     Used for local backtesting simulation.
     """
 
-    def __init__(self, data_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        data_reader: Optional[BaseBacktestDataReader] = None,
+        data_path: Optional[str] = None,
+    ) -> None:
         """
         Initializes the backtest replay scheduler.
 
-        :param data_path: Path to the file containing historical price series or trade data.
+        :param data_reader: Pluggable backtesting data reader that streams chronological ticks.
+        :param data_path: Deprecated data path parameter.
         """
+        self.data_reader = data_reader
         self.data_path = data_path
 
     def start(self, pipeline: TradingPipeline, db: Optional[Session] = None) -> None:
-        logger.info(f"Starting HistoricalReplayLoop loading from: {self.data_path}")
+        logger.info("Starting HistoricalReplayLoop simulation...")
 
-        # In a real backtesting scenario, we would load the dataset here,
-        # set up a simulated broker / virtual order fills, and feed
-        # price updates one by one to the ingestion engine before executing a tick.
-        #
-        # For this version, we provide a structured placeholder that executes a single mock pass safely
-        # without invoking live network/database queries from the production IngestionEngine.
-        logger.debug(
-            "Running historical backtest simulation tick safely using offline mock ingestion..."
-        )
+        reader = self.data_reader
+        if not reader and self.data_path:
+            # Fallback for backwards compatibility with legacy configurations and test suites
+            from ..backtesting.readers import CSVBacktestDataReader
 
-        mock_details = MarketDetails(
-            market_id="mock-btc",
-            name="Will BTC exceed 100k?",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="oracle",
-        )
-        mock_market_data = MarketData(
-            market_id="mock-btc",
-            details=mock_details,
-            recent_bars=[],
-        )
-        mock_ingestion_output = IngestionEngineOutput(
-            timestamp=datetime.now(timezone.utc),
-            market_data={"mock-btc": mock_market_data},
-            external_data=[],
-        )
+            reader = CSVBacktestDataReader(self.data_path, "mock-btc")
 
-        pipeline.execute_single_tick(db, ingestion_output=mock_ingestion_output)
-        logger.info("HistoricalReplayLoop complete.")
+        if not reader:
+            logger.warning(
+                "No data_reader or data_path provided to HistoricalReplayLoop. Skipping playback."
+            )
+            return
+
+        # Playback each historical tick sequentially, preventing live execution/ingestion queries
+        tick_count = 0
+        try:
+            for tick_data in reader.read_data():
+                logger.debug(
+                    f"Replaying historical tick {tick_count + 1} at {tick_data.timestamp}..."
+                )
+                pipeline.execute_single_tick(db, ingestion_output=tick_data)
+                tick_count += 1
+        except Exception as e:
+            logger.error(
+                f"Error during playback at tick {tick_count + 1}: {e}", exc_info=True
+            )
+            raise e
+
+        logger.info(f"HistoricalReplayLoop complete. Replayed {tick_count} ticks.")

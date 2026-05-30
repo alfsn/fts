@@ -34,7 +34,16 @@ def test_historical_replay_loop(mock_pipeline):
     Tests that HistoricalReplayLoop executes the pipeline tick once
     representing the data replay cycle.
     """
-    loop_driver = HistoricalReplayLoop(data_path="mock_history.csv")
+    from datetime import datetime, timezone
+
+    from trading_bot.backtesting.abc import BaseBacktestDataReader
+
+    mock_reader = MagicMock(spec=BaseBacktestDataReader)
+    mock_tick = MagicMock()
+    mock_tick.timestamp = datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc)
+    mock_reader.read_data.return_value = [mock_tick]
+
+    loop_driver = HistoricalReplayLoop(data_reader=mock_reader)
 
     # Start loop
     loop_driver.start(pipeline=mock_pipeline)
