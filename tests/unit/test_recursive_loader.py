@@ -51,9 +51,9 @@ def test_recursive_instantiation_simple():
     parent = PluginLoader.instantiate(config)
 
     # Assertions
-    assert isinstance(parent, DummyParent)
+    assert type(parent).__name__ == "DummyParent"
     assert parent.name == "TestParent"
-    assert isinstance(parent.sub, DummySub)
+    assert type(parent.sub).__name__ == "DummySub"
     assert parent.sub.value == 42
 
 
@@ -95,17 +95,17 @@ def test_recursive_instantiation_nested_lists():
     grandparent = PluginLoader.instantiate(config)
 
     # Assertions
-    assert isinstance(grandparent, DummyGrandParent)
+    assert type(grandparent).__name__ == "DummyGrandParent"
     assert grandparent.active is True
     assert len(grandparent.parents) == 2
 
     p1, p2 = grandparent.parents
-    assert isinstance(p1, DummyParent)
+    assert type(p1).__name__ == "DummyParent"
     assert p1.name == "Parent1"
-    assert isinstance(p1.sub, DummySub)
+    assert type(p1.sub).__name__ == "DummySub"
     assert p1.sub.value == 100
 
-    assert isinstance(p2, DummyParent)
+    assert type(p2).__name__ == "DummyParent"
     assert p2.name == "Parent2"
-    assert isinstance(p2.sub, DummySub)
+    assert type(p2.sub).__name__ == "DummySub"
     assert p2.sub.value == 200

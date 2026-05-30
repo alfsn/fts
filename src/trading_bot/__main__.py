@@ -12,7 +12,11 @@ from trading_bot.core.database import SessionLocal, init_db
 from trading_bot.core.loop import BaseEventLoop
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.repository import OrderRepository, PositionRepository
+from trading_bot.data_ingestion.engine import DataIngestionEngine
+from trading_bot.execution.engine import ExecutionEngine
+from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.strategy.engine import StrategyEngine
 
 # Setup logging
 logging.basicConfig(
@@ -94,23 +98,15 @@ def main() -> None:
 
         sizing_strategy = PluginLoader.instantiate(task_config.sizing_strategy)
 
-        if task_config.execution_handler:
-            execution_handler = PluginLoader.instantiate(task_config.execution_handler)
-        else:
-            from trading_bot.execution.handlers.polymarket_handler import (
-                PolymarketHandler,
+        if not task_config.execution_handler:
+            logger.critical(
+                "No execution_handler component configured in task YAML config!"
             )
+            sys.exit(1)
 
-            execution_handler = PolymarketHandler()
-            logger.info(
-                "No execution_handler configured. Defaulting to mock PolymarketHandler."
-            )
+        execution_handler = PluginLoader.instantiate(task_config.execution_handler)
 
         # 6. Bind into Core Orchestration Engines
-        from trading_bot.data_ingestion.engine import DataIngestionEngine
-        from trading_bot.execution.engine import ExecutionEngine
-        from trading_bot.risk_management.manager import RiskManager
-        from trading_bot.strategy.engine import StrategyEngine
 
         ingestion_engine = DataIngestionEngine(
             market_provider=market_provider,

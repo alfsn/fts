@@ -1,5 +1,7 @@
 # tests/unit/test_repository.py
 
+from datetime import datetime
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,12 +25,8 @@ def in_memory_db():
     market = MarketModel(
         market_id="AAPL",
         name="Apple Inc. Stock",
-        end_date=Base.metadata.bind.url,  # Dummy datetime placeholder
+        end_date=datetime.now(),
     )
-    # Using datetime now for end_date instead of mock string to prevent SQLite conversion errors
-    from datetime import datetime
-
-    market.end_date = datetime.now()
     session.add(market)
     session.commit()
 
