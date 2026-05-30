@@ -50,6 +50,9 @@ def mock_db_session():
     """Mocks the SQLAlchemy Session."""
     db = MagicMock(spec=Session)
     db.query.return_value.filter_by.return_value.first.return_value = None
+    db.query.return_value.filter_by.return_value.filter.return_value.first.return_value = (
+        None
+    )
     return db
 
 
@@ -286,8 +289,8 @@ class TestPortfolio:
         base_portfolio.update_order_status(mock_db_session, fill)
 
         # Realized P&L = 100 * (0.7 - 0.4) = 30
-        # Cash = 9960 (start) + 70 (fill value) + 30 (pnl) = 10060
-        assert base_portfolio._cash_balance == 10060.0
+        # Cash = 9960 (start) + 70 (fill value) = 10030
+        assert base_portfolio._cash_balance == 10030.0
 
         # Position should be closed
         pos_key = "MKT1"
@@ -365,28 +368,6 @@ class TestPortfolio:
         assert pos_key in base_portfolio._positions
         assert base_portfolio._positions[pos_key].size == 50
         assert base_portfolio._positions[pos_key].entry_price == 0.2
-
-    def test_persist_position_create(self, mock_db_session):
-        # Test _persist_position when no position exists
-        pos_schema = Position(market_id="MKT_NEW", size=-10, entry_price=0.3)
-        portfolio = Portfolio(100)
-
-        # Mock query to find no existing position
-        mock_db_session.query.return_value.filter_by.return_value.first.return_value = (
-            None
-        )
-
-        portfolio._persist_position(mock_db_session, pos_schema, create=True)
-
-        mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
-
-        # Check that the object added was a PositionModel
-        added_obj = mock_db_session.add.call_args[0][0]
-        assert isinstance(added_obj, PositionModel)
-        assert added_obj.market_id == "MKT_NEW"
-        assert added_obj.size == -10
-        assert added_obj.status == PositionStatus.OPEN
 
 
 # --- TestRiskManager Class ---

@@ -204,7 +204,6 @@ class Portfolio:
                     realized_pnl = trade_size * (trade_price - pos.entry_price)
                 else:  # Closing part of a short
                     realized_pnl = trade_size * (pos.entry_price - trade_price)
-                self._cash_balance += realized_pnl
                 pos.size = new_size
 
             elif is_flipping:
@@ -214,7 +213,6 @@ class Portfolio:
                     realized_pnl = size_closed * (trade_price - pos.entry_price)
                 else:  # Flipping short to long
                     realized_pnl = size_closed * (pos.entry_price - trade_price)
-                self._cash_balance += realized_pnl
                 pos.size = new_size
                 pos.entry_price = trade_price  # New entry price is the flip price
 

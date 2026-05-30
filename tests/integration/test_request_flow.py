@@ -184,9 +184,8 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
 
     # --- 7. ASSERT (Final State) ---
 
-    # P&L = 857.14 * (0.70 - 0.60) = +85.71
-    # Cash = 9400 + (857.14 * 0.70) + 85.71 = 9400 + 600 + 85.71 = 10085.71
-    assert portfolio._cash_balance == pytest.approx(10000 + (60 / 0.7))
+    # Cash = 9400 + (857.14 * 0.70) = 9400 + 600 = 10000.0
+    assert portfolio._cash_balance == pytest.approx(10000.0)
 
     final_state = portfolio.get_state(market_data_map)
     assert len(final_state.positions) == 1
