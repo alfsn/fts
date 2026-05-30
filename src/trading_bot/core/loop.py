@@ -3,11 +3,13 @@
 import logging
 import time
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from .pipeline import TradingPipeline
+from .schemas import IngestionEngineOutput, MarketData, MarketDetails
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ class RealTimePollingLoop(BaseEventLoop):
         try:
             while self._running:
                 logger.debug(f"Executing polling tick {tick_count + 1}...")
+                start_time = time.time()
                 pipeline.execute_single_tick(db)
                 tick_count += 1
 
@@ -72,8 +75,10 @@ class RealTimePollingLoop(BaseEventLoop):
                     )
                     break
 
-                # Sleep until next scheduled interval
-                time.sleep(self.interval)
+                # Sleep until next scheduled interval, correcting for tick execution time
+                elapsed = time.time() - start_time
+                sleep_time = max(0.0, self.interval - elapsed)
+                time.sleep(sleep_time)
 
         except KeyboardInterrupt:
             logger.info("Loop execution interrupted by user (KeyboardInterrupt).")
@@ -107,7 +112,28 @@ class HistoricalReplayLoop(BaseEventLoop):
         # set up a simulated broker / virtual order fills, and feed
         # price updates one by one to the ingestion engine before executing a tick.
         #
-        # For this version, we provide a structured placeholder that executes a single mock pass.
-        logger.debug("Running historical backtest simulation tick...")
-        pipeline.execute_single_tick(db)
+        # For this version, we provide a structured placeholder that executes a single mock pass safely
+        # without invoking live network/database queries from the production IngestionEngine.
+        logger.debug(
+            "Running historical backtest simulation tick safely using offline mock ingestion..."
+        )
+
+        mock_details = MarketDetails(
+            market_id="mock-btc",
+            name="Will BTC exceed 100k?",
+            end_date=datetime.now(timezone.utc),
+            resolution_source="oracle",
+        )
+        mock_market_data = MarketData(
+            market_id="mock-btc",
+            details=mock_details,
+            recent_bars=[],
+        )
+        mock_ingestion_output = IngestionEngineOutput(
+            timestamp=datetime.now(timezone.utc),
+            market_data={"mock-btc": mock_market_data},
+            external_data=[],
+        )
+
+        pipeline.execute_single_tick(db, ingestion_output=mock_ingestion_output)
         logger.info("HistoricalReplayLoop complete.")
