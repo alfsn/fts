@@ -10,6 +10,7 @@ from ..execution.engine import ExecutionEngine
 from ..risk_management.manager import RiskManager
 from ..risk_management.portfolio import Portfolio
 from ..strategy.engine import StrategyEngine
+from .schemas import IngestionEngineOutput
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,11 @@ class TradingPipeline:
         self.execution = execution
         self.portfolio = portfolio
 
-    def execute_single_tick(self, db: Optional[Session] = None) -> None:
+    def execute_single_tick(
+        self,
+        db: Optional[Session] = None,
+        ingestion_output: Optional[IngestionEngineOutput] = None,
+    ) -> None:
         """
         Executes one complete pass of the trading bot pipeline.
 
@@ -50,11 +55,13 @@ class TradingPipeline:
         4. Routes approved orders to the Execution Engine for fill placement.
 
         :param db: The optional SQLAlchemy database session.
+        :param ingestion_output: Optional pre-fetched or simulated ingestion data.
         """
         logger.debug("--- Starting pipeline tick ---")
         try:
             # Step 1: Ingest Data
-            ingestion_output = self.ingestion.fetch_all_data()
+            if ingestion_output is None:
+                ingestion_output = self.ingestion.fetch_all_data()
             if not ingestion_output.market_data:
                 logger.debug("No active market data received this tick.")
                 return
