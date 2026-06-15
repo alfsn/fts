@@ -11,6 +11,7 @@ class ONNXPredictor:
     """
     Generic inference engine using ONNX.
     Accepts arbitrary input shapes and types, delegating preparation to the caller.
+    Automatically reshapes 2D raw feature matrices based on the model's metadata.
     """
 
     def __init__(self, model_path: str) -> None:
@@ -35,6 +36,20 @@ class ONNXPredictor:
             # 1. Normalize input to Dict[str, ndarray]
             if isinstance(inputs, np.ndarray):
                 first_input_name = list(self.input_metadata.keys())[0]
+                expected_shape = self.input_metadata[first_input_name].shape
+
+                # Automatically shape 2D inputs of (lookback, n_features)
+                if len(inputs.shape) == 2:
+                    lookback, n_features = inputs.shape
+                    if len(expected_shape) == 3:
+                        # PyTorch models expect (batch, n_features, lookback)
+                        inputs = inputs.T.reshape(1, n_features, lookback).astype(
+                            np.float32
+                        )
+                    elif len(expected_shape) == 2:
+                        # sklearn/XGBoost models expect (batch, lookback * n_features)
+                        inputs = inputs.flatten().reshape(1, -1).astype(np.float32)
+
                 onnx_inputs = {first_input_name: inputs}
             else:
                 onnx_inputs = inputs
