@@ -1,8 +1,13 @@
 # src/plugins/nets/training.py
 
+import io
 import logging
-from typing import Any, Sequence
+from typing import Any, Dict, Sequence, Union
 
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from skl2onnx import to_onnx
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
@@ -12,6 +17,9 @@ from trading_bot.core.dataset import DatasetBuilder
 from trading_bot.core.schemas import BarData
 from trading_bot.core.training import BaseModelTrainer
 from trading_bot.core.transforms import LogReturnTransform
+
+from .models import SimpleCNN, SimpleLSTM, SimpleRNN
+from .schemas import CNNConfig, LSTMConfig, NNTrainingConfig, RNNConfig
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +37,6 @@ class LinearRegressionTrainer(BaseModelTrainer):
         logger.info(f"Training LinearRegression on {len(historical_bars)} bars.")
 
         # 1. Structural Conversion (SOLID: Extract window logic to Core)
-        # We first get raw close prices
         matrix = DatasetBuilder.to_matrix(historical_bars, feature_cols=["close"])
 
         # Apply LogReturn (Python-side preprocessing for now)
@@ -97,11 +104,6 @@ class XGBoostTrainer(BaseModelTrainer):
 
         pipeline.fit(X, y)
 
-        # Export (Requires custom handling for XGBoost within Pipeline)
-        # For simplicity, we convert the pipeline
-        # by treating it as a standard sklearn object
-        # skl2onnx handles Pipeline, but it needs to know how to
-        # convert the XGBoost part.
         from onnxmltools.convert.xgboost.operator_converters.XGBoost import (
             convert_xgboost as convert_xgboost_op,
         )
@@ -110,7 +112,6 @@ class XGBoostTrainer(BaseModelTrainer):
             calculate_linear_regressor_output_shapes,
         )
 
-        # This registration is sometimes necessary depending on versions
         update_registered_converter(
             xgb.XGBRegressor,
             "XGBRegressor",
@@ -122,75 +123,129 @@ class XGBoostTrainer(BaseModelTrainer):
         return onx.SerializeToString()
 
 
-class CNNTrainer(BaseModelTrainer):
+class BasePyTorchTrainer(BaseModelTrainer):
     """
-    Trains a CNN model and exports to ONNX.
-    Note: PyTorch models usually don't use sklearn Pipelines directly for ONNX export.
+    Abstract trainer base for PyTorch models that handles dataset creation,
+    optional TensorBoard logging, training loops, and exporting to ONNX.
     """
 
-    def __init__(self, lookback_period: int = 20) -> None:
+    def __init__(
+        self,
+        lookback_period: int = 20,
+        training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+    ) -> None:
         self.lookback_period = lookback_period
         self.transform = LogReturnTransform()
+        self.training_config = (
+            training_config
+            if isinstance(training_config, NNTrainingConfig)
+            else NNTrainingConfig(**(training_config or {}))
+        )
 
-    def train(self, historical_bars: Sequence[BarData]) -> Any:
-        import io
-
-        import torch
-        import torch.nn as nn
-        import torch.optim as optim
-
-        logger.info(f"Training CNN on {len(historical_bars)} bars.")
-
+    def _prepare_data(
+        self, historical_bars: Sequence[BarData]
+    ) -> Union[None, tuple[np.ndarray, np.ndarray, float, float]]:
         matrix = DatasetBuilder.to_matrix(historical_bars, feature_cols=["close"])
         returns = self.transform.transform(matrix)
 
         if len(returns) < self.lookback_period + 1:
+            logger.error("Insufficient data for PyTorch neural network training.")
             return None
 
         X_raw, y_raw = DatasetBuilder.create_sliding_windows(
             returns, lookback=self.lookback_period, horizon=1
         )
 
-        # Scaling (In PyTorch we often do this manually or via a layer)
-        X_mean = X_raw.mean()
-        X_std = X_raw.std() + 1e-8
-        X_scaled = (X_raw - X_mean) / X_std
+        # Calculate mean & std from raw features for internal model scaling
+        X_mean = float(X_raw.mean())
+        X_std = float(X_raw.std() + 1e-8)
 
-        X_pt = torch.tensor(X_scaled, dtype=torch.float32).transpose(
-            1, 2
-        )  # [batch, channels, seq]
+        return X_raw, y_raw, X_mean, X_std
+
+    def _train_model(
+        self,
+        model: nn.Module,
+        X_raw: np.ndarray,
+        y_raw: np.ndarray,
+        dummy_input: torch.Tensor,
+    ) -> None:
+        # X_pt shape: [batch_size, 1, seq_len]
+        X_pt = torch.tensor(X_raw, dtype=torch.float32).transpose(1, 2)
         y_pt = torch.tensor(y_raw.flatten(), dtype=torch.float32).unsqueeze(1)
 
-        # 2. Define Model (Including Scaling logic as a constant)
-        class SimpleCNN(nn.Module):
-            def __init__(self, input_dim, mean, std):
-                super().__init__()
-                self.mean = nn.Parameter(torch.tensor(mean), requires_grad=False)
-                self.std = nn.Parameter(torch.tensor(std), requires_grad=False)
-                self.conv1 = nn.Conv1d(1, 16, kernel_size=3, padding=1)
-                self.relu = nn.ReLU()
-                self.fc = nn.Linear(16 * input_dim, 1)
+        dataset = torch.utils.data.TensorDataset(X_pt, y_pt)
+        dataloader = torch.utils.data.DataLoader(
+            dataset, batch_size=self.training_config.batch_size, shuffle=True
+        )
 
-            def forward(self, x):
-                # Apply scaling inside the model for ONNX portability
-                x = (x - self.mean) / self.std
-                x = self.relu(self.conv1(x))
-                x = x.view(x.size(0), -1)
-                x = self.fc(x)
-                return x
+        # Loss function
+        if self.training_config.loss_fn == "mse":
+            criterion = nn.MSELoss()
+        elif self.training_config.loss_fn == "mae":
+            criterion = nn.L1Loss()
+        elif self.training_config.loss_fn == "huber":
+            criterion = nn.HuberLoss()
+        else:
+            criterion = nn.MSELoss()
 
-        model = SimpleCNN(self.lookback_period, X_mean, X_std)
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        # Optimizer
+        if self.training_config.optimizer == "adam":
+            optimizer = optim.Adam(
+                model.parameters(), lr=self.training_config.learning_rate
+            )
+        elif self.training_config.optimizer == "sgd":
+            optimizer = optim.SGD(
+                model.parameters(), lr=self.training_config.learning_rate
+            )
+        elif self.training_config.optimizer == "rmsprop":
+            optimizer = optim.RMSprop(
+                model.parameters(), lr=self.training_config.learning_rate
+            )
+        else:
+            optimizer = optim.Adam(
+                model.parameters(), lr=self.training_config.learning_rate
+            )
 
-        for epoch in range(10):
-            optimizer.zero_grad()
-            outputs = model(X_pt)
-            loss = criterion(outputs, y_pt)
-            loss.backward()
-            optimizer.step()
+        # Optional TensorBoard logging
+        writer = None
+        if self.training_config.tensorboard_log_dir:
+            import os
 
-        # 4. Export to ONNX
+            from torch.utils.tensorboard import SummaryWriter
+
+            os.makedirs(self.training_config.tensorboard_log_dir, exist_ok=True)
+            writer = SummaryWriter(log_dir=self.training_config.tensorboard_log_dir)
+            try:
+                writer.add_graph(model, dummy_input)
+            except Exception as e:
+                logger.warning(f"Could not log model graph to TensorBoard: {e}")
+
+        global_step = 0
+        for epoch in range(self.training_config.epochs):
+            model.train()
+            epoch_loss = 0.0
+            for batch_X, batch_y in dataloader:
+                optimizer.zero_grad()
+                outputs = model(batch_X)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+
+                loss_val = loss.item()
+                epoch_loss += loss_val
+                if writer:
+                    writer.add_scalar("Loss/train_step", loss_val, global_step)
+                global_step += 1
+
+            epoch_loss /= len(dataloader)
+            if writer:
+                writer.add_scalar("Loss/train_epoch", epoch_loss, epoch)
+
+        if writer:
+            writer.close()
+
+    def _export_to_onnx(self, model: nn.Module) -> bytes:
+        model.eval()
         dummy_input = torch.randn(1, 1, self.lookback_period)
         f = io.BytesIO()
         torch.onnx.export(
@@ -199,6 +254,132 @@ class CNNTrainer(BaseModelTrainer):
             f,
             input_names=["input"],
             output_names=["output"],
-            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+            dynamic_axes={
+                "input": {0: "batch_size"},
+                "output": {0: "batch_size"},
+            },
         )
         return f.getvalue()
+
+
+class CNNTrainer(BasePyTorchTrainer):
+    """
+    Trains a CNN model and exports to ONNX.
+    """
+
+    def __init__(
+        self,
+        lookback_period: int = 20,
+        model_config: Union[CNNConfig, Dict[str, Any], None] = None,
+        training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+    ) -> None:
+        super().__init__(
+            lookback_period=lookback_period, training_config=training_config
+        )
+        self.model_config = (
+            model_config
+            if isinstance(model_config, CNNConfig)
+            else CNNConfig(**(model_config or {}))
+        )
+
+    def train(self, historical_bars: Sequence[BarData]) -> Any:
+        logger.info(f"Training CNN on {len(historical_bars)} bars.")
+        data = self._prepare_data(historical_bars)
+        if data is None:
+            return None
+
+        X_raw, y_raw, X_mean, X_std = data
+
+        # Instantiate SimpleCNN
+        model = SimpleCNN(
+            input_dim=self.lookback_period,
+            config=self.model_config,
+            mean=X_mean,
+            std=X_std,
+        )
+
+        dummy_input = torch.randn(1, 1, self.lookback_period)
+        self._train_model(model, X_raw, y_raw, dummy_input)
+        return self._export_to_onnx(model)
+
+
+class RNNTrainer(BasePyTorchTrainer):
+    """
+    Trains an Elman RNN model and exports to ONNX.
+    """
+
+    def __init__(
+        self,
+        lookback_period: int = 20,
+        model_config: Union[RNNConfig, Dict[str, Any], None] = None,
+        training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+    ) -> None:
+        super().__init__(
+            lookback_period=lookback_period, training_config=training_config
+        )
+        self.model_config = (
+            model_config
+            if isinstance(model_config, RNNConfig)
+            else RNNConfig(**(model_config or {}))
+        )
+
+    def train(self, historical_bars: Sequence[BarData]) -> Any:
+        logger.info(f"Training RNN on {len(historical_bars)} bars.")
+        data = self._prepare_data(historical_bars)
+        if data is None:
+            return None
+
+        X_raw, y_raw, X_mean, X_std = data
+
+        # Instantiate SimpleRNN
+        model = SimpleRNN(
+            input_dim=self.lookback_period,
+            config=self.model_config,
+            mean=X_mean,
+            std=X_std,
+        )
+
+        dummy_input = torch.randn(1, 1, self.lookback_period)
+        self._train_model(model, X_raw, y_raw, dummy_input)
+        return self._export_to_onnx(model)
+
+
+class LSTMTrainer(BasePyTorchTrainer):
+    """
+    Trains a Long Short-Term Memory (LSTM) network and exports to ONNX.
+    """
+
+    def __init__(
+        self,
+        lookback_period: int = 20,
+        model_config: Union[LSTMConfig, Dict[str, Any], None] = None,
+        training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+    ) -> None:
+        super().__init__(
+            lookback_period=lookback_period, training_config=training_config
+        )
+        self.model_config = (
+            model_config
+            if isinstance(model_config, LSTMConfig)
+            else LSTMConfig(**(model_config or {}))
+        )
+
+    def train(self, historical_bars: Sequence[BarData]) -> Any:
+        logger.info(f"Training LSTM on {len(historical_bars)} bars.")
+        data = self._prepare_data(historical_bars)
+        if data is None:
+            return None
+
+        X_raw, y_raw, X_mean, X_std = data
+
+        # Instantiate SimpleLSTM
+        model = SimpleLSTM(
+            input_dim=self.lookback_period,
+            config=self.model_config,
+            mean=X_mean,
+            std=X_std,
+        )
+
+        dummy_input = torch.randn(1, 1, self.lookback_period)
+        self._train_model(model, X_raw, y_raw, dummy_input)
+        return self._export_to_onnx(model)
