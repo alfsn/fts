@@ -60,3 +60,62 @@ def test_classifiers():
     assert dynamic.classify(0.02, bars) == PredictionSignal.FLAT
     assert dynamic.classify(0.04, bars) == PredictionSignal.UP
     assert dynamic.classify(-0.04, bars) == PredictionSignal.DOWN
+
+
+def test_pytorch_trainers(tmp_path):
+    from nets.schemas import CNNConfig, LSTMConfig, NNTrainingConfig, RNNConfig
+    from nets.training import CNNTrainer, LSTMTrainer, RNNTrainer
+
+    # Create dummy data
+    bars = [
+        BarData(
+            timestamp=datetime.now(),
+            open=100 + i * 0.1,
+            high=101 + i * 0.1,
+            low=99 + i * 0.1,
+            close=100 + i * 0.1,
+            volume=100,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=100,
+        )
+        for i in range(40)
+    ]
+
+    # CNN Trainer
+    cnn_trainer = CNNTrainer(
+        lookback_period=10,
+        model_config=CNNConfig(
+            out_channels=[8], kernel_sizes=[3], pool_sizes=[None], dense_units=16
+        ),
+        training_config=NNTrainingConfig(
+            epochs=2, batch_size=4, tensorboard_log_dir=str(tmp_path / "cnn_tb")
+        ),
+    )
+    onnx_bytes_cnn = cnn_trainer.train(bars)
+    assert onnx_bytes_cnn is not None
+    assert len(onnx_bytes_cnn) > 0
+
+    # RNN Trainer
+    rnn_trainer = RNNTrainer(
+        lookback_period=10,
+        model_config=RNNConfig(hidden_dim=8, num_layers=1),
+        training_config=NNTrainingConfig(
+            epochs=2, batch_size=4, tensorboard_log_dir=str(tmp_path / "rnn_tb")
+        ),
+    )
+    onnx_bytes_rnn = rnn_trainer.train(bars)
+    assert onnx_bytes_rnn is not None
+    assert len(onnx_bytes_rnn) > 0
+
+    # LSTM Trainer
+    lstm_trainer = LSTMTrainer(
+        lookback_period=10,
+        model_config=LSTMConfig(hidden_dim=8, num_layers=1, bidirectional=True),
+        training_config=NNTrainingConfig(
+            epochs=2, batch_size=4, tensorboard_log_dir=str(tmp_path / "lstm_tb")
+        ),
+    )
+    onnx_bytes_lstm = lstm_trainer.train(bars)
+    assert onnx_bytes_lstm is not None
+    assert len(onnx_bytes_lstm) > 0
