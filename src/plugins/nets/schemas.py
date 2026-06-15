@@ -30,7 +30,7 @@ class BaseTrainerConfig(BaseModel):
     horizon: int = Field(default=1, ge=1, description="Forecasting horizon")
 
 
-class NNTrainingConfig(BaseModel):
+class NNTrainingConfig(BaseTrainerConfig):
     """Configuration for neural network training loops and TensorBoard monitoring."""
 
     epochs: int = Field(default=10, ge=1, description="Number of training epochs")
@@ -48,19 +48,6 @@ class NNTrainingConfig(BaseModel):
         default=None,
         description="Directory to save TensorBoard logs (relative to project root/artifacts)",
     )
-    validation_split: float = Field(
-        default=0.2,
-        ge=0.0,
-        le=0.9,
-        description="Fraction of data to use for validation",
-    )
-    embargo_pct: float = Field(
-        default=0.01,
-        ge=0.0,
-        le=0.1,
-        description="Percentage of data to use as embargo buffer",
-    )
-    horizon: int = Field(default=1, ge=1, description="Forecasting horizon")
     early_stopping_patience: int = Field(
         default=5,
         ge=1,
