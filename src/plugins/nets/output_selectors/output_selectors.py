@@ -28,6 +28,34 @@ class SimpleThresholdClassifier(BaseRegressionOutputSelector):
         return signal, confidence
 
 
+def calculate_atr_pct(bars: Sequence[BarData], period: int) -> float:
+    """
+    Calculates the Average True Range percentage (ATR_pct) over the specified period,
+    properly accounting for price gaps and protecting against division by zero.
+    """
+    if not bars or len(bars) < period:
+        return 0.0
+
+    total_tr_pct = 0.0
+    for i in range(len(bars) - period, len(bars)):
+        bar = bars[i]
+        prev_bar = bars[i - 1] if i > 0 else bar
+
+        high_low = bar.high - bar.low
+        high_prev_close = abs(bar.high - prev_bar.close)
+        low_prev_close = abs(bar.low - prev_bar.close)
+
+        true_range = max(high_low, high_prev_close, low_prev_close)
+        close_denom = (
+            prev_bar.close
+            if prev_bar.close > 1e-8
+            else (bar.close if bar.close > 1e-8 else 1.0)
+        )
+        total_tr_pct += true_range / close_denom
+
+    return total_tr_pct / period
+
+
 class DynamicThresholdClassifier(BaseRegressionOutputSelector):
     """
     Uses ATR to determine a dynamic 'flat' zone and computes return-based confidence.
@@ -54,11 +82,7 @@ class DynamicThresholdClassifier(BaseRegressionOutputSelector):
             confidence = min(abs(predicted_return) * self.confidence_multiplier, 1.0)
             return signal, confidence
 
-        # Calculate ATR (simplified: High - Low average)
-        total_range = 0.0
-        for bar in bars[-self.period :]:
-            total_range += (bar.high - bar.low) / bar.close
-        atr_pct = total_range / self.period
+        atr_pct = calculate_atr_pct(bars, self.period)
 
         dynamic_threshold = self.k * atr_pct
         if abs(predicted_return) < dynamic_threshold:
