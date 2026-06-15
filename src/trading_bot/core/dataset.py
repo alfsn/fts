@@ -46,3 +46,78 @@ class DatasetBuilder:
             y.append(data[i + lookback : i + lookback + horizon])
 
         return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
+
+    @staticmethod
+    def split_train_val_purged_embargoed(
+        X: np.ndarray,
+        y: np.ndarray,
+        val_ratio: float = 0.2,
+        horizon: int = 1,
+        embargo_pct: float = 0.01,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Splits X and y into train and validation sets with purging and embargoing.
+        Assumes chronological ordering where validation is at the end.
+        """
+        n_samples = len(X)
+        if n_samples <= 2:
+            return (
+                X,
+                y,
+                np.empty((0,) + X.shape[1:], dtype=X.dtype),
+                np.empty((0,) + y.shape[1:], dtype=y.dtype),
+            )
+
+        val_size = int(n_samples * val_ratio)
+        if val_size == 0:
+            val_size = min(1, n_samples // 5)
+            if val_size == 0:
+                val_size = 1
+
+        train_size = n_samples - val_size
+
+        # Validation indices (chronologically at the end)
+        val_indices = np.arange(train_size, n_samples)
+
+        # Initial train indices (before validation)
+        train_indices = np.arange(0, train_size)
+
+        # Purging: remove training samples whose labels overlap with validation start
+        # Training sample i has label window [i, i + horizon].
+        # First validation sample is at index `train_size` (val_start).
+        # We must purge training samples where index + horizon >= train_size
+        # which means index >= train_size - horizon
+        purged_train_indices = train_indices[train_indices < train_size - horizon]
+
+        # Embargoing: since validation is after training in this chronological split,
+        # we don't have training data after the validation set.
+        # But if we did (or for future proofing), we exclude train indices in [val_end + 1, val_end + 1 + embargo_size]
+        embargo_size = int(np.ceil(n_samples * embargo_pct)) if embargo_pct > 0 else 0
+
+        final_train_indices = []
+        if len(val_indices) > 0:
+            val_start = val_indices[0]
+            val_end = val_indices[-1]
+            for idx in purged_train_indices:
+                # 1. Purge: if train index is before val and its label overlaps with val
+                is_purged = (idx < val_start) and (idx + horizon >= val_start)
+                # 2. Embargo: if train index is after val and falls within the embargo window
+                is_embargoed = (idx > val_end) and (idx <= val_end + embargo_size)
+                if not (is_purged or is_embargoed):
+                    final_train_indices.append(idx)
+        else:
+            final_train_indices = list(purged_train_indices)
+
+        if len(final_train_indices) == 0:
+            final_train_indices = (
+                list(purged_train_indices) if len(purged_train_indices) > 0 else [0]
+            )
+
+        final_train_indices = np.array(final_train_indices, dtype=np.int32)
+
+        return (
+            X[final_train_indices],
+            y[final_train_indices],
+            X[val_indices],
+            y[val_indices],
+        )

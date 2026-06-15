@@ -15,6 +15,19 @@ class BaseTrainerConfig(BaseModel):
         default_factory=lambda: ["close"],
         description="Bar attributes to use as features",
     )
+    validation_split: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=0.9,
+        description="Fraction of data to use for validation",
+    )
+    embargo_pct: float = Field(
+        default=0.01,
+        ge=0.0,
+        le=0.1,
+        description="Percentage of data to use as embargo buffer",
+    )
+    horizon: int = Field(default=1, ge=1, description="Forecasting horizon")
 
 
 class NNTrainingConfig(BaseModel):
@@ -34,6 +47,32 @@ class NNTrainingConfig(BaseModel):
     tensorboard_log_dir: Optional[str] = Field(
         default=None,
         description="Directory to save TensorBoard logs (relative to project root/artifacts)",
+    )
+    validation_split: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=0.9,
+        description="Fraction of data to use for validation",
+    )
+    embargo_pct: float = Field(
+        default=0.01,
+        ge=0.0,
+        le=0.1,
+        description="Percentage of data to use as embargo buffer",
+    )
+    horizon: int = Field(default=1, ge=1, description="Forecasting horizon")
+    early_stopping_patience: int = Field(
+        default=5,
+        ge=1,
+        description="Epochs to wait for validation loss improvement before stopping",
+    )
+    early_stopping_min_delta: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Minimum change in validation loss to qualify as an improvement",
+    )
+    clip_grad_norm: Optional[float] = Field(
+        default=1.0, gt=0.0, description="Gradient clipping max norm value"
     )
 
 
