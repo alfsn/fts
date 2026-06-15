@@ -341,3 +341,195 @@ def test_multidimensional_training(tmp_path):
     onnx_bytes_cnn = cnn_trainer.train(bars)
     assert onnx_bytes_cnn is not None
     assert len(onnx_bytes_cnn) > 0
+
+
+def test_confidence_sizer_zero_size():
+    from nets.sizing.confidence_sizer import ConfidenceSizer
+
+    from trading_bot.core.enums import BarType, SignalType
+    from trading_bot.core.schemas import (
+        MarketData,
+        MarketDetails,
+        PortfolioState,
+        SizingInput,
+        TradeSignal,
+    )
+
+    sizer = ConfidenceSizer(base_amount_quote=1000.0)
+
+    # Mock input data
+    signal_flat = TradeSignal(
+        market_id="BTC_USD",
+        strategy_name="test_strat",
+        signal_type=SignalType.FLAT,
+        confidence=0.5,
+    )
+    signal_hold = TradeSignal(
+        market_id="BTC_USD",
+        strategy_name="test_strat",
+        signal_type=SignalType.HOLD,
+        confidence=0.5,
+    )
+    signal_buy = TradeSignal(
+        market_id="BTC_USD",
+        strategy_name="test_strat",
+        signal_type=SignalType.BUY,
+        confidence=0.5,
+    )
+
+    bars = [
+        BarData(
+            timestamp=datetime.now(),
+            open=100.0,
+            high=100.0,
+            low=100.0,
+            close=100.0,
+            volume=1.0,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=100.0,
+        )
+    ]
+
+    details = MarketDetails(
+        market_id="BTC_USD",
+        name="BTC_USD",
+        end_date=datetime.now(),
+        resolution_source="test",
+    )
+    market_data = MarketData(market_id="BTC_USD", recent_bars=bars, details=details)
+
+    portfolio = PortfolioState(
+        total_balance_quote=10000.0,
+        available_balance_quote=10000.0,
+        positions=[],
+        open_orders=[],
+    )
+
+    input_flat = SizingInput(
+        signal=signal_flat, market_data=market_data, portfolio_state=portfolio
+    )
+    input_hold = SizingInput(
+        signal=signal_hold, market_data=market_data, portfolio_state=portfolio
+    )
+    input_buy = SizingInput(
+        signal=signal_buy, market_data=market_data, portfolio_state=portfolio
+    )
+
+    output_flat = sizer.calculate_size(input_flat)
+    output_hold = sizer.calculate_size(input_hold)
+    output_buy = sizer.calculate_size(input_buy)
+
+    assert output_flat.amount_quote == 0.0
+    assert output_flat.size_shares == 0.0
+    assert output_hold.amount_quote == 0.0
+    assert output_hold.size_shares == 0.0
+
+    assert output_buy.amount_quote == 500.0
+    assert output_buy.size_shares == 5.0
+
+
+def test_calculate_atr_pct_with_gaps():
+    from nets.output_selectors.output_selectors import calculate_atr_pct
+
+    bars = [
+        BarData(
+            timestamp=datetime.now(),
+            open=100,
+            high=102,
+            low=98,
+            close=100,
+            volume=1,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=100,
+        ),
+        # Gap up: prev close was 100, now low is 105, high is 110, close is 108
+        # High-low range = 5.
+        # Gapped true range = max(5, 110-100, |105-100|) = 10.
+        # Prev close denom = 100. So TR_pct = 10 / 100 = 0.10.
+        BarData(
+            timestamp=datetime.now(),
+            open=106,
+            high=110,
+            low=105,
+            close=108,
+            volume=1,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=108,
+        ),
+    ]
+
+    # calculate_atr_pct over 1 period
+    atr_pct = calculate_atr_pct(bars, period=1)
+    # Expected TR_pct = 0.10
+    assert pytest.approx(atr_pct) == 0.10
+
+
+def test_bidirectional_lstm_slicing():
+    import torch
+    from nets.models import LSTMConfig, SimpleLSTM
+
+    config = LSTMConfig(hidden_dim=4, num_layers=1, bidirectional=True)
+    # 2 features, mean/std zero/one
+    model = SimpleLSTM(
+        input_dim=5, n_features=2, config=config, mean=[0.0, 0.0], std=[1.0, 1.0]
+    )
+
+    # Input shape: [batch, features, seq_len] = [2, 2, 5]
+    x = torch.randn(2, 2, 5)
+    out = model(x)
+    # Since bidirectional=True and hidden_dim=4, the dense layer gets features of dim 8
+    # and outputs shape [batch, 1] = [2, 1]
+    assert out.shape == (2, 1)
+
+
+def test_trainers_with_multi_step_horizon(tmp_path):
+    from nets.models import BaseTrainerConfig, CNNConfig, NNTrainingConfig
+    from nets.training import CNNTrainer, LinearRegressionTrainer, XGBoostTrainer
+
+    bars = [
+        BarData(
+            timestamp=datetime.now(),
+            open=100 + i * 0.1,
+            high=101 + i * 0.1,
+            low=99 + i * 0.1,
+            close=100 + i * 0.1,
+            volume=100,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=100,
+        )
+        for i in range(40)
+    ]
+
+    # 1. LinearRegressionTrainer with horizon = 3
+    config = BaseTrainerConfig(lookback_period=10, validation_split=0.2, horizon=3)
+    lr_trainer = LinearRegressionTrainer(lookback_period=10, config=config)
+    onnx_bytes_lr = lr_trainer.train(bars)
+    assert onnx_bytes_lr is not None
+
+    # 2. XGBoostTrainer with horizon = 3
+    xgb_trainer = XGBoostTrainer(lookback_period=10, config=config)
+    onnx_bytes_xgb = xgb_trainer.train(bars)
+    assert onnx_bytes_xgb is not None
+
+    # 3. CNNTrainer with horizon = 3
+    nn_config = NNTrainingConfig(
+        lookback_period=10,
+        validation_split=0.2,
+        horizon=3,
+        epochs=2,
+        batch_size=4,
+        tensorboard_log_dir=str(tmp_path / "cnn_tb_h3"),
+    )
+    cnn_trainer = CNNTrainer(
+        lookback_period=10,
+        model_config=CNNConfig(
+            out_channels=[4], kernel_sizes=[3], pool_sizes=[None], dense_units=8
+        ),
+        training_config=nn_config,
+    )
+    onnx_bytes_cnn = cnn_trainer.train(bars)
+    assert onnx_bytes_cnn is not None
