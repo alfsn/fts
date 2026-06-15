@@ -167,8 +167,18 @@ class SimpleLSTM(nn.Module):
         x = (x - self.mean) / self.std
         x = x.transpose(1, 2)
         out, _ = self.lstm(x)
+
         # Take output of the last time step
-        out = out[:, -1, :]
+        if self.lstm.bidirectional:
+            # out shape: [batch, seq_len, hidden_dim * 2]
+            # Forward direction last step is at index -1
+            # Backward direction last step (first input in chronological order) is at index 0
+            out_forward = out[:, -1, : self.lstm.hidden_size]
+            out_backward = out[:, 0, self.lstm.hidden_size :]
+            out = torch.cat([out_forward, out_backward], dim=-1)
+        else:
+            out = out[:, -1, :]
+
         out = self.dropout(out)
         out = self.fc(out)
         return out
