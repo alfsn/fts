@@ -15,16 +15,38 @@ The plugin follows a decoupled pipeline to ensure that trading logic is isolated
 
 ---
 
-## 2. Core Components
+## 2. Package Layout
+
+The plugin codebase is organized into domain-focused subfolders under `src/plugins/nets/`:
+
+*   **`classifiers/`**: Definitions and implementations for return/probability selectors and thresholding:
+    *   `abc.py`: Abstract Base Classes (`BaseOutputSelector`, `BaseRegressionOutputSelector`).
+    *   `classifiers.py`: Concrete selectors (`SimpleThresholdClassifier`, `DynamicThresholdClassifier`, `ClassificationOutputSelector`, `QuantileOutputSelector`).
+*   **`models/`**: Neural network structures and validation schemas:
+    *   `models.py`: Concrete PyTorch model structures (`SimpleCNN`, `SimpleRNN`, `SimpleLSTM`).
+    *   `schemas.py`: Pydantic config schemas (`CNNConfig`, `LSTMConfig`, `NNTrainingConfig`, `BaseTrainerConfig`).
+*   **`training/`**: ML model trainers and validation/evaluation utilities:
+    *   `training.py`: Concrete trainers (`CNNTrainer`, `LSTMTrainer`, `XGBoostTrainer`, etc.).
+    *   `evaluator.py`: Cross-validation helpers (`MetricsCalculator`, `ValidationEvaluator`).
+*   **`inference/`**: ONNX engine:
+    *   `inference.py`: Standardized `ONNXPredictor`.
+*   **`sizing/`**: Sizer plugin implementation (`ConfidenceSizer`).
+
+---
+
+## 3. Core Components
 
 ### `ONNXPredictor`
 The heart of the inference engine. It loads an ONNX model file and performs standardized inference. 
 *   **Contract**: Accepts arbitrary `numpy.ndarray` or `Dict[str, np.ndarray]` inputs and returns an `ndarray` of predictions. Input preparation is delegated to the `Transform` layer or the Strategy.
 
-### `BaseClassifier` (UFD)
-Classifies model output into actionable signals.
-*   **`SimpleThresholdClassifier`**: Uses a fixed threshold (e.g., 0.1%) to filter noise.
-*   **`DynamicThresholdClassifier`**: Uses ATR (Average True Range) to adjust the "Flat" zone based on current market volatility.
+### `BaseOutputSelector`
+Converts model predictions into unified signals and confidence.
+*   **`BaseRegressionOutputSelector`**: Abstract base for regression return predictions. Subclasses:
+    *   **`SimpleThresholdClassifier`**: Uses a fixed threshold to filter noise and computes return-based confidence.
+    *   **`DynamicThresholdClassifier`**: Uses ATR to dynamically adjust the "Flat" zone.
+*   **`ClassificationOutputSelector`**: Converts probabilities to signals using configured class labels.
+*   **`QuantileOutputSelector`**: Converts `[q10, q50, q90]` quantile predictions using spread-based confidence.
 
 ### `BaseModelTrainer`
 Standardized interfaces for offline training and ONNX export:
@@ -36,23 +58,23 @@ Standardized interfaces for offline training and ONNX export:
 
 ---
 
-## 3. Configuration & Parameterization
+## 4. Configuration & Parameterization
 
-Neural network models are dynamically configured and validated using Pydantic models defined in `schemas.py`, while their network structures reside in `models.py`.
+Neural network models are dynamically configured and validated using Pydantic models defined in `models/schemas.py`, while their network structures reside in `models/models.py`.
 
-### Configuration Schemas (`schemas.py`)
+### Configuration Schemas (`models/schemas.py`)
 *   **`BaseTrainerConfig`**: Holds basic options common to all trainers (e.g. `lookback_period` and `feature_cols`).
 *   **`NNTrainingConfig`**: Deep learning training configurations (epochs, batch size, learning rate, optimizer, loss function, and TensorBoard logging directory).
 *   **`CNNConfig`**: Specific hyperparameters for CNNs (channels, kernels, pooling sizes, dropout).
 *   **`RNNConfig` & `LSTMConfig`**: Specific recurrent architecture parameters (hidden dimension, layers, dropout, bidirectional options).
 
-### Neural Network Architectures (`models.py`)
+### Neural Network Architectures (`models/models.py`)
 *   **`SimpleCNN`**, **`SimpleRNN`**, and **`SimpleLSTM`**: Standard PyTorch model classes.
 *   *Note: These models save training dataset parameters (`mean` and `std`) as internal PyTorch parameters, baking feature scaling directly into the exported `.onnx` file. No separate scaling pipeline is needed during live inference.*
 
 ---
 
-## 4. Model Visualization & Monitoring
+## 5. Model Visualization & Monitoring
 
 ### Graph Inspection (Netron)
 [Netron](https://netron.app/) is the open-source standard for visualizing exported model structures. You can drag and drop any exported `.onnx` file into Netron to interactively inspect the layers, tensor dimensions, and weights.
@@ -66,7 +88,7 @@ If `tensorboard_log_dir` is configured in `NNTrainingConfig`, the training loop 
 
 ---
 
-## 5. Usage & Configuration
+## 6. Usage & Configuration
 
 To use the `nets` plugin, define a **Task** in a YAML configuration file.
 
@@ -87,11 +109,35 @@ strategies:
           model_path: "models/my_lstm_model.onnx"
       transform:
         class_path: "trading_bot.core.transforms.LogReturnTransform"
-      classifier:
+      output_selector:
         class_path: "nets.classifiers.DynamicThresholdClassifier"
         params:
           k: 0.5
           period: 10
+
+### Alternative Output Selector Configurations
+
+#### 1. For Softmax Probability Models (Classification)
+If your ONNX model outputs discrete class probabilities (such as softmax [DOWN, FLAT, UP]):
+```yaml
+      output_selector:
+        class_path: "nets.classifiers.ClassificationOutputSelector"
+        params:
+          class_labels:
+            - "down"
+            - "flat"
+            - "up"
+```
+
+#### 2. For Quantile Forecasts (q10, q50, q90)
+If your ONNX model outputs three conditional quantiles representing uncertainty:
+```yaml
+      output_selector:
+        class_path: "nets.classifiers.QuantileOutputSelector"
+        params:
+          threshold: 0.001
+          spread_scale: 1.5
+```
 
 sizing_strategy:
   class_path: "nets.sizing.confidence_sizer.ConfidenceSizer"
@@ -101,21 +147,21 @@ sizing_strategy:
 
 ---
 
-## 6. Development Workflow
+## 7. Development Workflow
 
 ### Adding a New Trainer
-1.  Implement `BaseModelTrainer` (or inherit from `BasePyTorchTrainer`) in `training.py`.
-2.  Define any custom architecture in `models.py` and its configuration schema in `schemas.py`.
+1.  Implement `BaseModelTrainer` (or inherit from `BasePyTorchTrainer`) in `training/training.py`.
+2.  Define any custom architecture in `models/models.py` and its configuration schema in `models/schemas.py`.
 3.  Ensure the `train()` method returns the serialized ONNX bytes.
 4.  Add any new dependencies to `pyproject.toml`.
 
-### Adding a New Classifier
-1.  Implement `BaseClassifier` in `classifiers.py`.
-2.  Return a `PredictionSignal` (UP, FLAT, DOWN).
+### Adding a New Output Selector
+1.  Implement `BaseOutputSelector` (or inherit from `BaseRegressionOutputSelector`) in `classifiers/classifiers.py`.
+2.  Return a `(PredictionSignal, confidence)` tuple from `select_output()`.
 
 ---
 
-## 7. Advanced Training Features
+## 8. Advanced Training Features
 
 All model trainers support advanced time-series training and validation capabilities designed for quantitative finance:
 
@@ -139,7 +185,7 @@ Standard cross-validation and splits leak information when label windows overlap
 
 ---
 
-## 8. Verification
+## 9. Verification
 
 Run the test suite to ensure architectural integrity:
 ```bash

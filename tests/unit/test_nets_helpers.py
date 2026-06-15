@@ -3,8 +3,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from nets.evaluator import ValidationEvaluator
-from nets.training import TimeSeriesDataset
+from nets.training import TimeSeriesDataset, ValidationEvaluator
 from torch.utils.data import DataLoader
 
 

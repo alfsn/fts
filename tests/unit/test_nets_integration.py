@@ -31,7 +31,7 @@ def test_plugin_component_loading():
                     class_path="trading_bot.core.transforms.LogReturnTransform"
                 )
             ),
-            "classifier": PluginLoader.instantiate(
+            "output_selector": PluginLoader.instantiate(
                 ComponentConfig(
                     class_path="nets.classifiers.SimpleThresholdClassifier",
                     params={"threshold": 0.001},

@@ -19,16 +19,18 @@ from trading_bot.core.schemas import BarData
 from trading_bot.core.training import BaseModelTrainer
 from trading_bot.core.transforms import LogReturnTransform
 
-from .classifiers import BaseOutputSelector
-from .evaluator import MetricsCalculator, ValidationEvaluator
-from .models import SimpleCNN, SimpleLSTM, SimpleRNN
-from .schemas import (
+from ..classifiers import BaseOutputSelector
+from ..models import (
     BaseTrainerConfig,
     CNNConfig,
     LSTMConfig,
     NNTrainingConfig,
     RNNConfig,
+    SimpleCNN,
+    SimpleLSTM,
+    SimpleRNN,
 )
+from .evaluator import MetricsCalculator, ValidationEvaluator
 
 logger = logging.getLogger(__name__)
 

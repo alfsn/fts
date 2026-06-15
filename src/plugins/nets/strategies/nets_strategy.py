@@ -1,15 +1,16 @@
 # src/plugins/nets/strategies/nets_strategy.py
 
 import logging
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
+from trading_bot.core.dataset import DatasetBuilder
 from trading_bot.core.schemas import IngestionEngineOutput, SignalType, TradeSignal
 from trading_bot.core.transforms import BaseTransform
 from trading_bot.strategy.abc import BaseStrategy
 
-from ..classifiers import BaseClassifier
+from ..classifiers import BaseOutputSelector
 from ..enums import PredictionSignal
 from ..inference import ONNXPredictor
 
@@ -19,21 +20,23 @@ logger = logging.getLogger(__name__)
 class NetsStrategy(BaseStrategy):
     """
     A strategy that uses an ONNX model to generate forecasts and classifies
-    them into UP, FLAT, or DOWN signals.
+    them into signals and confidence scores using an output selector.
     """
 
     def __init__(
         self,
         predictor: ONNXPredictor,
         transform: BaseTransform,
-        classifier: BaseClassifier,
+        output_selector: BaseOutputSelector,
         lookback_period: int = 20,
         name_suffix: str = "v1",
+        feature_cols: Optional[Sequence[str]] = None,
     ) -> None:
         self.predictor = predictor
         self.transform = transform
-        self.classifier = classifier
+        self.output_selector = output_selector
         self.lookback_period = lookback_period
+        self.feature_cols = list(feature_cols) if feature_cols else ["close"]
         self._name = f"nets_strategy_{name_suffix}"
 
     @property
@@ -48,30 +51,29 @@ class NetsStrategy(BaseStrategy):
             if len(bars) < self.lookback_period + 1:
                 continue
 
-            # 1. Extract prices and transform
-            prices = [b.close for b in bars[-self.lookback_period - 1 :]]
-            features = self.transform.transform(np.array(prices).reshape(-1, 1))
+            # 1. Extract features dynamically using DatasetBuilder
+            raw_features = DatasetBuilder.to_matrix(
+                bars[-self.lookback_period - 1 :],
+                feature_cols=self.feature_cols,
+            )
+            features = self.transform.transform(raw_features)
 
             # 2. Inference via ONNX
-            # Ensure features are in the correct shape
-            # (1, lookback) for the pipeline/model
-            input_data = features.flatten().reshape(1, -1).astype(np.float32)
-            prediction = self.predictor.predict(input_data)
-            predicted_return = float(prediction.flatten()[0])
+            prediction = self.predictor.predict(features)
 
-            # 3. Classify using the Classifier (UFD)
-            signal_direction = self.classifier.classify(predicted_return, bars)
+            # 3. Classify using the Output Selector
+            feature_bars = bars[-self.lookback_period - 1 :]
+            signal_direction, confidence = self.output_selector.select_output(
+                prediction, feature_bars
+            )
 
-            # 4. Map UFD to TradeSignal
+            # 4. Map PredictionSignal to TradeSignal
             if signal_direction == PredictionSignal.FLAT:
                 signal_type = SignalType.FLAT
-                confidence = 0.5
             elif signal_direction == PredictionSignal.UP:
                 signal_type = SignalType.BUY
-                confidence = min(abs(predicted_return) * 10, 1.0)
             else:
                 signal_type = SignalType.SELL
-                confidence = min(abs(predicted_return) * 10, 1.0)
 
             signals.append(
                 TradeSignal(
