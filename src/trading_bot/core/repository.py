@@ -1,13 +1,17 @@
 # src/trading_bot/core/repository.py
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
 from .enums import OrderSide, OrderStatus, PositionStatus
+from .models import BarDataLog as BarDataLogModel
+from .models import Market as MarketModel
 from .models import OrderLog as OrderLogModel
 from .models import Position as PositionModel
+from .schemas import BarData as BarDataSchema
+from .schemas import MarketDetails as MarketDetailsSchema
 from .schemas import Position as PositionSchema
 
 logger = logging.getLogger(__name__)
@@ -146,4 +150,98 @@ class OrderRepository(BaseRepository):
         except Exception as e:
             self.db.rollback()
             logger.error(f"Failed to update order {order_id}: {e}")
+            raise e
+
+
+class MarketDataRepository(BaseRepository):
+    """Encapsulates all database operations for market and bar data."""
+
+    def ensure_market(self, details: MarketDetailsSchema) -> MarketModel:
+        """Ensures that the market exists in the database, updating details if needed."""
+        try:
+            market = (
+                self.db.query(MarketModel)
+                .filter_by(market_id=details.market_id)
+                .first()
+            )
+            if not market:
+                market = MarketModel(
+                    market_id=details.market_id,
+                    name=details.name,
+                    end_date=details.end_date,
+                    resolution_source=details.resolution_source,
+                )
+                self.db.add(market)
+            else:
+                market.name = details.name
+                market.end_date = details.end_date
+                market.resolution_source = details.resolution_source
+            self.db.commit()
+            return market
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Failed to ensure market {details.market_id}: {e}")
+            raise e
+
+    def save_bars(self, market_id: str, bars: Sequence[BarDataSchema]) -> int:
+        """
+        Saves a sequence of BarData schema elements to the database.
+        Avoids duplicates based on market_id, timestamp, and bar_type.
+        Returns the number of new bars inserted.
+        """
+        if not bars:
+            return 0
+
+        try:
+            bar_type = bars[0].bar_type
+            from datetime import timezone
+
+            # Load existing timestamps to prevent duplicate insertions
+            existing_records = (
+                self.db.query(BarDataLogModel.timestamp)
+                .filter_by(market_id=market_id, bar_type=bar_type)
+                .all()
+            )
+            # Normalize DB naive datetimes to naive UTC (assuming they were saved in UTC)
+            timestamps = {
+                (
+                    r[0].astimezone(timezone.utc).replace(tzinfo=None)
+                    if r[0].tzinfo
+                    else r[0]
+                )
+                for r in existing_records
+            }
+
+            new_logs = []
+            for bar in bars:
+                ts = bar.timestamp
+                ts_normalized = (
+                    ts.astimezone(timezone.utc).replace(tzinfo=None)
+                    if ts.tzinfo
+                    else ts
+                )
+                if ts_normalized not in timestamps:
+                    log = BarDataLogModel(
+                        market_id=market_id,
+                        timestamp=ts_normalized,
+                        open=bar.open,
+                        high=bar.high,
+                        low=bar.low,
+                        close=bar.close,
+                        volume=bar.volume,
+                        bar_type=bar.bar_type,
+                        ticks_count=bar.ticks_count,
+                        dollar_volume=bar.dollar_volume,
+                    )
+                    new_logs.append(log)
+                    timestamps.add(ts_normalized)
+
+            if new_logs:
+                self.db.bulk_save_objects(new_logs)
+                self.db.commit()
+                logger.info(f"Saved {len(new_logs)} new bars for {market_id} to SQL.")
+            return len(new_logs)
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Failed to save bars for {market_id}: {e}")
             raise e
