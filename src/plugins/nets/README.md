@@ -19,9 +19,9 @@ The plugin follows a decoupled pipeline to ensure that trading logic is isolated
 
 The plugin codebase is organized into domain-focused subfolders under `src/plugins/nets/`:
 
-*   **`classifiers/`**: Definitions and implementations for return/probability selectors and thresholding:
+*   **`output_selectors/`**: Definitions and implementations for return/probability selectors and thresholding:
     *   `abc.py`: Abstract Base Classes (`BaseOutputSelector`, `BaseRegressionOutputSelector`).
-    *   `classifiers.py`: Concrete selectors (`SimpleThresholdClassifier`, `DynamicThresholdClassifier`, `ClassificationOutputSelector`, `QuantileOutputSelector`).
+    *   `output_selectors.py`: Concrete selectors (`SimpleThresholdClassifier`, `DynamicThresholdClassifier`, `ClassificationOutputSelector`, `QuantileOutputSelector`).
 *   **`models/`**: Neural network structures and validation schemas:
     *   `models.py`: Concrete PyTorch model structures (`SimpleCNN`, `SimpleRNN`, `SimpleLSTM`).
     *   `schemas.py`: Pydantic config schemas (`CNNConfig`, `LSTMConfig`, `NNTrainingConfig`, `BaseTrainerConfig`).
@@ -110,7 +110,7 @@ strategies:
       transform:
         class_path: "trading_bot.core.transforms.LogReturnTransform"
       output_selector:
-        class_path: "nets.classifiers.DynamicThresholdClassifier"
+        class_path: "nets.output_selectors.DynamicThresholdClassifier"
         params:
           k: 0.5
           period: 10
@@ -121,7 +121,7 @@ strategies:
 If your ONNX model outputs discrete class probabilities (such as softmax [DOWN, FLAT, UP]):
 ```yaml
       output_selector:
-        class_path: "nets.classifiers.ClassificationOutputSelector"
+        class_path: "nets.output_selectors.ClassificationOutputSelector"
         params:
           class_labels:
             - "down"
@@ -133,7 +133,7 @@ If your ONNX model outputs discrete class probabilities (such as softmax [DOWN, 
 If your ONNX model outputs three conditional quantiles representing uncertainty:
 ```yaml
       output_selector:
-        class_path: "nets.classifiers.QuantileOutputSelector"
+        class_path: "nets.output_selectors.QuantileOutputSelector"
         params:
           threshold: 0.001
           spread_scale: 1.5
@@ -156,7 +156,7 @@ sizing_strategy:
 4.  Add any new dependencies to `pyproject.toml`.
 
 ### Adding a New Output Selector
-1.  Implement `BaseOutputSelector` (or inherit from `BaseRegressionOutputSelector`) in `classifiers/classifiers.py`.
+1.  Implement `BaseOutputSelector` (or inherit from `BaseRegressionOutputSelector`) in `output_selectors/output_selectors.py`.
 2.  Return a `(PredictionSignal, confidence)` tuple from `select_output()`.
 
 ---

@@ -33,7 +33,7 @@ def test_plugin_component_loading():
             ),
             "output_selector": PluginLoader.instantiate(
                 ComponentConfig(
-                    class_path="nets.classifiers.SimpleThresholdClassifier",
+                    class_path="nets.output_selectors.SimpleThresholdClassifier",
                     params={"threshold": 0.001},
                 )
             ),

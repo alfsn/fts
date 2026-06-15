@@ -10,8 +10,8 @@ from torch.utils.data import DataLoader
 
 from trading_bot.core.schemas import BarData
 
-from ..classifiers import BaseOutputSelector
 from ..enums import PredictionSignal
+from ..output_selectors import BaseOutputSelector
 
 logger = logging.getLogger(__name__)
 

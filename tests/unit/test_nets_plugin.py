@@ -4,8 +4,8 @@ from datetime import datetime
 
 import numpy as np
 import pytest
-from nets.classifiers import DynamicThresholdClassifier, SimpleThresholdClassifier
 from nets.enums import PredictionSignal
+from nets.output_selectors import DynamicThresholdClassifier, SimpleThresholdClassifier
 
 from trading_bot.core.enums import BarType
 from trading_bot.core.schemas import BarData
@@ -24,7 +24,7 @@ def test_log_return_transform():
     assert pytest.approx(float(returns[1, 0]), 0.001) == -0.0465
 
 
-def test_classifiers():
+def test_threshold_selectors():
     dummy = SimpleThresholdClassifier(threshold=0.01)
     assert dummy.select_output(np.array([0.005]), [])[0] == PredictionSignal.FLAT
     assert dummy.select_output(np.array([0.015]), [])[0] == PredictionSignal.UP
@@ -209,7 +209,10 @@ def test_sklearn_trainers(tmp_path):
 
 
 def test_output_selectors():
-    from nets.classifiers import ClassificationOutputSelector, QuantileOutputSelector
+    from nets.output_selectors import (
+        ClassificationOutputSelector,
+        QuantileOutputSelector,
+    )
 
     # 1. ClassificationOutputSelector
     # Expected probs: [DOWN, FLAT, UP]
@@ -312,7 +315,7 @@ def test_multidimensional_training(tmp_path):
     assert len(onnx_bytes_lr) > 0
 
     # Test CNN with multiple features and output selector
-    from nets.classifiers import SimpleThresholdClassifier
+    from nets.output_selectors import SimpleThresholdClassifier
 
     selector = SimpleThresholdClassifier(threshold=0.001)
 

@@ -10,9 +10,9 @@ from trading_bot.core.schemas import IngestionEngineOutput, SignalType, TradeSig
 from trading_bot.core.transforms import BaseTransform
 from trading_bot.strategy.abc import BaseStrategy
 
-from ..classifiers import BaseOutputSelector
 from ..enums import PredictionSignal
 from ..inference import ONNXPredictor
+from ..output_selectors import BaseOutputSelector
 
 logger = logging.getLogger(__name__)
 
