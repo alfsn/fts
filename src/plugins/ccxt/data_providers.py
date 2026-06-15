@@ -26,6 +26,13 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
     and recent trade logs from crypto exchanges using the CCXT library.
     """
 
+    @classmethod
+    def from_args(cls, args: Any) -> "CCXTMarketDataProvider":
+        """
+        Creates an instance of the provider from parsed command-line arguments.
+        """
+        return cls(exchange_id=args.exchange, timeframe=args.timeframe)
+
     def __init__(
         self,
         exchange_id: str = "binance",

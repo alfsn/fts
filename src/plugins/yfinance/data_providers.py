@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Any, Sequence
 
 import pandas as pd
 import yfinance as yf
@@ -25,6 +25,13 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
     Concrete market data provider that fetches OHLCV candles
     from Yahoo Finance (yfinance) for stocks, ETFs, indices, etc.
     """
+
+    @classmethod
+    def from_args(cls, args: Any) -> "YFinanceMarketDataProvider":
+        """
+        Creates an instance of the provider from parsed command-line arguments.
+        """
+        return cls(period=args.period, interval=args.timeframe)
 
     def __init__(self, period: str = "5d", interval: str = "1m") -> None:
         """
