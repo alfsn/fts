@@ -24,7 +24,13 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["src/trading_bot", "src/plugins/nets", "src/plugins/argentina"]
+members = [
+    "src/trading_bot",
+    "src/plugins/nets",
+    "src/plugins/argentina",
+    "src/plugins/yfinance",
+    "src/plugins/ccxt",
+]
 
 [tool.black]
 line-length = 88

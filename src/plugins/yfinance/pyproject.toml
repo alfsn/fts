@@ -1,0 +1,24 @@
+[project]
+name = "fts-plugin-yfinance"
+version = "0.1.0"
+description = "Yahoo Finance Ingestion Plugin for FTS"
+authors = [
+    { name = "Alfredo Sampron", email = "alfredosampronnoel@gmail.com" },
+]
+dependencies = [
+    "fts",
+    "yfinance",
+]
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[tool.uv.sources]
+fts = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"yfinance_plugin" = "."}
+packages = ["yfinance_plugin"]

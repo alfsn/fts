@@ -1,0 +1,25 @@
+[project]
+name = "fts-plugin-ccxt"
+version = "0.1.0"
+description = "CCXT Ingestion Plugin for FTS"
+authors = [
+    { name = "Alfredo Sampron", email = "alfredosampronnoel@gmail.com" },
+]
+dependencies = [
+    "fts",
+    "ccxt",
+    "pandas",
+]
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[tool.uv.sources]
+fts = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"ccxt_plugin" = "."}
+packages = ["ccxt_plugin"]
