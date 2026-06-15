@@ -115,3 +115,68 @@ def test_order_repository_flow(in_memory_db):
     assert db_order.status == OrderStatus.FILLED
     assert db_order.filled_size == 100.0
     assert db_order.avg_fill_price == 149.8
+
+
+def test_market_data_repository(in_memory_db):
+    """Tests ensuring markets and bulk saving unique bars via MarketDataRepository."""
+    from trading_bot.core.enums import BarType
+    from trading_bot.core.repository import MarketDataRepository
+    from trading_bot.core.schemas import BarData, MarketDetails
+
+    repo = MarketDataRepository(in_memory_db)
+
+    # 1. Test ensure_market
+    details = MarketDetails(
+        market_id="MSFT",
+        name="Microsoft Corp",
+        end_date=datetime(2026, 12, 31),
+        resolution_source="test_source",
+    )
+    market = repo.ensure_market(details)
+    assert market.market_id == "MSFT"
+    assert market.name == "Microsoft Corp"
+
+    # Verify update to details
+    details.name = "Microsoft Corporation"
+    market = repo.ensure_market(details)
+    assert market.name == "Microsoft Corporation"
+
+    # 2. Test save_bars
+    bars = [
+        BarData(
+            timestamp=datetime(2026, 6, 15, 12, 0),
+            open=100.0,
+            high=101.0,
+            low=99.0,
+            close=100.5,
+            volume=500.0,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=50250.0,
+        ),
+        BarData(
+            timestamp=datetime(2026, 6, 15, 12, 1),
+            open=100.5,
+            high=102.0,
+            low=100.0,
+            close=101.5,
+            volume=600.0,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=60900.0,
+        ),
+    ]
+
+    # Save the bars
+    saved_count = repo.save_bars("MSFT", bars)
+    assert saved_count == 2
+
+    # Verify records in DB
+    from trading_bot.core.models import BarDataLog as BarDataLogModel
+
+    db_bars = in_memory_db.query(BarDataLogModel).filter_by(market_id="MSFT").all()
+    assert len(db_bars) == 2
+
+    # Save again with same bars (should prevent duplicates and return 0)
+    saved_count2 = repo.save_bars("MSFT", bars)
+    assert saved_count2 == 0
