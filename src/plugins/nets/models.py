@@ -1,9 +1,27 @@
 # src/plugins/nets/models.py
 
+from typing import Any
+
 import torch
 import torch.nn as nn
 
 from .schemas import CNNConfig, LSTMConfig, RNNConfig
+
+
+def prepare_scaling_parameters(
+    n_features: int, mean: Any, std: Any
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Helper to convert mean and std inputs into PyTorch parameters of shape (n_features, 1)
+    to facilitate correct broadcasting over input tensors of shape (batch, n_features, seq_len).
+    """
+    mean_tensor = torch.tensor(mean, dtype=torch.float32)
+    std_tensor = torch.tensor(std, dtype=torch.float32)
+    if mean_tensor.dim() == 0 or mean_tensor.numel() == 1:
+        mean_tensor = mean_tensor.expand(n_features)
+    if std_tensor.dim() == 0 or std_tensor.numel() == 1:
+        std_tensor = std_tensor.expand(n_features)
+    return mean_tensor.view(-1, 1), std_tensor.view(-1, 1)
 
 
 class SimpleCNN(nn.Module):
@@ -14,17 +32,19 @@ class SimpleCNN(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        config: CNNConfig,
-        mean: float = 0.0,
-        std: float = 1.0,
+        n_features: int = 1,
+        config: CNNConfig = None,
+        mean: Any = 0.0,
+        std: Any = 1.0,
     ) -> None:
         super().__init__()
-        self.mean = nn.Parameter(torch.tensor(mean), requires_grad=False)
-        self.std = nn.Parameter(torch.tensor(std), requires_grad=False)
+        mean_param, std_param = prepare_scaling_parameters(n_features, mean, std)
+        self.mean = nn.Parameter(mean_param, requires_grad=False)
+        self.std = nn.Parameter(std_param, requires_grad=False)
 
         # Build Conv1D layers
         layers = []
-        in_channels = 1
+        in_channels = n_features
         for i, (out_chan, kernel_sz, pool_sz) in enumerate(
             zip(config.out_channels, config.kernel_sizes, config.pool_sizes)
         ):
@@ -47,7 +67,7 @@ class SimpleCNN(nn.Module):
 
         # Compute flattened feature size dynamically using a dummy forward pass
         with torch.no_grad():
-            dummy_input = torch.zeros(1, 1, input_dim)
+            dummy_input = torch.zeros(1, n_features, input_dim)
             dummy_output = self.conv_net(dummy_input)
             flat_size = dummy_output.numel()
 
@@ -75,16 +95,18 @@ class SimpleRNN(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        config: RNNConfig,
-        mean: float = 0.0,
-        std: float = 1.0,
+        n_features: int = 1,
+        config: RNNConfig = None,
+        mean: Any = 0.0,
+        std: Any = 1.0,
     ) -> None:
         super().__init__()
-        self.mean = nn.Parameter(torch.tensor(mean), requires_grad=False)
-        self.std = nn.Parameter(torch.tensor(std), requires_grad=False)
+        mean_param, std_param = prepare_scaling_parameters(n_features, mean, std)
+        self.mean = nn.Parameter(mean_param, requires_grad=False)
+        self.std = nn.Parameter(std_param, requires_grad=False)
 
         self.rnn = nn.RNN(
-            input_size=1,
+            input_size=n_features,
             hidden_size=config.hidden_dim,
             num_layers=config.num_layers,
             nonlinearity=config.nonlinearity,
@@ -97,7 +119,7 @@ class SimpleRNN(nn.Module):
         self.fc = nn.Linear(config.hidden_dim, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Input shape: [batch, 1, seq_len] -> Scale & transpose to [batch, seq_len, 1]
+        # Input shape: [batch, n_features, seq_len] -> Scale & transpose to [batch, seq_len, n_features]
         x = (x - self.mean) / self.std
         x = x.transpose(1, 2)
         out, _ = self.rnn(x)
@@ -116,16 +138,18 @@ class SimpleLSTM(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        config: LSTMConfig,
-        mean: float = 0.0,
-        std: float = 1.0,
+        n_features: int = 1,
+        config: LSTMConfig = None,
+        mean: Any = 0.0,
+        std: Any = 1.0,
     ) -> None:
         super().__init__()
-        self.mean = nn.Parameter(torch.tensor(mean), requires_grad=False)
-        self.std = nn.Parameter(torch.tensor(std), requires_grad=False)
+        mean_param, std_param = prepare_scaling_parameters(n_features, mean, std)
+        self.mean = nn.Parameter(mean_param, requires_grad=False)
+        self.std = nn.Parameter(std_param, requires_grad=False)
 
         self.lstm = nn.LSTM(
-            input_size=1,
+            input_size=n_features,
             hidden_size=config.hidden_dim,
             num_layers=config.num_layers,
             batch_first=True,
@@ -139,7 +163,7 @@ class SimpleLSTM(nn.Module):
         self.fc = nn.Linear(config.hidden_dim * num_directions, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Input shape: [batch, 1, seq_len] -> Scale & transpose to [batch, seq_len, 1]
+        # Input shape: [batch, n_features, seq_len] -> Scale & transpose to [batch, seq_len, n_features]
         x = (x - self.mean) / self.std
         x = x.transpose(1, 2)
         out, _ = self.lstm(x)
