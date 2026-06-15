@@ -7,6 +7,7 @@ from .bars import (
     TimeBarAggregator,
     VolumeBarAggregator,
 )
+from .factory import MarketDataProviderRegistry
 
 __all__ = [
     "BarFactory",
@@ -14,4 +15,5 @@ __all__ = [
     "TimeBarAggregator",
     "VolumeBarAggregator",
     "DollarBarAggregator",
+    "MarketDataProviderRegistry",
 ]
