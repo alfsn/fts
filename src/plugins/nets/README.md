@@ -115,9 +115,33 @@ sizing_strategy:
 
 ---
 
-## 7. Verification
+## 7. Advanced Training Features
+
+All model trainers support advanced time-series training and validation capabilities designed for quantitative finance:
+
+### 1. Leakage Prevention (Purging & Embargoing)
+Standard cross-validation and splits leak information when label windows overlap or if features are serially correlated. 
+- **Purging**: Removes training observations whose target horizons overlap with the validation set.
+- **Embargoing**: Removes training observations that immediately succeed the validation set to prevent spillover correlation.
+- **Scaling Isolation**: Training features' mean and standard deviation are computed **strictly on the training split** to prevent look-ahead bias from entering preprocessing.
+
+### 2. Checkpointing & Early Stopping
+- **PyTorch Models**: The training loop tracks validation loss at the end of each epoch, keeps a deep copy of the model weights that achieved the best validation score, and halts training early if validation loss does not improve for `early_stopping_patience` epochs. The best model state is restored before ONNX export.
+- **XGBoost**: Employs XGBoost's native `early_stopping_rounds` and automatically returns the best iteration's state.
+
+### 3. Gradient Norm Clipping
+- Prevents extreme time-series spikes (e.g. flash crashes) from destabilizing network weights by capping the gradients using `torch.nn.utils.clip_grad_norm_` during training.
+
+### 4. Metrics & Evaluation
+- **`TimeSeriesDataset`**: An idiomatic PyTorch dataset that converts inputs and targets to float32 tensors and transposes inputs to `[batch, features, sequence_length]`.
+- **`MetricsCalculator`**: A decoupled, model-agnostic class that calculates validation loss, Information Coefficient (IC) via Pearson correlation, Directional Accuracy (sign agreement), and IC Decay (correlation at lags 0 to 5) on raw predictions and targets.
+- **`ValidationEvaluator`**: Coordinates the PyTorch validation loop and forwards prediction/target tensors to `MetricsCalculator`.
+
+---
+
+## 8. Verification
 
 Run the test suite to ensure architectural integrity:
 ```bash
-uv run pytest tests/unit/test_nets_plugin.py tests/unit/test_nets_integration.py
+uv run pytest
 ```
