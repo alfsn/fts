@@ -2,7 +2,7 @@
 
 import io
 import logging
-from typing import Any, Dict, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -12,14 +12,22 @@ from skl2onnx import to_onnx
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader, Dataset
 
 from trading_bot.core.dataset import DatasetBuilder
 from trading_bot.core.schemas import BarData
 from trading_bot.core.training import BaseModelTrainer
 from trading_bot.core.transforms import LogReturnTransform
 
+from .evaluator import MetricsCalculator, ValidationEvaluator
 from .models import SimpleCNN, SimpleLSTM, SimpleRNN
-from .schemas import CNNConfig, LSTMConfig, NNTrainingConfig, RNNConfig
+from .schemas import (
+    BaseTrainerConfig,
+    CNNConfig,
+    LSTMConfig,
+    NNTrainingConfig,
+    RNNConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +37,22 @@ class LinearRegressionTrainer(BaseModelTrainer):
     Trains a Linear Regression model with a StandardScaler pipeline and exports to ONNX.
     """
 
-    def __init__(self, lookback_period: int = 20) -> None:
-        self.lookback_period = lookback_period
+    def __init__(
+        self,
+        lookback_period: int = 20,
+        config: Optional[BaseTrainerConfig] = None,
+    ) -> None:
+        self.config = config or BaseTrainerConfig(lookback_period=lookback_period)
+        self.lookback_period = self.config.lookback_period
         self.transform = LogReturnTransform()
 
     def train(self, historical_bars: Sequence[BarData]) -> Any:
         logger.info(f"Training LinearRegression on {len(historical_bars)} bars.")
 
         # 1. Structural Conversion (SOLID: Extract window logic to Core)
-        matrix = DatasetBuilder.to_matrix(historical_bars, feature_cols=["close"])
+        matrix = DatasetBuilder.to_matrix(
+            historical_bars, feature_cols=self.config.feature_cols
+        )
 
         # Apply LogReturn (Python-side preprocessing for now)
         returns = self.transform.transform(matrix)
@@ -48,12 +63,23 @@ class LinearRegressionTrainer(BaseModelTrainer):
 
         # Create sliding windows
         X_raw, y_raw = DatasetBuilder.create_sliding_windows(
-            returns, lookback=self.lookback_period, horizon=1
+            returns, lookback=self.lookback_period, horizon=self.config.horizon
+        )
+
+        # Split into training and validation sets
+        X_train, y_train, X_val, y_val = (
+            DatasetBuilder.split_train_val_purged_embargoed(
+                X_raw,
+                y_raw,
+                val_ratio=self.config.validation_split,
+                horizon=self.config.horizon,
+                embargo_pct=self.config.embargo_pct,
+            )
         )
 
         # Reshape X for sklearn (samples, lookback * features)
-        X = X_raw.reshape(X_raw.shape[0], -1)
-        y = y_raw.flatten()
+        X_train_flat = X_train.reshape(X_train.shape[0], -1)
+        y_train_flat = y_train.flatten()
 
         # 2. Pipeline Definition (SOLID: Preprocessing in Pipeline)
         pipeline = Pipeline(
@@ -61,10 +87,21 @@ class LinearRegressionTrainer(BaseModelTrainer):
         )
 
         # 3. Fit
-        pipeline.fit(X, y)
+        pipeline.fit(X_train_flat, y_train_flat)
+
+        # Evaluate validation metrics
+        if len(X_val) > 0:
+            X_val_flat = X_val.reshape(X_val.shape[0], -1)
+            y_val_flat = y_val.flatten()
+            val_preds = pipeline.predict(X_val_flat)
+            metrics = MetricsCalculator.calculate_metrics(val_preds, y_val_flat)
+            logger.info(
+                f"LinearRegression Validation: Loss = {metrics['loss']:.6f}, "
+                f"IC = {metrics['ic']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
+            )
 
         # 4. Export to ONNX
-        onx = to_onnx(pipeline, X[:1])
+        onx = to_onnx(pipeline, X_train_flat[:1])
         return onx.SerializeToString()
 
 
@@ -73,8 +110,13 @@ class XGBoostTrainer(BaseModelTrainer):
     Trains an XGBoost model with a StandardScaler pipeline and exports to ONNX.
     """
 
-    def __init__(self, lookback_period: int = 20) -> None:
-        self.lookback_period = lookback_period
+    def __init__(
+        self,
+        lookback_period: int = 20,
+        config: Optional[BaseTrainerConfig] = None,
+    ) -> None:
+        self.config = config or BaseTrainerConfig(lookback_period=lookback_period)
+        self.lookback_period = self.config.lookback_period
         self.transform = LogReturnTransform()
 
     def train(self, historical_bars: Sequence[BarData]) -> Any:
@@ -82,27 +124,63 @@ class XGBoostTrainer(BaseModelTrainer):
 
         logger.info(f"Training XGBoost on {len(historical_bars)} bars.")
 
-        matrix = DatasetBuilder.to_matrix(historical_bars, feature_cols=["close"])
+        matrix = DatasetBuilder.to_matrix(
+            historical_bars, feature_cols=self.config.feature_cols
+        )
         returns = self.transform.transform(matrix)
 
         if len(returns) < self.lookback_period + 1:
             return None
 
         X_raw, y_raw = DatasetBuilder.create_sliding_windows(
-            returns, lookback=self.lookback_period, horizon=1
-        )
-        X = X_raw.reshape(X_raw.shape[0], -1)
-        y = y_raw.flatten()
-
-        # XGBoost Pipeline
-        pipeline = Pipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("model", xgb.XGBRegressor(n_estimators=100, max_depth=3)),
-            ]
+            returns, lookback=self.lookback_period, horizon=self.config.horizon
         )
 
-        pipeline.fit(X, y)
+        # Split into training and validation sets
+        X_train, y_train, X_val, y_val = (
+            DatasetBuilder.split_train_val_purged_embargoed(
+                X_raw,
+                y_raw,
+                val_ratio=self.config.validation_split,
+                horizon=self.config.horizon,
+                embargo_pct=self.config.embargo_pct,
+            )
+        )
+
+        X_train_flat = X_train.reshape(X_train.shape[0], -1)
+        y_train_flat = y_train.flatten()
+
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train_flat)
+
+        model = xgb.XGBRegressor(
+            n_estimators=100, max_depth=3, early_stopping_rounds=10
+        )
+
+        if len(X_val) > 0:
+            X_val_flat = X_val.reshape(X_val.shape[0], -1)
+            y_val_flat = y_val.flatten()
+            X_val_scaled = scaler.transform(X_val_flat)
+
+            model.fit(
+                X_train_scaled,
+                y_train_flat,
+                eval_set=[(X_val_scaled, y_val_flat)],
+                verbose=False,
+            )
+
+            # Evaluate metrics on validation set
+            val_preds = model.predict(X_val_scaled)
+            metrics = MetricsCalculator.calculate_metrics(val_preds, y_val_flat)
+            logger.info(
+                f"XGBoost Validation: Best Iteration = {model.best_iteration}, "
+                f"Loss = {metrics['loss']:.6f}, IC = {metrics['ic']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
+            )
+        else:
+            model.fit(X_train_scaled, y_train_flat, verbose=False)
+
+        # Re-create pipeline with fitted components for ONNX export
+        pipeline = Pipeline([("scaler", scaler), ("model", model)])
 
         from onnxmltools.convert.xgboost.operator_converters.XGBoost import (
             convert_xgboost as convert_xgboost_op,
@@ -119,8 +197,25 @@ class XGBoostTrainer(BaseModelTrainer):
             convert_xgboost_op,
         )
 
-        onx = to_onnx(pipeline, X[:1])
+        onx = to_onnx(pipeline, X_train_flat[:1], target_opset={"ai.onnx.ml": 3})
         return onx.SerializeToString()
+
+
+class TimeSeriesDataset(Dataset):
+    """
+    Idiomatic PyTorch Dataset for time-series forecasting.
+    Converts and transposes features/targets into tensors during initialization.
+    """
+
+    def __init__(self, X: np.ndarray, y: np.ndarray) -> None:
+        self.X = torch.tensor(X, dtype=torch.float32).transpose(1, 2)
+        self.y = torch.tensor(y.flatten(), dtype=torch.float32).unsqueeze(1)
+
+    def __len__(self) -> int:
+        return len(self.X)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.X[idx], self.y[idx]
 
 
 class BasePyTorchTrainer(BaseModelTrainer):
@@ -144,8 +239,11 @@ class BasePyTorchTrainer(BaseModelTrainer):
 
     def _prepare_data(
         self, historical_bars: Sequence[BarData]
-    ) -> Union[None, tuple[np.ndarray, np.ndarray, float, float]]:
-        matrix = DatasetBuilder.to_matrix(historical_bars, feature_cols=["close"])
+    ) -> Union[
+        None, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float]
+    ]:
+        feature_cols = getattr(self.training_config, "feature_cols", ["close"])
+        matrix = DatasetBuilder.to_matrix(historical_bars, feature_cols=feature_cols)
         returns = self.transform.transform(matrix)
 
         if len(returns) < self.lookback_period + 1:
@@ -153,30 +251,50 @@ class BasePyTorchTrainer(BaseModelTrainer):
             return None
 
         X_raw, y_raw = DatasetBuilder.create_sliding_windows(
-            returns, lookback=self.lookback_period, horizon=1
+            returns, lookback=self.lookback_period, horizon=self.training_config.horizon
         )
 
-        # Calculate mean & std from raw features for internal model scaling
-        X_mean = float(X_raw.mean())
-        X_std = float(X_raw.std() + 1e-8)
+        # Split into training and validation sets
+        X_train, y_train, X_val, y_val = (
+            DatasetBuilder.split_train_val_purged_embargoed(
+                X_raw,
+                y_raw,
+                val_ratio=self.training_config.validation_split,
+                horizon=self.training_config.horizon,
+                embargo_pct=self.training_config.embargo_pct,
+            )
+        )
 
-        return X_raw, y_raw, X_mean, X_std
+        # Calculate mean & std from training features only to prevent data leakage
+        X_mean = float(X_train.mean()) if len(X_train) > 0 else 0.0
+        X_std = float(X_train.std() + 1e-8) if len(X_train) > 0 else 1.0
+
+        return X_train, y_train, X_val, y_val, X_mean, X_std
 
     def _train_model(
         self,
         model: nn.Module,
-        X_raw: np.ndarray,
-        y_raw: np.ndarray,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray,
+        y_val: np.ndarray,
         dummy_input: torch.Tensor,
     ) -> None:
-        # X_pt shape: [batch_size, 1, seq_len]
-        X_pt = torch.tensor(X_raw, dtype=torch.float32).transpose(1, 2)
-        y_pt = torch.tensor(y_raw.flatten(), dtype=torch.float32).unsqueeze(1)
+        if len(X_train) == 0:
+            logger.error("No training data available after split.")
+            return
 
-        dataset = torch.utils.data.TensorDataset(X_pt, y_pt)
-        dataloader = torch.utils.data.DataLoader(
-            dataset, batch_size=self.training_config.batch_size, shuffle=True
+        train_dataset = TimeSeriesDataset(X_train, y_train)
+        dataloader = DataLoader(
+            train_dataset, batch_size=self.training_config.batch_size, shuffle=False
         )
+
+        val_loader = None
+        if len(X_val) > 0:
+            val_dataset = TimeSeriesDataset(X_val, y_val)
+            val_loader = DataLoader(
+                val_dataset, batch_size=self.training_config.batch_size, shuffle=False
+            )
 
         # Loss function
         if self.training_config.loss_fn == "mse":
@@ -220,6 +338,12 @@ class BasePyTorchTrainer(BaseModelTrainer):
             except Exception as e:
                 logger.warning(f"Could not log model graph to TensorBoard: {e}")
 
+        import copy
+
+        best_val_loss = float("inf")
+        best_model_state = copy.deepcopy(model.state_dict())
+        epochs_since_improvement = 0
+
         global_step = 0
         for epoch in range(self.training_config.epochs):
             model.train()
@@ -229,6 +353,13 @@ class BasePyTorchTrainer(BaseModelTrainer):
                 outputs = model(batch_X)
                 loss = criterion(outputs, batch_y)
                 loss.backward()
+
+                # B) Gradient clipping
+                if self.training_config.clip_grad_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), self.training_config.clip_grad_norm
+                    )
+
                 optimizer.step()
 
                 loss_val = loss.item()
@@ -240,6 +371,49 @@ class BasePyTorchTrainer(BaseModelTrainer):
             epoch_loss /= len(dataloader)
             if writer:
                 writer.add_scalar("Loss/train_epoch", epoch_loss, epoch)
+
+            # Validation step (SRP: delegated to ValidationEvaluator)
+            if val_loader is not None:
+                val_metrics = ValidationEvaluator.evaluate(model, val_loader, criterion)
+
+                # Log to TensorBoard
+                if writer:
+                    ValidationEvaluator.log_to_tensorboard(writer, val_metrics, epoch)
+
+                val_loss = val_metrics["loss"]
+                logger.info(
+                    f"Epoch {epoch}: Train Loss = {epoch_loss:.6f}, Val Loss = {val_loss:.6f}, "
+                    f"Val IC = {val_metrics['ic']:.4f}, Val Dir Acc = {val_metrics['directional_accuracy']:.4f}"
+                )
+
+                # Early stopping & model checkpointing
+                if (
+                    val_loss
+                    < best_val_loss - self.training_config.early_stopping_min_delta
+                ):
+                    best_val_loss = val_loss
+                    best_model_state = copy.deepcopy(model.state_dict())
+                    epochs_since_improvement = 0
+                else:
+                    epochs_since_improvement += 1
+
+                if (
+                    epochs_since_improvement
+                    >= self.training_config.early_stopping_patience
+                ):
+                    logger.info(f"Early stopping triggered at epoch {epoch}.")
+                    break
+            else:
+                logger.info(
+                    f"Epoch {epoch}: Train Loss = {epoch_loss:.6f} (No validation data)"
+                )
+
+        # Restore best model state (checkpointing)
+        if val_loader is not None and best_model_state is not None:
+            logger.info(
+                f"Restoring best model state with validation loss: {best_val_loss:.6f}"
+            )
+            model.load_state_dict(best_model_state)
 
         if writer:
             writer.close()
@@ -288,7 +462,7 @@ class CNNTrainer(BasePyTorchTrainer):
         if data is None:
             return None
 
-        X_raw, y_raw, X_mean, X_std = data
+        X_train, y_train, X_val, y_val, X_mean, X_std = data
 
         # Instantiate SimpleCNN
         model = SimpleCNN(
@@ -299,7 +473,7 @@ class CNNTrainer(BasePyTorchTrainer):
         )
 
         dummy_input = torch.randn(1, 1, self.lookback_period)
-        self._train_model(model, X_raw, y_raw, dummy_input)
+        self._train_model(model, X_train, y_train, X_val, y_val, dummy_input)
         return self._export_to_onnx(model)
 
 
@@ -329,7 +503,7 @@ class RNNTrainer(BasePyTorchTrainer):
         if data is None:
             return None
 
-        X_raw, y_raw, X_mean, X_std = data
+        X_train, y_train, X_val, y_val, X_mean, X_std = data
 
         # Instantiate SimpleRNN
         model = SimpleRNN(
@@ -340,7 +514,7 @@ class RNNTrainer(BasePyTorchTrainer):
         )
 
         dummy_input = torch.randn(1, 1, self.lookback_period)
-        self._train_model(model, X_raw, y_raw, dummy_input)
+        self._train_model(model, X_train, y_train, X_val, y_val, dummy_input)
         return self._export_to_onnx(model)
 
 
@@ -370,7 +544,7 @@ class LSTMTrainer(BasePyTorchTrainer):
         if data is None:
             return None
 
-        X_raw, y_raw, X_mean, X_std = data
+        X_train, y_train, X_val, y_val, X_mean, X_std = data
 
         # Instantiate SimpleLSTM
         model = SimpleLSTM(
@@ -381,5 +555,5 @@ class LSTMTrainer(BasePyTorchTrainer):
         )
 
         dummy_input = torch.randn(1, 1, self.lookback_period)
-        self._train_model(model, X_raw, y_raw, dummy_input)
+        self._train_model(model, X_train, y_train, X_val, y_val, dummy_input)
         return self._export_to_onnx(model)
