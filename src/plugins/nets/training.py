@@ -2,7 +2,7 @@
 
 import io
 import logging
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -19,6 +19,7 @@ from trading_bot.core.schemas import BarData
 from trading_bot.core.training import BaseModelTrainer
 from trading_bot.core.transforms import LogReturnTransform
 
+from .classifiers import BaseOutputSelector
 from .evaluator import MetricsCalculator, ValidationEvaluator
 from .models import SimpleCNN, SimpleLSTM, SimpleRNN
 from .schemas import (
@@ -32,6 +33,24 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 
+def extract_validation_bars(
+    historical_bars: Sequence[BarData],
+    val_size: int,
+    lookback_period: int,
+    horizon: int,
+) -> List[Sequence[BarData]]:
+    """Helper to extract validation bars chronologically corresponding to the validation split."""
+    n_returns = len(historical_bars) - 1
+    n_raw_samples = n_returns - lookback_period - horizon + 1
+    val_start_idx = n_raw_samples - val_size
+    val_bars = []
+    for j in range(val_size):
+        idx = val_start_idx + j
+        window = historical_bars[idx : idx + lookback_period + 1]
+        val_bars.append(window)
+    return val_bars
+
+
 class LinearRegressionTrainer(BaseModelTrainer):
     """
     Trains a Linear Regression model with a StandardScaler pipeline and exports to ONNX.
@@ -41,10 +60,12 @@ class LinearRegressionTrainer(BaseModelTrainer):
         self,
         lookback_period: int = 20,
         config: Optional[BaseTrainerConfig] = None,
+        output_selector: Optional[BaseOutputSelector] = None,
     ) -> None:
         self.config = config or BaseTrainerConfig(lookback_period=lookback_period)
         self.lookback_period = self.config.lookback_period
         self.transform = LogReturnTransform()
+        self.output_selector = output_selector
 
     def train(self, historical_bars: Sequence[BarData]) -> Any:
         logger.info(f"Training LinearRegression on {len(historical_bars)} bars.")
@@ -79,7 +100,7 @@ class LinearRegressionTrainer(BaseModelTrainer):
 
         # Reshape X for sklearn (samples, lookback * features)
         X_train_flat = X_train.reshape(X_train.shape[0], -1)
-        y_train_flat = y_train.flatten()
+        y_train_flat = y_train[:, :, 0].flatten()
 
         # 2. Pipeline Definition (SOLID: Preprocessing in Pipeline)
         pipeline = Pipeline(
@@ -92,13 +113,32 @@ class LinearRegressionTrainer(BaseModelTrainer):
         # Evaluate validation metrics
         if len(X_val) > 0:
             X_val_flat = X_val.reshape(X_val.shape[0], -1)
-            y_val_flat = y_val.flatten()
+            y_val_flat = y_val[:, :, 0].flatten()
             val_preds = pipeline.predict(X_val_flat)
-            metrics = MetricsCalculator.calculate_metrics(val_preds, y_val_flat)
+
+            val_bars = None
+            if self.output_selector is not None:
+                val_bars = extract_validation_bars(
+                    historical_bars=historical_bars,
+                    val_size=len(X_val),
+                    lookback_period=self.lookback_period,
+                    horizon=self.config.horizon,
+                )
+
+            metrics = MetricsCalculator.calculate_metrics(
+                preds=val_preds,
+                targets=y_val_flat,
+                output_selector=self.output_selector,
+                val_bars=val_bars,
+            )
             logger.info(
                 f"LinearRegression Validation: Loss = {metrics['loss']:.6f}, "
                 f"IC = {metrics['ic']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
             )
+            if "selector_accuracy" in metrics:
+                logger.info(
+                    f"LinearRegression Validation Selector Accuracy = {metrics['selector_accuracy']:.4f}"
+                )
 
         # 4. Export to ONNX
         onx = to_onnx(pipeline, X_train_flat[:1])
@@ -114,10 +154,12 @@ class XGBoostTrainer(BaseModelTrainer):
         self,
         lookback_period: int = 20,
         config: Optional[BaseTrainerConfig] = None,
+        output_selector: Optional[BaseOutputSelector] = None,
     ) -> None:
         self.config = config or BaseTrainerConfig(lookback_period=lookback_period)
         self.lookback_period = self.config.lookback_period
         self.transform = LogReturnTransform()
+        self.output_selector = output_selector
 
     def train(self, historical_bars: Sequence[BarData]) -> Any:
         import xgboost as xgb
@@ -148,7 +190,7 @@ class XGBoostTrainer(BaseModelTrainer):
         )
 
         X_train_flat = X_train.reshape(X_train.shape[0], -1)
-        y_train_flat = y_train.flatten()
+        y_train_flat = y_train[:, :, 0].flatten()
 
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train_flat)
@@ -159,7 +201,7 @@ class XGBoostTrainer(BaseModelTrainer):
 
         if len(X_val) > 0:
             X_val_flat = X_val.reshape(X_val.shape[0], -1)
-            y_val_flat = y_val.flatten()
+            y_val_flat = y_val[:, :, 0].flatten()
             X_val_scaled = scaler.transform(X_val_flat)
 
             model.fit(
@@ -171,11 +213,30 @@ class XGBoostTrainer(BaseModelTrainer):
 
             # Evaluate metrics on validation set
             val_preds = model.predict(X_val_scaled)
-            metrics = MetricsCalculator.calculate_metrics(val_preds, y_val_flat)
+
+            val_bars = None
+            if self.output_selector is not None:
+                val_bars = extract_validation_bars(
+                    historical_bars=historical_bars,
+                    val_size=len(X_val),
+                    lookback_period=self.lookback_period,
+                    horizon=self.config.horizon,
+                )
+
+            metrics = MetricsCalculator.calculate_metrics(
+                preds=val_preds,
+                targets=y_val_flat,
+                output_selector=self.output_selector,
+                val_bars=val_bars,
+            )
             logger.info(
                 f"XGBoost Validation: Best Iteration = {model.best_iteration}, "
                 f"Loss = {metrics['loss']:.6f}, IC = {metrics['ic']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
             )
+            if "selector_accuracy" in metrics:
+                logger.info(
+                    f"XGBoost Validation Selector Accuracy = {metrics['selector_accuracy']:.4f}"
+                )
         else:
             model.fit(X_train_scaled, y_train_flat, verbose=False)
 
@@ -209,7 +270,12 @@ class TimeSeriesDataset(Dataset):
 
     def __init__(self, X: np.ndarray, y: np.ndarray) -> None:
         self.X = torch.tensor(X, dtype=torch.float32).transpose(1, 2)
-        self.y = torch.tensor(y.flatten(), dtype=torch.float32).unsqueeze(1)
+        # Select target feature (index 0) and flatten if 3D
+        if len(y.shape) == 3:
+            y_target = y[:, :, 0]
+        else:
+            y_target = y
+        self.y = torch.tensor(y_target.flatten(), dtype=torch.float32).unsqueeze(1)
 
     def __len__(self) -> int:
         return len(self.X)
@@ -228,6 +294,7 @@ class BasePyTorchTrainer(BaseModelTrainer):
         self,
         lookback_period: int = 20,
         training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+        output_selector: Optional[BaseOutputSelector] = None,
     ) -> None:
         self.lookback_period = lookback_period
         self.transform = LogReturnTransform()
@@ -236,13 +303,13 @@ class BasePyTorchTrainer(BaseModelTrainer):
             if isinstance(training_config, NNTrainingConfig)
             else NNTrainingConfig(**(training_config or {}))
         )
+        self.output_selector = output_selector
 
-    def _prepare_data(
-        self, historical_bars: Sequence[BarData]
-    ) -> Union[
-        None, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float]
+    def _prepare_data(self, historical_bars: Sequence[BarData]) -> Union[
+        None,
+        tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
     ]:
-        feature_cols = getattr(self.training_config, "feature_cols", ["close"])
+        feature_cols = self.training_config.feature_cols
         matrix = DatasetBuilder.to_matrix(historical_bars, feature_cols=feature_cols)
         returns = self.transform.transform(matrix)
 
@@ -266,8 +333,13 @@ class BasePyTorchTrainer(BaseModelTrainer):
         )
 
         # Calculate mean & std from training features only to prevent data leakage
-        X_mean = float(X_train.mean()) if len(X_train) > 0 else 0.0
-        X_std = float(X_train.std() + 1e-8) if len(X_train) > 0 else 1.0
+        n_features = len(feature_cols)
+        if len(X_train) > 0:
+            X_mean = X_train.mean(axis=(0, 1))
+            X_std = X_train.std(axis=(0, 1)) + 1e-8
+        else:
+            X_mean = np.zeros(n_features)
+            X_std = np.ones(n_features)
 
         return X_train, y_train, X_val, y_val, X_mean, X_std
 
@@ -279,6 +351,7 @@ class BasePyTorchTrainer(BaseModelTrainer):
         X_val: np.ndarray,
         y_val: np.ndarray,
         dummy_input: torch.Tensor,
+        val_bars: Optional[Sequence[Sequence[BarData]]] = None,
     ) -> None:
         if len(X_train) == 0:
             logger.error("No training data available after split.")
@@ -374,7 +447,13 @@ class BasePyTorchTrainer(BaseModelTrainer):
 
             # Validation step (SRP: delegated to ValidationEvaluator)
             if val_loader is not None:
-                val_metrics = ValidationEvaluator.evaluate(model, val_loader, criterion)
+                val_metrics = ValidationEvaluator.evaluate(
+                    model=model,
+                    dataloader=val_loader,
+                    criterion=criterion,
+                    output_selector=self.output_selector,
+                    val_bars=val_bars,
+                )
 
                 # Log to TensorBoard
                 if writer:
@@ -385,6 +464,10 @@ class BasePyTorchTrainer(BaseModelTrainer):
                     f"Epoch {epoch}: Train Loss = {epoch_loss:.6f}, Val Loss = {val_loss:.6f}, "
                     f"Val IC = {val_metrics['ic']:.4f}, Val Dir Acc = {val_metrics['directional_accuracy']:.4f}"
                 )
+                if "selector_accuracy" in val_metrics:
+                    logger.info(
+                        f"Epoch {epoch}: Val Selector Accuracy = {val_metrics['selector_accuracy']:.4f}"
+                    )
 
                 # Early stopping & model checkpointing
                 if (
@@ -420,7 +503,8 @@ class BasePyTorchTrainer(BaseModelTrainer):
 
     def _export_to_onnx(self, model: nn.Module) -> bytes:
         model.eval()
-        dummy_input = torch.randn(1, 1, self.lookback_period)
+        n_features = len(self.training_config.feature_cols)
+        dummy_input = torch.randn(1, n_features, self.lookback_period)
         f = io.BytesIO()
         torch.onnx.export(
             model,
@@ -446,9 +530,12 @@ class CNNTrainer(BasePyTorchTrainer):
         lookback_period: int = 20,
         model_config: Union[CNNConfig, Dict[str, Any], None] = None,
         training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+        output_selector: Optional[BaseOutputSelector] = None,
     ) -> None:
         super().__init__(
-            lookback_period=lookback_period, training_config=training_config
+            lookback_period=lookback_period,
+            training_config=training_config,
+            output_selector=output_selector,
         )
         self.model_config = (
             model_config
@@ -463,17 +550,37 @@ class CNNTrainer(BasePyTorchTrainer):
             return None
 
         X_train, y_train, X_val, y_val, X_mean, X_std = data
+        n_features = len(self.training_config.feature_cols)
 
         # Instantiate SimpleCNN
         model = SimpleCNN(
             input_dim=self.lookback_period,
+            n_features=n_features,
             config=self.model_config,
             mean=X_mean,
             std=X_std,
         )
 
-        dummy_input = torch.randn(1, 1, self.lookback_period)
-        self._train_model(model, X_train, y_train, X_val, y_val, dummy_input)
+        dummy_input = torch.randn(1, n_features, self.lookback_period)
+
+        val_bars = None
+        if self.output_selector is not None and len(X_val) > 0:
+            val_bars = extract_validation_bars(
+                historical_bars=historical_bars,
+                val_size=len(X_val),
+                lookback_period=self.lookback_period,
+                horizon=self.training_config.horizon,
+            )
+
+        self._train_model(
+            model=model,
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            dummy_input=dummy_input,
+            val_bars=val_bars,
+        )
         return self._export_to_onnx(model)
 
 
@@ -487,9 +594,12 @@ class RNNTrainer(BasePyTorchTrainer):
         lookback_period: int = 20,
         model_config: Union[RNNConfig, Dict[str, Any], None] = None,
         training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+        output_selector: Optional[BaseOutputSelector] = None,
     ) -> None:
         super().__init__(
-            lookback_period=lookback_period, training_config=training_config
+            lookback_period=lookback_period,
+            training_config=training_config,
+            output_selector=output_selector,
         )
         self.model_config = (
             model_config
@@ -504,17 +614,37 @@ class RNNTrainer(BasePyTorchTrainer):
             return None
 
         X_train, y_train, X_val, y_val, X_mean, X_std = data
+        n_features = len(self.training_config.feature_cols)
 
         # Instantiate SimpleRNN
         model = SimpleRNN(
             input_dim=self.lookback_period,
+            n_features=n_features,
             config=self.model_config,
             mean=X_mean,
             std=X_std,
         )
 
-        dummy_input = torch.randn(1, 1, self.lookback_period)
-        self._train_model(model, X_train, y_train, X_val, y_val, dummy_input)
+        dummy_input = torch.randn(1, n_features, self.lookback_period)
+
+        val_bars = None
+        if self.output_selector is not None and len(X_val) > 0:
+            val_bars = extract_validation_bars(
+                historical_bars=historical_bars,
+                val_size=len(X_val),
+                lookback_period=self.lookback_period,
+                horizon=self.training_config.horizon,
+            )
+
+        self._train_model(
+            model=model,
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            dummy_input=dummy_input,
+            val_bars=val_bars,
+        )
         return self._export_to_onnx(model)
 
 
@@ -528,9 +658,12 @@ class LSTMTrainer(BasePyTorchTrainer):
         lookback_period: int = 20,
         model_config: Union[LSTMConfig, Dict[str, Any], None] = None,
         training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
+        output_selector: Optional[BaseOutputSelector] = None,
     ) -> None:
         super().__init__(
-            lookback_period=lookback_period, training_config=training_config
+            lookback_period=lookback_period,
+            training_config=training_config,
+            output_selector=output_selector,
         )
         self.model_config = (
             model_config
@@ -545,15 +678,35 @@ class LSTMTrainer(BasePyTorchTrainer):
             return None
 
         X_train, y_train, X_val, y_val, X_mean, X_std = data
+        n_features = len(self.training_config.feature_cols)
 
         # Instantiate SimpleLSTM
         model = SimpleLSTM(
             input_dim=self.lookback_period,
+            n_features=n_features,
             config=self.model_config,
             mean=X_mean,
             std=X_std,
         )
 
-        dummy_input = torch.randn(1, 1, self.lookback_period)
-        self._train_model(model, X_train, y_train, X_val, y_val, dummy_input)
+        dummy_input = torch.randn(1, n_features, self.lookback_period)
+
+        val_bars = None
+        if self.output_selector is not None and len(X_val) > 0:
+            val_bars = extract_validation_bars(
+                historical_bars=historical_bars,
+                val_size=len(X_val),
+                lookback_period=self.lookback_period,
+                horizon=self.training_config.horizon,
+            )
+
+        self._train_model(
+            model=model,
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            dummy_input=dummy_input,
+            val_bars=val_bars,
+        )
         return self._export_to_onnx(model)
