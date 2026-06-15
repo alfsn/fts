@@ -63,7 +63,7 @@ class NNTrainingConfig(BaseTrainerConfig):
     )
 
 
-class CNNConfig(BaseModel):
+class CNNConfig(NNTrainingConfig):
     """Configuration for Convolutional Neural Network architectures."""
 
     out_channels: List[int] = Field(
@@ -85,7 +85,7 @@ class CNNConfig(BaseModel):
     )
 
 
-class RNNConfig(BaseModel):
+class RNNConfig(NNTrainingConfig):
     """Configuration for Recurrent Neural Network (Elman RNN) architectures."""
 
     hidden_dim: int = Field(
@@ -100,7 +100,7 @@ class RNNConfig(BaseModel):
     )
 
 
-class LSTMConfig(BaseModel):
+class LSTMConfig(NNTrainingConfig):
     """Configuration for Long Short-Term Memory Network architectures."""
 
     hidden_dim: int = Field(
