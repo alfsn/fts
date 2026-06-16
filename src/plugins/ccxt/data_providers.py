@@ -197,20 +197,3 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
                 f"Failed to fetch bars for {market_id} from {self.exchange_id}: {e}"
             )
             return []
-
-    def get_market_data(self, market_id: str) -> MarketData:
-        """
-        Returns a composite snapshot of the latest data for a market.
-        """
-        details = self.get_market_details(market_id)
-        bars = list(self.get_bars(market_id))
-        ob = self.get_order_book(market_id)
-        trades = list(self.get_trade_history(market_id))
-
-        return MarketData(
-            market_id=market_id,
-            details=details,
-            recent_bars=bars,
-            order_book=ob if ob.bids or ob.asks else None,
-            recent_trades=trades if trades else None,
-        )

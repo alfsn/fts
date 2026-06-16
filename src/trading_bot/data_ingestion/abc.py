@@ -91,7 +91,6 @@ class BaseMarketDataProvider(ABC):
         """
         pass
 
-    @abstractmethod
     def get_market_data(self, market_id: str) -> MarketData:
         """
         Fetches a comprehensive snapshot of a single market.
@@ -102,7 +101,31 @@ class BaseMarketDataProvider(ABC):
         :param market_id: The unique identifier for the market.
         :return: A MarketData object.
         """
-        pass
+        details = self.get_market_details(market_id)
+        bars = list(self.get_bars(market_id))
+
+        try:
+            ob = self.get_order_book(market_id)
+        except Exception:
+            ob = None
+
+        try:
+            trades = list(self.get_trade_history(market_id))
+        except Exception:
+            trades = None
+
+        has_ob = ob is not None and (
+            len(getattr(ob, "bids", [])) > 0 or len(getattr(ob, "asks", [])) > 0
+        )
+        has_trades = trades is not None and len(trades) > 0
+
+        return MarketData(
+            market_id=market_id,
+            details=details,
+            recent_bars=bars,
+            order_book=ob if has_ob else None,
+            recent_trades=trades if has_trades else None,
+        )
 
 
 class BaseExternalDataProvider(ABC):
