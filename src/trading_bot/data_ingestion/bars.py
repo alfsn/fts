@@ -54,6 +54,25 @@ class BaseBarAggregator(ABC):
         self.current_bar.ticks_count += 1
         self.current_bar.dollar_volume += trade.price * trade.size
 
+    def _add_trade_threshold(
+        self, trade: Trade, metric_name: str, threshold: float
+    ) -> Optional[BarData]:
+        """
+        Generic helper for threshold-based aggregators (volume or dollar).
+        """
+        if not self.current_bar:
+            self._initialize_bar(trade, trade.timestamp)
+        else:
+            self._update_bar(trade)
+
+        if self.current_bar and getattr(self.current_bar, metric_name) >= threshold:
+            completed_bar = self.current_bar
+            completed_bar.timestamp = trade.timestamp
+            self.current_bar = None
+            return completed_bar
+
+        return None
+
 
 class TimeBarAggregator(BaseBarAggregator):
     """
@@ -103,19 +122,7 @@ class VolumeBarAggregator(BaseBarAggregator):
         self.threshold = volume_threshold
 
     def add_trade(self, trade: Trade) -> Optional[BarData]:
-        if not self.current_bar:
-            self._initialize_bar(trade, trade.timestamp)
-        else:
-            self._update_bar(trade)
-
-        if self.current_bar and self.current_bar.volume >= self.threshold:
-            completed_bar = self.current_bar
-            # Update timestamp to the exact time the threshold was met
-            completed_bar.timestamp = trade.timestamp
-            self.current_bar = None
-            return completed_bar
-
-        return None
+        return self._add_trade_threshold(trade, "volume", self.threshold)
 
 
 class DollarBarAggregator(BaseBarAggregator):
@@ -128,19 +135,7 @@ class DollarBarAggregator(BaseBarAggregator):
         self.threshold = dollar_threshold
 
     def add_trade(self, trade: Trade) -> Optional[BarData]:
-        if not self.current_bar:
-            self._initialize_bar(trade, trade.timestamp)
-        else:
-            self._update_bar(trade)
-
-        if self.current_bar and self.current_bar.dollar_volume >= self.threshold:
-            completed_bar = self.current_bar
-            # Update timestamp to the exact time the threshold was met
-            completed_bar.timestamp = trade.timestamp
-            self.current_bar = None
-            return completed_bar
-
-        return None
+        return self._add_trade_threshold(trade, "dollar_volume", self.threshold)
 
 
 class BarFactory:
