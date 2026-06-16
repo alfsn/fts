@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from trading_bot.backtesting.abc import BaseBacktestDataReader
-from trading_bot.backtesting.readers import CSVBacktestDataReader
+from trading_bot.backtesting.readers import CSVBacktestDataReader, SQLBacktestDataReader
 from trading_bot.core.enums import BarType
 from trading_bot.core.loop import HistoricalReplayLoop
 from trading_bot.core.pipeline import TradingPipeline
@@ -155,3 +155,151 @@ def test_historical_replay_loop_backwards_compatibility_fallback(temp_csv_file):
     assert isinstance(called_tick, IngestionEngineOutput)
     assert "mock-btc" in called_tick.market_data
     assert called_tick.market_data["mock-btc"].recent_bars[0].close == 102.0
+
+
+@pytest.fixture
+def sql_db_session():
+    """Sets up an in-memory SQLite database and creates the schema."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from trading_bot.core.database import Base
+    from trading_bot.core.enums import BarType
+    from trading_bot.core.models import BarDataLog, Market
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    SessionClass = sessionmaker(bind=engine)
+    session = SessionClass()
+
+    # Pre-populate a market record since foreign key constraints exist
+    market = Market(
+        market_id="AAPL",
+        name="Apple Inc.",
+        end_date=datetime(2026, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
+        resolution_source="sqlite_test",
+    )
+    session.add(market)
+
+    # Pre-populate some historical bars
+    bar1 = BarDataLog(
+        market_id="AAPL",
+        timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
+        open=100.0,
+        high=105.0,
+        low=99.0,
+        close=102.0,
+        volume=500.0,
+        bar_type=BarType.TIME,
+        ticks_count=10,
+        dollar_volume=51000.0,
+    )
+    bar2 = BarDataLog(
+        market_id="AAPL",
+        timestamp=datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc),
+        open=102.0,
+        high=103.0,
+        low=101.0,
+        close=101.5,
+        volume=300.0,
+        bar_type=BarType.TIME,
+        ticks_count=5,
+        dollar_volume=30450.0,
+    )
+    session.add_all([bar1, bar2])
+    session.commit()
+
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def test_sql_backtest_data_reader(sql_db_session):
+    """
+    Verifies that SQLBacktestDataReader correctly parses SQL rows
+    and yields chronological IngestionEngineOutput packets.
+    """
+    reader = SQLBacktestDataReader(session=sql_db_session, market_id="AAPL")
+    ticks = list(reader.read_data())
+
+    # Assertions
+    assert len(ticks) == 2
+
+    # Check first tick
+    tick1 = ticks[0]
+    assert isinstance(tick1, IngestionEngineOutput)
+    assert tick1.timestamp == datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc)
+    assert "AAPL" in tick1.market_data
+
+    mdata1 = tick1.market_data["AAPL"]
+    assert isinstance(mdata1, MarketData)
+    assert mdata1.market_id == "AAPL"
+    assert mdata1.details.name == "Apple Inc."
+    assert mdata1.details.resolution_source == "sqlite_test"
+
+    bar1 = mdata1.recent_bars[0]
+    assert isinstance(bar1, BarData)
+    assert bar1.open == 100.0
+    assert bar1.high == 105.0
+    assert bar1.low == 99.0
+    assert bar1.close == 102.0
+    assert bar1.volume == 500.0
+    assert bar1.bar_type == BarType.TIME
+
+    # Check second tick
+    tick2 = ticks[1]
+    assert tick2.timestamp == datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
+    assert tick2.market_data["AAPL"].recent_bars[0].close == 101.5
+
+
+def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
+    """Verifies that SQLBacktestDataReader respects start_date and end_date filters."""
+    start_date = datetime(2026, 5, 30, 12, 0, 30, tzinfo=timezone.utc)
+    reader = SQLBacktestDataReader(
+        session=sql_db_session,
+        market_id="AAPL",
+        start_date=start_date,
+    )
+    ticks = list(reader.read_data())
+    assert len(ticks) == 1
+    assert ticks[0].timestamp == datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
+
+    end_date = datetime(2026, 5, 30, 12, 0, 30, tzinfo=timezone.utc)
+    reader_end = SQLBacktestDataReader(
+        session=sql_db_session,
+        market_id="AAPL",
+        end_date=end_date,
+    )
+    ticks_end = list(reader_end.read_data())
+    assert len(ticks_end) == 1
+    assert ticks_end[0].timestamp == datetime(
+        2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc
+    )
+
+
+def test_sql_backtest_data_reader_fallback_market(sql_db_session):
+    """Verifies fallback behavior when market details are not found in the database."""
+    from trading_bot.core.models import BarDataLog
+
+    # Add a bar for an unsaved market ID
+    bar = BarDataLog(
+        market_id="GOOG",
+        timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
+        open=200.0,
+        high=205.0,
+        low=199.0,
+        close=202.0,
+        volume=100.0,
+        bar_type=BarType.TIME,
+        ticks_count=10,
+        dollar_volume=20200.0,
+    )
+    sql_db_session.add(bar)
+    sql_db_session.commit()
+
+    reader = SQLBacktestDataReader(session=sql_db_session, market_id="GOOG")
+    ticks = list(reader.read_data())
+    assert len(ticks) == 1
+    assert ticks[0].market_data["GOOG"].details.name == "GOOG Historical Replay"
+    assert ticks[0].market_data["GOOG"].details.resolution_source == "sqlite_replay"
