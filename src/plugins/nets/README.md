@@ -65,8 +65,8 @@ Neural network models are dynamically configured and validated using Pydantic mo
 ### Configuration Schemas (`models/schemas.py`)
 *   **`BaseTrainerConfig`**: Holds basic options common to all trainers (e.g. `lookback_period` and `feature_cols`).
 *   **`NNTrainingConfig`**: Deep learning training configurations (epochs, batch size, learning rate, optimizer, loss function, and TensorBoard logging directory).
-*   **`CNNConfig`**: Specific hyperparameters for CNNs (channels, kernels, pooling sizes, dropout).
-*   **`RNNConfig` & `LSTMConfig`**: Specific recurrent architecture parameters (hidden dimension, layers, dropout, bidirectional options).
+*   **`CNNConfig`**: Specific hyperparameters for CNNs (channels, kernels, pooling sizes, dropout). Inherits from `NNTrainingConfig`.
+*   **`RNNConfig` & `LSTMConfig`**: Specific recurrent architecture parameters (hidden dimension, layers, dropout, bidirectional options). Both inherit from `NNTrainingConfig`.
 
 ### Neural Network Architectures (`models/models.py`)
 *   **`SimpleCNN`**, **`SimpleRNN`**, and **`SimpleLSTM`**: Standard PyTorch model classes.

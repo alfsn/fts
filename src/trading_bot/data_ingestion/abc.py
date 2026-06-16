@@ -7,7 +7,7 @@ external event-driven data (like API results).
 """
 
 from abc import ABC, abstractmethod
-from typing import Sequence
+from typing import Any, Sequence
 
 from ..core.schemas import (
     BarData,
@@ -28,6 +28,16 @@ class BaseMarketDataProvider(ABC):
     A concrete implementation of this class will exist for each
     supported exchange.
     """
+
+    @classmethod
+    def from_args(cls, args: Any) -> "BaseMarketDataProvider":
+        """
+        Creates an instance of the provider from parsed command-line arguments.
+        Subclasses should override this if they support command-line instantiation.
+        """
+        raise NotImplementedError(
+            f"Provider '{cls.__name__}' does not support initialization from command-line arguments."
+        )
 
     @abstractmethod
     def list_tradable_markets(self) -> Sequence[MarketDetails]:

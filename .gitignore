@@ -223,6 +223,7 @@ __marimo__/
 
 # Databases
 *.db
+!test_persistence.db
 *.sqlite3
 *.sqlite3-journal
 
