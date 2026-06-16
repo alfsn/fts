@@ -9,7 +9,11 @@ import yaml
 
 from trading_bot.config import PluginLoader, TaskConfig, settings
 from trading_bot.core.database import SessionLocal, init_db
-from trading_bot.core.loop import BaseEventLoop
+from trading_bot.core.loop import (
+    BaseEventLoop,
+    HistoricalReplayLoop,
+    RealTimePollingLoop,
+)
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.repository import OrderRepository, PositionRepository
 from trading_bot.data_ingestion.engine import DataIngestionEngine
@@ -85,7 +89,11 @@ def main() -> None:
 
         # 5. Dynamic Recursive Instantiation via PluginLoader
         logger.info("Initializing dynamic core and plugin components...")
-        market_provider = PluginLoader.instantiate(task_config.market_provider)
+        market_provider = (
+            PluginLoader.instantiate(task_config.market_provider)
+            if task_config.market_provider
+            else None
+        )
 
         external_providers = [
             PluginLoader.instantiate(cfg) for cfg in task_config.external_providers
@@ -144,6 +152,25 @@ def main() -> None:
                 f"must inherit from BaseEventLoop!"
             )
             sys.exit(1)
+
+        # Safeguards:
+        if isinstance(loop_driver, RealTimePollingLoop) and not market_provider:
+            logger.critical(
+                "CRITICAL CONFIG ERROR: RealTimePollingLoop is configured, "
+                "but market_provider is missing! A live loop requires a market data provider."
+            )
+            sys.exit(1)
+
+        if isinstance(loop_driver, HistoricalReplayLoop):
+            if execution_handler and not getattr(
+                execution_handler, "is_simulated", False
+            ):
+                logger.critical(
+                    f"CRITICAL CONFIG ERROR: Loop driver is HistoricalReplayLoop, "
+                    f"but execution handler '{task_config.execution_handler.class_path}' is not simulated! "
+                    f"Running a backtest with a live execution handler is blocked to prevent accidental trades."
+                )
+                sys.exit(1)
 
         logger.info(
             f"Event loop starting via driver: '{task_config.loop_driver.class_path}'"

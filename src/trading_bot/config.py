@@ -36,7 +36,9 @@ class TaskConfig(BaseModel):
     loop_driver: Optional[ComponentConfig] = Field(
         None, description="Dynamic event loop timing/scheduling configuration"
     )
-    market_provider: ComponentConfig
+    market_provider: Optional[ComponentConfig] = Field(
+        None, description="Dynamic market data provider configuration"
+    )
     external_providers: List[ComponentConfig] = Field(default_factory=list)
     strategies: List[ComponentConfig]
     sizing_strategy: ComponentConfig

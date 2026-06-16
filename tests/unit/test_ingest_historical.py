@@ -55,10 +55,11 @@ def test_ingest_historical_yfinance(
     ]
     mock_provider.get_bars.return_value = mock_bars
 
+    mock_provider_class = MagicMock()
+    mock_provider_class.from_args.return_value = mock_provider
     with patch(
-        "yfinance_plugin.data_providers.YFinanceMarketDataProvider",
-        return_value=mock_provider,
-        create=True,
+        "trading_bot.utils.ingest_historical.MarketDataProviderRegistry.get_provider_class",
+        return_value=mock_provider_class,
     ):
         main()
 
@@ -117,10 +118,11 @@ def test_ingest_historical_ccxt(
     ]
     mock_provider.get_bars.return_value = mock_bars
 
+    mock_provider_class = MagicMock()
+    mock_provider_class.from_args.return_value = mock_provider
     with patch(
-        "ccxt_plugin.data_providers.CCXTMarketDataProvider",
-        return_value=mock_provider,
-        create=True,
+        "trading_bot.utils.ingest_historical.MarketDataProviderRegistry.get_provider_class",
+        return_value=mock_provider_class,
     ):
         main()
 
