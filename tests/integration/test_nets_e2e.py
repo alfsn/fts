@@ -20,13 +20,13 @@ from trading_bot.core.schemas import BarData
 @pytest.fixture(scope="module")
 def e2e_db_session():
     """
-    Swaps the default database to test_persistence.db during the E2E test,
+    Swaps the default database to tests/test_persistence.db during the E2E test,
     ensuring other unit/integration tests are not impacted.
     """
-    # 1. Update settings to point to test_persistence.db
-    settings.DATABASE_URL = "sqlite+pysqlite:///./test_persistence.db"
+    # 1. Update settings to point to tests/test_persistence.db
+    settings.DATABASE_URL = "sqlite+pysqlite:///./tests/test_persistence.db"
 
-    # 2. Configure SessionLocal to bind to test_persistence.db
+    # 2. Configure SessionLocal to bind to tests/test_persistence.db
     engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
     SessionLocal.configure(bind=engine)
 
@@ -47,7 +47,7 @@ def e2e_db_session():
 
 def test_rnn_e2e_training_and_onnx_inference(e2e_db_session):
     """
-    E2E Test to fetch real historical BTC/USDT data from test_persistence.db,
+    E2E Test to fetch real historical BTC/USDT data from tests/test_persistence.db,
     train an RNN model from the /nets/ plugin, export it to ONNX, and run inference.
     """
     # 1. Fetch historical BTC/USDT bars via repository
@@ -56,7 +56,7 @@ def test_rnn_e2e_training_and_onnx_inference(e2e_db_session):
 
     assert (
         len(db_bars) == 1000
-    ), "Should have loaded exactly 1000 BTC/USDT bars from test_persistence.db"
+    ), "Should have loaded exactly 1000 BTC/USDT bars from tests/test_persistence.db"
 
     # 2. Convert database models to BarData Pydantic schemas
     bar_schemas = [
