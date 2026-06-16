@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -68,6 +69,12 @@ class BarDataLog(Base):
 
     __tablename__ = "bar_data_logs"
 
+    __table_args__ = (
+        UniqueConstraint(
+            "market_id", "timestamp", "bar_type", "interval", name="uq_bar_data_log"
+        ),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     market_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False
@@ -83,6 +90,7 @@ class BarDataLog(Base):
     volume: Mapped[float] = mapped_column(nullable=False)
 
     bar_type: Mapped[BarType] = mapped_column(Enum(BarType), nullable=False, index=True)
+    interval: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     ticks_count: Mapped[int] = mapped_column(nullable=False)
     dollar_volume: Mapped[float] = mapped_column(nullable=False)
 

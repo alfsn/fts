@@ -115,6 +115,9 @@ class BarData(BaseModel):
     bar_type: BarType = Field(
         ..., description="The type of bar (Time, Volume, Dollar)."
     )
+    interval: Optional[str] = Field(
+        None, description="The timeframe/interval (e.g. 1m, 5m, 1h, 1d)."
+    )
     ticks_count: int = Field(..., description="Number of ticks in this bar.", ge=1)
     dollar_volume: float = Field(
         ..., description="Total currency units traded in this bar.", ge=0

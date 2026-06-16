@@ -136,6 +136,7 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
                     close=cl,
                     volume=vol,
                     bar_type=BarType.TIME,
+                    interval=self.interval,
                     ticks_count=1,
                     dollar_volume=cl * vol,
                 )
