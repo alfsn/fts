@@ -1,6 +1,7 @@
 # src/trading_bot/core/repository.py
 
 import logging
+from datetime import datetime
 from typing import List, Optional, Sequence
 
 from sqlalchemy.orm import Session
@@ -244,4 +245,35 @@ class MarketDataRepository(BaseRepository):
         except Exception as e:
             self.db.rollback()
             logger.error(f"Failed to save bars for {market_id}: {e}")
+            raise e
+
+    def get_bars(
+        self,
+        market_ids: str | Sequence[str],
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[BarDataLogModel]:
+        """
+        Loads historical bars for given market(s) and date range, ordered by timestamp ascending.
+
+        :param market_ids: Market ID string or sequence of market ID strings.
+        :param start_date: Optional start datetime (inclusive).
+        :param end_date: Optional end datetime (inclusive).
+        :return: A list of BarDataLog DB models.
+        """
+        try:
+            if isinstance(market_ids, str):
+                market_ids = [market_ids]
+
+            query = self.db.query(BarDataLogModel).filter(
+                BarDataLogModel.market_id.in_(market_ids)
+            )
+            if start_date:
+                query = query.filter(BarDataLogModel.timestamp >= start_date)
+            if end_date:
+                query = query.filter(BarDataLogModel.timestamp <= end_date)
+
+            return query.order_by(BarDataLogModel.timestamp.asc()).all()
+        except Exception as e:
+            logger.error(f"Failed to load bars for {market_ids}: {e}")
             raise e

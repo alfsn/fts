@@ -4,10 +4,9 @@ import logging
 from datetime import datetime
 from typing import Sequence
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..core.models import BarDataLog
+from ..core.repository import MarketDataRepository
 from ..core.schemas import (
     BarData,
     IngestionEngineOutput,
@@ -38,21 +37,18 @@ class BacktestSimulator:
         self.market_ids = market_ids
         self.start_date = start_date
         self.end_date = end_date
+        self.repository = MarketDataRepository(db)
 
     def run(self) -> None:
         """Runs the simulation."""
         logger.info(f"Starting backtest from {self.start_date} to {self.end_date}")
 
-        # 1. Fetch all bars for the given markets and range
-        # We sort by timestamp to replay them in order
-        stmt = (
-            select(BarDataLog)
-            .where(BarDataLog.market_id.in_(self.market_ids))
-            .where(BarDataLog.timestamp >= self.start_date)
-            .where(BarDataLog.timestamp <= self.end_date)
-            .order_by(BarDataLog.timestamp.asc())
+        # 1. Fetch all bars for the given markets and range using repository
+        bars = self.repository.get_bars(
+            market_ids=self.market_ids,
+            start_date=self.start_date,
+            end_date=self.end_date,
         )
-        bars = self.db.execute(stmt).scalars().all()
 
         if not bars:
             logger.warning("No bars found for the given criteria.")
