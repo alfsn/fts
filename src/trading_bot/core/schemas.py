@@ -221,6 +221,14 @@ class TradeSignal(BaseModel):
         ge=0.0,
         le=1.0,
     )
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="The timestamp when this signal was generated.",
+    )
+    prediction_output: Optional[str] = Field(
+        None,
+        description="JSON-serialized raw prediction output or probabilities from the model.",
+    )
 
 
 # --- Module 3: Risk & Position Management Schemas ---
