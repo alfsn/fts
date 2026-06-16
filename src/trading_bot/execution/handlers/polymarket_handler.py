@@ -22,6 +22,10 @@ class PolymarketHandler(BaseExecutionHandler):
     def market_name(self) -> str:
         return "polymarket"
 
+    @property
+    def is_simulated(self) -> bool:
+        return True
+
     def execute_order(self, order: OrderRequest) -> ExecutionResult:
         """Simulates placing an order and instantly filling it for simple execution flow."""
         order_id = f"poly-{uuid.uuid4().hex[:8]}"

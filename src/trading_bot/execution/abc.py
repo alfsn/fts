@@ -36,6 +36,15 @@ class BaseExecutionHandler(ABC):
         """
         pass
 
+    @property
+    def is_simulated(self) -> bool:
+        """
+        Indicates whether this handler is a simulation/mock (True)
+        or executes real orders on a live exchange (False).
+        By default, execution handlers are assumed to be live.
+        """
+        return False
+
     @abstractmethod
     def execute_order(self, order: OrderRequest) -> ExecutionResult:
         """
