@@ -260,6 +260,16 @@ class ExecutionEngine:
             if result.status == OrderStatus.OPEN and order:
                 self.portfolio.add_open_order(result.order_id, order)
             else:
+                if order and isinstance(
+                    getattr(self.portfolio, "_open_orders", None), dict
+                ):
+                    if result.order_id not in self.portfolio._open_orders:
+                        logger.warning(
+                            f"Order {result.order_id} was filled (or finalized) immediately "
+                            f"without being previously tracked as OPEN. Temporarily tracking it "
+                            f"to process the fill."
+                        )
+                        self.portfolio.add_open_order(result.order_id, order)
                 self.portfolio.update_order_status(db, result)
 
         except Exception as e:
