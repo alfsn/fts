@@ -2,32 +2,43 @@
 
 import os
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from trading_bot.core.database import SessionLocal, init_db
+from trading_bot.core.database import Base, SessionLocal
+from trading_bot.core.database import engine as dev_engine
+from trading_bot.core.database import init_db
 from trading_bot.core.enums import BarType
 from trading_bot.core.models import BarDataLog, Market
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="module", autouse=True)
 def setup_db():
-    # Use a separate test database file
-    test_db = "tests/test_persistence.db"
+    # Use a separate temp test database file so we don't delete/overwrite test_persistence.db
+    test_db = "tests/temp_persistence.db"
+    test_db_url = f"sqlite+pysqlite:///{test_db}"
     if os.path.exists(test_db):
-        os.remove(test_db)
+        try:
+            os.remove(test_db)
+        except PermissionError:
+            pass
 
-    # We need to monkeypatch the engine or just use it as is if it's configurable
-    # For this test, we'll just run against whatever is in settings,
-    # but ideally we should use an in-memory db or a dedicated test db.
+    test_engine = create_engine(test_db_url)
+    Base.metadata.create_all(bind=test_engine)
 
-    init_db()
-    yield
+    with patch("trading_bot.core.database.engine", test_engine):
+        SessionLocal.configure(bind=test_engine)
+        yield
+        SessionLocal.configure(bind=dev_engine)
 
     if os.path.exists(test_db):
-        os.remove(test_db)
+        try:
+            os.remove(test_db)
+        except PermissionError:
+            pass
 
 
 def test_bar_data_log_persistence():
