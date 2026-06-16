@@ -62,6 +62,13 @@ class KellyCriterionSizer(BaseSizingStrategy):
         q_true = 1.0 - p_true
         f_kelly = 0.0
 
+        if book is None:
+            logger.warning(
+                f"No order book available for {input_data.signal.market_id}, "
+                "cannot calculate Kelly size."
+            )
+            return SizingOutput(amount_quote=0, size_shares=0)
+
         try:
             if input_data.signal.signal_type == SignalType.BUY:
                 if not book.asks:
