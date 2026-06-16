@@ -14,16 +14,13 @@ from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.repository import OrderRepository, PositionRepository
 from trading_bot.data_ingestion.engine import DataIngestionEngine
 from trading_bot.execution.engine import ExecutionEngine
+from trading_bot.monitoring.logger import setup_logging
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.strategy.engine import StrategyEngine
 
 # Setup logging
-logging.basicConfig(
-    level=logging.getLevelName(settings.LOG_LEVEL),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+setup_logging()
 
 logger = logging.getLogger("trading_bot.runner")
 
