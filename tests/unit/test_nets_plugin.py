@@ -241,7 +241,7 @@ def test_output_selectors():
 
 
 def test_onnx_predictor_shaping():
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
 
     from nets.inference import ONNXPredictor
 
@@ -257,9 +257,9 @@ def test_onnx_predictor_shaping():
     mock_session.get_inputs.return_value = [mock_input]
 
     # Instantiate predictor and override session
-    predictor = ONNXPredictor("dummy.onnx")
-    predictor.session = mock_session
-    predictor.input_metadata = {"input": mock_input}
+    with patch("onnxruntime.InferenceSession", return_value=mock_session):
+        predictor = ONNXPredictor("dummy.onnx")
+        predictor.input_metadata = {"input": mock_input}
 
     # Pass a 2D array of (lookback, features) = (10, 2)
     dummy_input = np.ones((10, 2))

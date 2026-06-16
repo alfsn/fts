@@ -21,8 +21,10 @@ class ONNXPredictor:
             self.input_metadata = {i.name: i for i in self.session.get_inputs()}
             logger.info(f"Loaded ONNX model from {model_path}")
         except Exception as e:
-            logger.error(f"Failed to load ONNX model from {model_path}: {e}")
-            self.session = None
+            logger.critical(f"Failed to load ONNX model from {model_path}: {e}")
+            raise RuntimeError(
+                f"Failed to load ONNX model from {model_path}: {e}"
+            ) from e
 
     def predict(self, inputs: Union[np.ndarray, Dict[str, np.ndarray]]) -> np.ndarray:
         """
