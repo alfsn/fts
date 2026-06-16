@@ -15,7 +15,7 @@ from trading_bot.core.models import BarDataLog, Market
 @pytest.fixture(scope="module")
 def setup_db():
     # Use a separate test database file
-    test_db = "test_persistence.db"
+    test_db = "tests/test_persistence.db"
     if os.path.exists(test_db):
         os.remove(test_db)
 
