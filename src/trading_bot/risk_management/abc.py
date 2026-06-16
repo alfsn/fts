@@ -66,7 +66,7 @@ class BaseSizingStrategy(ABC):
         signal = input_data.signal
         book = market_data.order_book
 
-        if book is None:
+        if book is None or (not book.bids and not book.asks):
             if market_data.recent_bars:
                 price = market_data.recent_bars[-1].close
                 logger.debug(
