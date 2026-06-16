@@ -306,6 +306,53 @@ class BasePyTorchTrainer(BaseModelTrainer):
             else NNTrainingConfig(**(training_config or {}))
         )
         self.output_selector = output_selector
+        self.model_class = None
+        self.model_config = None
+
+    def train(self, historical_bars: Sequence[BarData]) -> Any:
+        if self.model_class is None:
+            raise NotImplementedError("Subclass must set model_class")
+        if self.model_config is None:
+            raise NotImplementedError("Subclass must set model_config")
+
+        model_name = self.model_class.__name__.replace("Simple", "")
+        logger.info(f"Training {model_name} on {len(historical_bars)} bars.")
+        data = self._prepare_data(historical_bars)
+        if data is None:
+            return None
+
+        X_train, y_train, X_val, y_val, X_mean, X_std = data
+        n_features = len(self.training_config.feature_cols)
+
+        model = self.model_class(
+            input_dim=self.lookback_period,
+            n_features=n_features,
+            config=self.model_config,
+            mean=X_mean,
+            std=X_std,
+        )
+
+        dummy_input = torch.randn(1, n_features, self.lookback_period)
+
+        val_bars = None
+        if self.output_selector is not None and len(X_val) > 0:
+            val_bars = extract_validation_bars(
+                historical_bars=historical_bars,
+                val_size=len(X_val),
+                lookback_period=self.lookback_period,
+                horizon=self.training_config.horizon,
+            )
+
+        self._train_model(
+            model=model,
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            dummy_input=dummy_input,
+            val_bars=val_bars,
+        )
+        return self._export_to_onnx(model)
 
     def _prepare_data(self, historical_bars: Sequence[BarData]) -> Union[
         None,
@@ -539,51 +586,12 @@ class CNNTrainer(BasePyTorchTrainer):
             training_config=training_config,
             output_selector=output_selector,
         )
+        self.model_class = SimpleCNN
         self.model_config = (
             model_config
             if isinstance(model_config, CNNConfig)
             else CNNConfig(**(model_config or {}))
         )
-
-    def train(self, historical_bars: Sequence[BarData]) -> Any:
-        logger.info(f"Training CNN on {len(historical_bars)} bars.")
-        data = self._prepare_data(historical_bars)
-        if data is None:
-            return None
-
-        X_train, y_train, X_val, y_val, X_mean, X_std = data
-        n_features = len(self.training_config.feature_cols)
-
-        # Instantiate SimpleCNN
-        model = SimpleCNN(
-            input_dim=self.lookback_period,
-            n_features=n_features,
-            config=self.model_config,
-            mean=X_mean,
-            std=X_std,
-        )
-
-        dummy_input = torch.randn(1, n_features, self.lookback_period)
-
-        val_bars = None
-        if self.output_selector is not None and len(X_val) > 0:
-            val_bars = extract_validation_bars(
-                historical_bars=historical_bars,
-                val_size=len(X_val),
-                lookback_period=self.lookback_period,
-                horizon=self.training_config.horizon,
-            )
-
-        self._train_model(
-            model=model,
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_val,
-            y_val=y_val,
-            dummy_input=dummy_input,
-            val_bars=val_bars,
-        )
-        return self._export_to_onnx(model)
 
 
 class RNNTrainer(BasePyTorchTrainer):
@@ -603,51 +611,12 @@ class RNNTrainer(BasePyTorchTrainer):
             training_config=training_config,
             output_selector=output_selector,
         )
+        self.model_class = SimpleRNN
         self.model_config = (
             model_config
             if isinstance(model_config, RNNConfig)
             else RNNConfig(**(model_config or {}))
         )
-
-    def train(self, historical_bars: Sequence[BarData]) -> Any:
-        logger.info(f"Training RNN on {len(historical_bars)} bars.")
-        data = self._prepare_data(historical_bars)
-        if data is None:
-            return None
-
-        X_train, y_train, X_val, y_val, X_mean, X_std = data
-        n_features = len(self.training_config.feature_cols)
-
-        # Instantiate SimpleRNN
-        model = SimpleRNN(
-            input_dim=self.lookback_period,
-            n_features=n_features,
-            config=self.model_config,
-            mean=X_mean,
-            std=X_std,
-        )
-
-        dummy_input = torch.randn(1, n_features, self.lookback_period)
-
-        val_bars = None
-        if self.output_selector is not None and len(X_val) > 0:
-            val_bars = extract_validation_bars(
-                historical_bars=historical_bars,
-                val_size=len(X_val),
-                lookback_period=self.lookback_period,
-                horizon=self.training_config.horizon,
-            )
-
-        self._train_model(
-            model=model,
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_val,
-            y_val=y_val,
-            dummy_input=dummy_input,
-            val_bars=val_bars,
-        )
-        return self._export_to_onnx(model)
 
 
 class LSTMTrainer(BasePyTorchTrainer):
@@ -667,48 +636,9 @@ class LSTMTrainer(BasePyTorchTrainer):
             training_config=training_config,
             output_selector=output_selector,
         )
+        self.model_class = SimpleLSTM
         self.model_config = (
             model_config
             if isinstance(model_config, LSTMConfig)
             else LSTMConfig(**(model_config or {}))
         )
-
-    def train(self, historical_bars: Sequence[BarData]) -> Any:
-        logger.info(f"Training LSTM on {len(historical_bars)} bars.")
-        data = self._prepare_data(historical_bars)
-        if data is None:
-            return None
-
-        X_train, y_train, X_val, y_val, X_mean, X_std = data
-        n_features = len(self.training_config.feature_cols)
-
-        # Instantiate SimpleLSTM
-        model = SimpleLSTM(
-            input_dim=self.lookback_period,
-            n_features=n_features,
-            config=self.model_config,
-            mean=X_mean,
-            std=X_std,
-        )
-
-        dummy_input = torch.randn(1, n_features, self.lookback_period)
-
-        val_bars = None
-        if self.output_selector is not None and len(X_val) > 0:
-            val_bars = extract_validation_bars(
-                historical_bars=historical_bars,
-                val_size=len(X_val),
-                lookback_period=self.lookback_period,
-                horizon=self.training_config.horizon,
-            )
-
-        self._train_model(
-            model=model,
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_val,
-            y_val=y_val,
-            dummy_input=dummy_input,
-            val_bars=val_bars,
-        )
-        return self._export_to_onnx(model)
