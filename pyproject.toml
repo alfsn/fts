@@ -13,6 +13,9 @@ dependencies = [
     "pandas",
     "plotly",
     "ipywidgets",
+    "anywidget",
+    "nbformat",
+    "ipykernel",
 ]
 
 [project.optional-dependencies]
