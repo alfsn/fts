@@ -12,6 +12,8 @@ from plotly.subplots import make_subplots
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from trading_bot.core.enums import OrderSide, SignalType
+
 logger = logging.getLogger(__name__)
 
 
@@ -151,8 +153,16 @@ class BacktestVisualizer:
         if "predicted_signal" in df.columns:
             df["position"] = (
                 df["predicted_signal"]
-                .map({"BUY": 1.0, "SELL": -1.0, "FLAT": 0.0})
-                .fillna(method="ffill")
+                .str.lower()
+                .map(
+                    {
+                        SignalType.BUY.value: 1.0,
+                        SignalType.SELL.value: -1.0,
+                        SignalType.FLAT.value: 0.0,
+                        SignalType.HOLD.value: 0.0,
+                    }
+                )
+                .ffill()
                 .fillna(0.0)
             )
 
@@ -202,8 +212,16 @@ class BacktestVisualizer:
         )
 
         # Overlays: Trades
-        buys = df_pnl[df_pnl["side"] == "BUY"]
-        sells = df_pnl[df_pnl["side"] == "SELL"]
+        buys = (
+            df_pnl[df_pnl["side"].astype(str).str.lower() == OrderSide.BUY.value]
+            if "side" in df_pnl.columns
+            else pd.DataFrame()
+        )
+        sells = (
+            df_pnl[df_pnl["side"].astype(str).str.lower() == OrderSide.SELL.value]
+            if "side" in df_pnl.columns
+            else pd.DataFrame()
+        )
 
         if not buys.empty:
             fig.add_trace(
@@ -306,6 +324,13 @@ class BacktestVisualizer:
         if predictions_str:
             try:
                 predictions_data = json.loads(predictions_str)
+                # Unwrap 2D batch dimension if present (e.g. [[value]] or [[p1, p2, p3]])
+                if (
+                    isinstance(predictions_data, list)
+                    and len(predictions_data) == 1
+                    and isinstance(predictions_data[0], list)
+                ):
+                    predictions_data = predictions_data[0]
             except Exception:
                 pass
 
@@ -380,13 +405,16 @@ class BacktestVisualizer:
                 )
             )
 
-            if signal in ["BUY", "SELL"] and confidence > 0.5:
+            if (
+                signal.lower() in [SignalType.BUY.value, SignalType.SELL.value]
+                and confidence > 0.5
+            ):
                 p = confidence
                 q = 1.0 - p
                 if close_price > 0 and close_price < 1.0:
                     # Prediction Market Contract Odds
                     price = close_price
-                    if signal == "BUY":
+                    if signal.lower() == SignalType.BUY.value:
                         b_odds = (1.0 - price) / price
                         f_kelly = (p * b_odds - q) / b_odds
                     else:
