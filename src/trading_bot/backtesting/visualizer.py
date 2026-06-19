@@ -62,7 +62,7 @@ class BacktestVisualizer:
                 pred_filter = f"AND strategy_name = '{strategy_name}'"
             preds_query = f"""
                 SELECT timestamp, strategy_name, prediction_output, predicted_signal, confidence, actual_future_return
-                FROM model_prediction_logs
+                FROM backtest_prediction_logs
                 WHERE market_id = '{market_id}' {pred_filter}
                 ORDER BY timestamp ASC
             """
@@ -118,7 +118,7 @@ class BacktestVisualizer:
         try:
             query = """
                 SELECT DISTINCT market_id, strategy_name
-                FROM model_prediction_logs
+                FROM backtest_prediction_logs
             """
             df = pd.read_sql(query, session.bind)
             if df.empty:
