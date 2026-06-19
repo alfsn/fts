@@ -10,6 +10,12 @@ readme = "README.md"
 license = { text = "MIT" }
 dependencies = [
     "pre-commit>=4.3.0",
+    "pandas",
+    "plotly",
+    "ipywidgets",
+    "anywidget",
+    "nbformat",
+    "ipykernel",
 ]
 
 [project.optional-dependencies]

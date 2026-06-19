@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from ..core.schemas import ExternalData, IngestionEngineOutput, MarketData
 from .abc import BaseExternalDataProvider, BaseMarketDataProvider
@@ -27,7 +27,7 @@ class DataIngestionEngine:
 
     def __init__(
         self,
-        market_provider: BaseMarketDataProvider,
+        market_provider: Optional[BaseMarketDataProvider],
         external_providers: Sequence[BaseExternalDataProvider],
         market_ids: Sequence[str],
     ) -> None:
@@ -90,6 +90,10 @@ class DataIngestionEngine:
         """
         Helper method to poll the market provider for all market IDs.
         """
+        if not self.market_provider:
+            logger.warning("No market provider configured. Skipping market data fetch.")
+            return {}
+
         market_data_map: Dict[str, MarketData] = {}
         for market_id in self.market_ids:
             try:

@@ -6,7 +6,7 @@ from typing import List, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
-from .enums import OrderSide, OrderStatus, PositionStatus
+from .enums import BarType, OrderSide, OrderStatus, PositionStatus
 from .models import BarDataLog as BarDataLogModel
 from .models import Market as MarketModel
 from .models import OrderLog as OrderLogModel
@@ -187,7 +187,7 @@ class MarketDataRepository(BaseRepository):
     def save_bars(self, market_id: str, bars: Sequence[BarDataSchema]) -> int:
         """
         Saves a sequence of BarData schema elements to the database.
-        Avoids duplicates based on market_id, timestamp, and bar_type.
+        Avoids duplicates based on market_id, timestamp, bar_type, and interval.
         Returns the number of new bars inserted.
         """
         if not bars:
@@ -195,12 +195,13 @@ class MarketDataRepository(BaseRepository):
 
         try:
             bar_type = bars[0].bar_type
+            interval = bars[0].interval
             from datetime import timezone
 
             # Load existing timestamps to prevent duplicate insertions
             existing_records = (
                 self.db.query(BarDataLogModel.timestamp)
-                .filter_by(market_id=market_id, bar_type=bar_type)
+                .filter_by(market_id=market_id, bar_type=bar_type, interval=interval)
                 .all()
             )
             # Normalize DB naive datetimes to naive UTC (assuming they were saved in UTC)
@@ -231,6 +232,7 @@ class MarketDataRepository(BaseRepository):
                         close=bar.close,
                         volume=bar.volume,
                         bar_type=bar.bar_type,
+                        interval=bar.interval,
                         ticks_count=bar.ticks_count,
                         dollar_volume=bar.dollar_volume,
                     )
@@ -252,6 +254,8 @@ class MarketDataRepository(BaseRepository):
         market_ids: str | Sequence[str],
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        bar_type: BarType = BarType.TIME,
+        interval: Optional[str] = None,
     ) -> List[BarDataLogModel]:
         """
         Loads historical bars for given market(s) and date range, ordered by timestamp ascending.
@@ -259,6 +263,8 @@ class MarketDataRepository(BaseRepository):
         :param market_ids: Market ID string or sequence of market ID strings.
         :param start_date: Optional start datetime (inclusive).
         :param end_date: Optional end datetime (inclusive).
+        :param bar_type: The type of bar to query (default: BarType.TIME).
+        :param interval: Optional timeframe/interval filter (e.g., '1m', '1h').
         :return: A list of BarDataLog DB models.
         """
         try:
@@ -266,8 +272,11 @@ class MarketDataRepository(BaseRepository):
                 market_ids = [market_ids]
 
             query = self.db.query(BarDataLogModel).filter(
-                BarDataLogModel.market_id.in_(market_ids)
+                BarDataLogModel.market_id.in_(market_ids),
+                BarDataLogModel.bar_type == bar_type,
             )
+            if interval is not None:
+                query = query.filter(BarDataLogModel.interval == interval)
             if start_date:
                 query = query.filter(BarDataLogModel.timestamp >= start_date)
             if end_date:

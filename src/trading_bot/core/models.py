@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -68,6 +69,12 @@ class BarDataLog(Base):
 
     __tablename__ = "bar_data_logs"
 
+    __table_args__ = (
+        UniqueConstraint(
+            "market_id", "timestamp", "bar_type", "interval", name="uq_bar_data_log"
+        ),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     market_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False
@@ -83,6 +90,7 @@ class BarDataLog(Base):
     volume: Mapped[float] = mapped_column(nullable=False)
 
     bar_type: Mapped[BarType] = mapped_column(Enum(BarType), nullable=False, index=True)
+    interval: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     ticks_count: Mapped[int] = mapped_column(nullable=False)
     dollar_volume: Mapped[float] = mapped_column(nullable=False)
 
@@ -264,4 +272,41 @@ class Position(Base):
         return (
             f"<Position(market_id='{self.market_id}', outcome='{self.outcome}', "
             f"size={self.size}, status='{self.status}')>"
+        )
+
+
+class ModelPredictionLog(Base):
+    """
+    SQLAlchemy ORM Model for logging machine learning model predictions,
+    and class probabilities/outputs.
+    """
+
+    __tablename__ = "model_prediction_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+    market_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    )
+    strategy_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
+
+    # Store model outputs (probabilities or predicted values) as JSON string
+    prediction_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Store final signal decision and confidence
+    predicted_signal: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+
+    # Optional actual outcome for visual analysis
+    actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
+
+    # Relationships
+    market: Mapped["Market"] = relationship("Market")
+
+    def __repr__(self) -> str:
+        return (
+            f"<ModelPredictionLog(market_id='{self.market_id}', "
+            f"strategy='{self.strategy_name}', signal='{self.predicted_signal}')>"
         )

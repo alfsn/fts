@@ -180,3 +180,33 @@ def test_market_data_repository(in_memory_db):
     # Save again with same bars (should prevent duplicates and return 0)
     saved_count2 = repo.save_bars("MSFT", bars)
     assert saved_count2 == 0
+
+    # 3. Test get_bars with filters
+    loaded_bars = repo.get_bars("MSFT", bar_type=BarType.TIME)
+    assert len(loaded_bars) == 2
+
+    # Test filtering by a non-existent bar type
+    loaded_dollar_bars = repo.get_bars("MSFT", bar_type=BarType.DOLLAR)
+    assert len(loaded_dollar_bars) == 0
+
+    # Save bars with an explicit interval
+    bars_with_interval = [
+        BarData(
+            timestamp=datetime(2026, 6, 15, 13, 0),
+            open=100.0,
+            high=101.0,
+            low=99.0,
+            close=100.5,
+            volume=500.0,
+            bar_type=BarType.TIME,
+            interval="1h",
+            ticks_count=1,
+            dollar_volume=50250.0,
+        )
+    ]
+    repo.save_bars("MSFT", bars_with_interval)
+
+    # get_bars filtering by interval
+    hourly_bars = repo.get_bars("MSFT", bar_type=BarType.TIME, interval="1h")
+    assert len(hourly_bars) == 1
+    assert hourly_bars[0].interval == "1h"

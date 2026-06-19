@@ -115,6 +115,9 @@ class BarData(BaseModel):
     bar_type: BarType = Field(
         ..., description="The type of bar (Time, Volume, Dollar)."
     )
+    interval: Optional[str] = Field(
+        None, description="The timeframe/interval (e.g. 1m, 5m, 1h, 1d)."
+    )
     ticks_count: int = Field(..., description="Number of ticks in this bar.", ge=1)
     dollar_volume: float = Field(
         ..., description="Total currency units traded in this bar.", ge=0
@@ -217,6 +220,14 @@ class TradeSignal(BaseModel):
         typically scaled from 0.0 to 1.0.""",
         ge=0.0,
         le=1.0,
+    )
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="The timestamp when this signal was generated.",
+    )
+    prediction_output: Optional[str] = Field(
+        None,
+        description="JSON-serialized raw prediction output or probabilities from the model.",
     )
 
 

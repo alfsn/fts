@@ -148,18 +148,22 @@ class RiskManager:
         size_to_exit = abs(position.size)
 
         # For v0 exit, we use the best available price to cross the spread
-        if side == OrderSide.SELL:
-            price = (
-                market_data.order_book.bids[0].price
-                if market_data.order_book.bids
-                else position.entry_price
-            )
-        else:
-            price = (
-                market_data.order_book.asks[0].price
-                if market_data.order_book.asks
-                else position.entry_price
-            )
+        price = position.entry_price
+        if market_data.order_book is not None:
+            if side == OrderSide.SELL:
+                price = (
+                    market_data.order_book.bids[0].price
+                    if market_data.order_book.bids
+                    else position.entry_price
+                )
+            else:
+                price = (
+                    market_data.order_book.asks[0].price
+                    if market_data.order_book.asks
+                    else position.entry_price
+                )
+        elif market_data.recent_bars:
+            price = market_data.recent_bars[-1].close
 
         logger.info(
             f"RiskManager generating FLAT order for {signal.market_id}: "

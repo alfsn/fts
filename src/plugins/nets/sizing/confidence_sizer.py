@@ -29,14 +29,9 @@ class ConfidenceSizer(BaseSizingStrategy):
         target_amount = self.base_amount_quote * confidence
 
         # Calculate shares based on current price
-        # Using midpoint or last close as estimate
-        price = (
-            input_data.market_data.recent_bars[-1].close
-            if input_data.market_data.recent_bars
-            else 0.0
-        )
+        price = self._get_execution_price(input_data)
 
-        if price == 0:
+        if price <= 1e-6:
             return SizingOutput(amount_quote=0.0, size_shares=0.0)
 
         size_shares = target_amount / price

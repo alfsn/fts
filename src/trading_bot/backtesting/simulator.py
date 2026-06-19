@@ -6,6 +6,7 @@ from typing import Sequence
 
 from sqlalchemy.orm import Session
 
+from ..core.models import BarDataLog as BarDataLogModel
 from ..core.repository import MarketDataRepository
 from ..core.schemas import (
     BarData,
@@ -56,11 +57,38 @@ class BacktestSimulator:
 
         logger.info(f"Replaying {len(bars)} bars.")
 
+        # Pre-populate historical bars for lookback from the database before start_date
+        historical_bars = {}
+        for market_id in self.market_ids:
+            prior_bar_logs = (
+                self.db.query(BarDataLogModel)
+                .filter(
+                    BarDataLogModel.market_id == market_id,
+                    BarDataLogModel.timestamp < self.start_date,
+                )
+                .order_by(BarDataLogModel.timestamp.desc())
+                .limit(100)
+                .all()
+            )
+            prior_bar_logs.reverse()
+
+            historical_bars[market_id] = [
+                BarData(
+                    timestamp=b.timestamp,
+                    open=b.open,
+                    high=b.high,
+                    low=b.low,
+                    close=b.close,
+                    volume=b.volume,
+                    bar_type=b.bar_type,
+                    ticks_count=b.ticks_count,
+                    dollar_volume=b.dollar_volume,
+                )
+                for b in prior_bar_logs
+            ]
+
         # 2. Replay loop
         for bar_log in bars:
-            # Construct a minimal IngestionEngineOutput for the StrategyEngine
-            # In backtesting, we wrap the historical bar as the 'latest' data
-
             # Convert DB model to Pydantic BarData
             bar_data = BarData(
                 timestamp=bar_log.timestamp,
@@ -74,7 +102,15 @@ class BacktestSimulator:
                 dollar_volume=bar_log.dollar_volume,
             )
 
-            # Mock MarketData for this tick
+            if bar_log.market_id not in historical_bars:
+                historical_bars[bar_log.market_id] = []
+            historical_bars[bar_log.market_id].append(bar_data)
+
+            # Slide window to avoid keeping unbounded history in memory
+            if len(historical_bars[bar_log.market_id]) > 1000:
+                historical_bars[bar_log.market_id].pop(0)
+
+            # Mock MarketData for this tick (with empty order book as requested)
             market_data = MarketData(
                 market_id=bar_log.market_id,
                 order_book=OrderBook(bids=[], asks=[]),  # Empty in simple bar backtest
@@ -85,14 +121,14 @@ class BacktestSimulator:
                     end_date=bar_log.market.end_date,
                     resolution_source=bar_log.market.resolution_source,
                 ),
-                recent_bars=[bar_data],
+                recent_bars=historical_bars[bar_log.market_id],
             )
 
             tick_data = IngestionEngineOutput(
                 timestamp=bar_log.timestamp,
                 market_data={bar_log.market_id: market_data},
                 external_data=[],
-                bars={bar_log.market_id: [bar_data]},
+                bars={bar_log.market_id: historical_bars[bar_log.market_id]},
             )
 
             # 3. Process the tick

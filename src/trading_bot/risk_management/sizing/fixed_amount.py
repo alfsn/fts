@@ -44,32 +44,7 @@ class FixedAmountSizer(BaseSizingStrategy):
         if input_data.signal.signal_type == SignalType.HOLD:
             return SizingOutput(amount_quote=0, size_shares=0)
 
-        book = input_data.market_data.order_book
-        price = 0.0
-
-        try:
-            if input_data.signal.signal_type == SignalType.BUY:
-                if not book.asks:
-                    logger.warning(
-                        f"No asks available for {input_data.signal.market_id}, "
-                        "cannot calculate buy size."
-                    )
-                    return SizingOutput(amount_quote=0, size_shares=0)
-                price = book.asks[0].price  # Best ask price
-            else:  # SignalType.SELL
-                if not book.bids:
-                    logger.warning(
-                        f"No bids available for {input_data.signal.market_id}, "
-                        "cannot calculate sell size."
-                    )
-                    return SizingOutput(amount_quote=0, size_shares=0)
-                price = book.bids[0].price  # Best bid price
-        except IndexError:
-            logger.error(
-                f"Order book list was empty for {input_data.signal.market_id} "
-                "despite check. Cannot size."
-            )
-            return SizingOutput(amount_quote=0, size_shares=0)
+        price = self._get_execution_price(input_data)
 
         if price <= 1e-6:  # Avoid division by zero
             logger.warning(

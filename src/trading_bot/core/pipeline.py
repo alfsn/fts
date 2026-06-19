@@ -85,8 +85,7 @@ class TradingPipeline:
                 # Run risk analysis and position sizing
                 order_request = self.risk.process_signal(
                     signal=signal,
-                    market_data=market_data,
-                    db=db,
+                    market_data_map=ingestion_output.market_data,
                 )
 
                 if order_request:

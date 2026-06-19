@@ -136,23 +136,10 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
                     close=cl,
                     volume=vol,
                     bar_type=BarType.TIME,
+                    interval=self.interval,
                     ticks_count=1,
                     dollar_volume=cl * vol,
                 )
             )
 
         return bars
-
-    def get_market_data(self, market_id: str) -> MarketData:
-        """
-        Returns a composite snapshot of the latest data for a market.
-        """
-        details = self.get_market_details(market_id)
-        bars = list(self.get_bars(market_id))
-        return MarketData(
-            market_id=market_id,
-            details=details,
-            recent_bars=bars,
-            order_book=None,
-            recent_trades=None,
-        )

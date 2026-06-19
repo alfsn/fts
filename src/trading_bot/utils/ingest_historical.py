@@ -7,13 +7,10 @@ import sys
 from trading_bot.core.database import SessionLocal, init_db
 from trading_bot.core.repository import MarketDataRepository
 from trading_bot.data_ingestion import MarketDataProviderRegistry
+from trading_bot.monitoring.logger import setup_logging
 
 # Setup logger for the script
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+setup_logging()
 logger = logging.getLogger("trading_bot.ingest_historical")
 
 
@@ -81,14 +78,7 @@ def main() -> None:
                 args.provider
             )
 
-            # If the provider_class is mocked (in tests), calling from_args won't
-            # trigger the mock constructor's return_value. We instantiate it directly.
-            from unittest.mock import Mock
-
-            if isinstance(provider_class, Mock):
-                provider = provider_class()
-            else:
-                provider = provider_class.from_args(args)
+            provider = provider_class.from_args(args)
         except ImportError:
             sys.exit(1)
         except ValueError as e:

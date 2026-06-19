@@ -48,3 +48,19 @@ class BaseStrategy(ABC):
                  if the strategy decides to do nothing.
         """
         pass
+
+
+class PredictionObserver(ABC):
+    """
+    Abstract Observer interface that receives updates whenever a strategy
+    generates a prediction signal.
+    """
+
+    @abstractmethod
+    def on_prediction(self, signal: TradeSignal) -> None:
+        """
+        Callback method invoked when a model prediction signal is generated.
+
+        :param signal: The generated TradeSignal containing prediction metadata.
+        """
+        pass

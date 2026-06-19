@@ -1,12 +1,16 @@
 # tests/unit/test_backtest_simulator.py
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from trading_bot.backtesting.simulator import BacktestSimulator
-from trading_bot.core.database import SessionLocal, init_db
+from trading_bot.core.database import Base, SessionLocal
+from trading_bot.core.database import engine as dev_engine
+from trading_bot.core.database import init_db
 from trading_bot.core.enums import BarType
 from trading_bot.core.models import BarDataLog, Market
 from trading_bot.strategy.engine import StrategyEngine
@@ -15,41 +19,42 @@ from trading_bot.strategy.strategies.dummy_strategy import DummyStrategy
 
 @pytest.fixture
 def db_session():
-    init_db()
-    db = SessionLocal()
+    test_engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=test_engine)
 
-    # Cleanup and setup
-    db.query(BarDataLog).delete()
-    db.query(Market).delete()
+    with patch("trading_bot.core.database.engine", test_engine):
+        SessionLocal.configure(bind=test_engine)
+        db = SessionLocal()
 
-    market = Market(
-        market_id="GGAL",
-        name="Grupo Galicia",
-        end_date=datetime(2025, 12, 31, tzinfo=timezone.utc),
-        resolution_source="BYMA",
-    )
-    db.add(market)
-
-    # Create 3 bars
-    base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
-    for i in range(3):
-        bar = BarDataLog(
+        market = Market(
             market_id="GGAL",
-            timestamp=base_time + timedelta(minutes=i * 5),
-            open=100.0 + i,
-            high=105.0 + i,
-            low=95.0 + i,
-            close=101.0 + i,
-            volume=1000.0,
-            bar_type=BarType.TIME,
-            ticks_count=10,
-            dollar_volume=100000.0,
+            name="Grupo Galicia",
+            end_date=datetime(2025, 12, 31, tzinfo=timezone.utc),
+            resolution_source="BYMA",
         )
-        db.add(bar)
+        db.add(market)
 
-    db.commit()
-    yield db
-    db.close()
+        # Create 3 bars
+        base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
+        for i in range(3):
+            bar = BarDataLog(
+                market_id="GGAL",
+                timestamp=base_time + timedelta(minutes=i * 5),
+                open=100.0 + i,
+                high=105.0 + i,
+                low=95.0 + i,
+                close=101.0 + i,
+                volume=1000.0,
+                bar_type=BarType.TIME,
+                ticks_count=10,
+                dollar_volume=100000.0,
+            )
+            db.add(bar)
+
+        db.commit()
+        yield db
+        db.close()
+        SessionLocal.configure(bind=dev_engine)
 
 
 def test_backtest_simulator_run(db_session: Session):
