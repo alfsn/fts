@@ -3,11 +3,12 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional, Type
 
 from sqlalchemy.orm import Session
 
 from ..backtesting.abc import BaseBacktestDataReader
+from .models import BacktestPredictionLog, ModelPredictionLog
 from .pipeline import TradingPipeline
 from .schemas import IngestionEngineOutput, MarketData, MarketDetails
 
@@ -22,6 +23,14 @@ class BaseEventLoop(ABC):
     for running the pipeline under different scheduling models (Real-time polling,
     Websocket subscriptions, or Historical backtest replays).
     """
+
+    @property
+    @abstractmethod
+    def prediction_log_model(self) -> Type[Any]:
+        """
+        Returns the SQLAlchemy ORM model class to use for logging predictions.
+        """
+        pass
 
     @abstractmethod
     def start(self, pipeline: TradingPipeline, db: Optional[Session] = None) -> None:
@@ -39,6 +48,10 @@ class RealTimePollingLoop(BaseEventLoop):
     Drives the pipeline on a real-time periodic schedule (polling).
     Uses a standard blocking time.sleep() timer mechanism.
     """
+
+    @property
+    def prediction_log_model(self) -> Type[Any]:
+        return ModelPredictionLog
 
     def __init__(
         self, interval_seconds: float, max_ticks: Optional[int] = None
@@ -96,6 +109,10 @@ class HistoricalReplayLoop(BaseEventLoop):
     Drives the pipeline sequentially over historical data ticks.
     Used for local backtesting simulation.
     """
+
+    @property
+    def prediction_log_model(self) -> Type[Any]:
+        return BacktestPredictionLog
 
     def __init__(
         self,
