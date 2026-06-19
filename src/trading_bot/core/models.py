@@ -12,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 # Import the Base from our database setup
 from .database import Base
@@ -275,11 +275,45 @@ class Position(Base):
         )
 
 
-class ModelPredictionLog(Base):
+class BasePredictionLog(Base):
     """
-    SQLAlchemy ORM Model for logging machine learning model predictions,
-    and class probabilities/outputs.
+    Abstract Base Class for machine learning prediction logs.
+    Contains all shared attributes, mapped to separate physical tables by subclasses.
     """
+
+    __abstract__ = True
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    run_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+    strategy_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
+
+    # Store model outputs (probabilities or predicted values) as JSON string
+    prediction_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Store final signal decision and confidence
+    predicted_signal: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+
+    # Optional actual outcome for visual analysis
+    actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
+
+    # Declared attributes for relationships and foreign keys in abstract bases
+    @declared_attr
+    def market_id(cls) -> Mapped[str]:
+        return mapped_column(
+            String, ForeignKey("markets.market_id"), index=True, nullable=False
+        )
+
+    @declared_attr
+    def market(cls) -> Mapped["Market"]:
+        return relationship("Market")
+
+
+class ModelPredictionLog(BasePredictionLog):
+    """Logs predictions generated during live/paper trading."""
 
     __tablename__ = "model_prediction_logs"
 
@@ -293,29 +327,6 @@ class ModelPredictionLog(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    run_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), index=True, nullable=False
-    )
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
-    )
-    strategy_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
-
-    # Store model outputs (probabilities or predicted values) as JSON string
-    prediction_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    # Store final signal decision and confidence
-    predicted_signal: Mapped[str] = mapped_column(String, nullable=False)
-    confidence: Mapped[float] = mapped_column(nullable=False)
-
-    # Optional actual outcome for visual analysis
-    actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
-
-    # Relationships
-    market: Mapped["Market"] = relationship("Market")
-
     def __repr__(self) -> str:
         return (
             f"<ModelPredictionLog(run_id='{self.run_id}', market_id='{self.market_id}', "
@@ -323,49 +334,23 @@ class ModelPredictionLog(Base):
         )
 
 
-class BacktestPredictionLog(Base):
-    """
-    SQLAlchemy ORM Model for logging backtest machine learning model predictions,
-    and class probabilities/outputs.
-    """
+class BacktestPredictionLog(BasePredictionLog):
+    """Logs predictions generated during historical simulation backtests."""
 
     __tablename__ = "backtest_prediction_logs"
 
     __table_args__ = (
         UniqueConstraint(
-            "backtest_id",
             "timestamp",
             "market_id",
             "strategy_name",
+            "run_id",
             name="uq_backtest_prediction_log",
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    backtest_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), index=True, nullable=False
-    )
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
-    )
-    strategy_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
-
-    # Store model outputs (probabilities or predicted values) as JSON string
-    prediction_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    # Store final signal decision and confidence
-    predicted_signal: Mapped[str] = mapped_column(String, nullable=False)
-    confidence: Mapped[float] = mapped_column(nullable=False)
-
-    # Optional actual outcome for visual analysis
-    actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
-
-    # Relationships
-    market: Mapped["Market"] = relationship("Market")
-
     def __repr__(self) -> str:
         return (
-            f"<BacktestPredictionLog(backtest_id='{self.backtest_id}', market_id='{self.market_id}', "
+            f"<BacktestPredictionLog(run_id='{self.run_id}', market_id='{self.market_id}', "
             f"strategy='{self.strategy_name}', signal='{self.predicted_signal}')>"
         )
