@@ -48,17 +48,17 @@ class BacktestSimulator:
 
         # Generate a unique backtest run ID using SHA-256 hash of current timestamp
         start_ts = datetime.now(timezone.utc).isoformat()
-        backtest_id = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
+        run_id = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
 
         logger.info(
-            f"Starting backtest (id: {backtest_id}) from {self.start_date} to {self.end_date}"
+            f"Starting backtest (run_id: {run_id}) from {self.start_date} to {self.end_date}"
         )
 
         backtest_logger = DatabasePredictionLogger(
             db=self.db,
             commit=True,
             model_class=BacktestPredictionLog,
-            backtest_id=backtest_id,
+            run_id=run_id,
         )
 
         # Register the observer dynamically to any strategy that supports observers
