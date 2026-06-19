@@ -1,8 +1,10 @@
 # src/trading_bot/__main__.py
 
 import argparse
+import hashlib
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -14,11 +16,13 @@ from trading_bot.core.loop import (
     HistoricalReplayLoop,
     RealTimePollingLoop,
 )
+from trading_bot.core.models import BacktestPredictionLog, ModelPredictionLog
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.repository import OrderRepository, PositionRepository
 from trading_bot.data_ingestion.engine import DataIngestionEngine
 from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.monitoring.logger import setup_logging
+from trading_bot.monitoring.prediction_logger import DatabasePredictionLogger
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.strategy.engine import StrategyEngine
@@ -175,6 +179,42 @@ def main() -> None:
         logger.info(
             f"Event loop starting via driver: '{task_config.loop_driver.class_path}'"
         )
+
+        # Determine if it's a backtest run or a live run and register the appropriate prediction logger
+        start_ts = datetime.now(timezone.utc).isoformat()
+        session_hash = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
+
+        if isinstance(loop_driver, HistoricalReplayLoop):
+            backtest_logger = DatabasePredictionLogger(
+                db=db_session,
+                commit=True,
+                model_class=BacktestPredictionLog,
+                backtest_id=session_hash,
+            )
+            logger.info(
+                f"Registering BacktestPredictionLogger for backtest_id: {session_hash}"
+            )
+            for strategy in strategies:
+                if hasattr(strategy, "observers") and isinstance(
+                    strategy.observers, list
+                ):
+                    strategy.observers.append(backtest_logger)
+        else:
+            live_logger = DatabasePredictionLogger(
+                db=db_session,
+                commit=True,
+                model_class=ModelPredictionLog,
+                run_id=session_hash,
+            )
+            logger.info(
+                f"Registering DatabasePredictionLogger for run_id: {session_hash}"
+            )
+            for strategy in strategies:
+                if hasattr(strategy, "observers") and isinstance(
+                    strategy.observers, list
+                ):
+                    strategy.observers.append(live_logger)
+
         loop_driver.start(pipeline, db=db_session)
 
     except Exception as e:
