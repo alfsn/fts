@@ -104,6 +104,14 @@ class BacktestVisualizer:
                 df["size"] = None
                 df["price"] = None
 
+            # Fill NaN values for prediction fields with default values to ensure clean downstream contracts
+            if "predicted_signal" in df.columns:
+                df["predicted_signal"] = (
+                    df["predicted_signal"].fillna("None").astype(str)
+                )
+            if "confidence" in df.columns:
+                df["confidence"] = df["confidence"].fillna(0.0).astype(float)
+
             # Sort chronologically
             df = df.sort_values("timestamp").reset_index(drop=True)
             return df
@@ -317,8 +325,11 @@ class BacktestVisualizer:
 
         # Parse predictions
         predictions_str = row.get("prediction_output")
-        signal = row.get("predicted_signal", "None")
-        confidence = row.get("confidence", 0.0)
+        if pd.isna(predictions_str) or predictions_str is None:
+            predictions_str = None
+
+        signal = str(row.get("predicted_signal", "None"))
+        confidence = float(row.get("confidence", 0.0))
 
         predictions_data = None
         if predictions_str:
