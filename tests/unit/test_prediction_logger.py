@@ -159,3 +159,44 @@ def test_backtest_prediction_logger(db_session):
 
     # And: Nothing should be written to model_prediction_logs
     assert db_session.query(ModelPredictionLog).count() == 0
+
+
+def test_batch_prediction_logging(db_session):
+    # Given: A logger configured to log to ModelPredictionLog
+    logger = DatabasePredictionLogger(db_session, commit=True, run_id="batch_run")
+
+    signals = [
+        TradeSignal(
+            market_id="BTC/USDT",
+            strategy_name="nets_strategy_rnn",
+            signal_type=SignalType.BUY,
+            confidence=0.85,
+            timestamp=datetime(2026, 6, 16, 10, 0, tzinfo=timezone.utc),
+            prediction_output="[0.10, 0.05, 0.85]",
+        ),
+        TradeSignal(
+            market_id="ETH/USDT",
+            strategy_name="nets_strategy_cnn",
+            signal_type=SignalType.SELL,
+            confidence=0.90,
+            timestamp=datetime(2026, 6, 16, 10, 1, tzinfo=timezone.utc),
+            prediction_output="[0.90, 0.10]",
+        ),
+        # This one has no prediction_output, so it should be skipped
+        TradeSignal(
+            market_id="SOL/USDT",
+            strategy_name="dummy_strategy",
+            signal_type=SignalType.BUY,
+            confidence=1.0,
+            timestamp=datetime(2026, 6, 16, 10, 2, tzinfo=timezone.utc),
+            prediction_output=None,
+        ),
+    ]
+
+    # When: Logging the batch
+    logger.log_predictions(signals)
+
+    # Then: Two prediction logs should be saved in the database
+    logs = db_session.query(ModelPredictionLog).all()
+    assert len(logs) == 2
+    assert {l.market_id for l in logs} == {"BTC/USDT", "ETH/USDT"}
