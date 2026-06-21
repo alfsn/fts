@@ -1,21 +1,19 @@
 # src/trading_bot/monitoring/prediction_logger.py
 import logging
 from datetime import timezone
-from typing import Any, Optional, Type
+from typing import Any, Optional, Sequence, Type
 
 from sqlalchemy.orm import Session
 
 from ..core.models import ModelPredictionLog
 from ..core.schemas import TradeSignal
-from ..strategy.abc import PredictionObserver
 
 logger = logging.getLogger(__name__)
 
 
-class DatabasePredictionLogger(PredictionObserver):
+class DatabasePredictionLogger:
     """
-    Concrete implementation of PredictionObserver that logs prediction signals
-    into a database session.
+    Logs prediction signals into a database session in batches.
     """
 
     def __init__(
@@ -40,35 +38,37 @@ class DatabasePredictionLogger(PredictionObserver):
 
     def on_prediction(self, signal: TradeSignal) -> None:
         """
-        Logs a generated TradeSignal to the database. Overwrites an existing prediction
-        if one already exists for the same timestamp, market, strategy, and run_id.
+        Logs a single TradeSignal to the database (for backward compatibility).
         """
-        try:
-            # Normalize timestamp to naive UTC to prevent timezone mismatches in SQLite
+        self.log_predictions([signal])
+
+    def log_predictions(self, signals: Sequence[TradeSignal]) -> None:
+        """
+        Logs a batch of TradeSignals to the database using an efficient upsert strategy.
+        """
+        if not signals:
+            return
+
+        run_id_val = self.run_id if self.run_id is not None else "live"
+        insert_data = []
+
+        # Determine database dialect
+        dialect_name = (
+            self.db.bind.dialect.name if self.db and self.db.bind else "sqlite"
+        )
+
+        for signal in signals:
+            # We only log signals that have prediction_output set
+            if signal.prediction_output is None:
+                continue
+
             ts = signal.timestamp
             ts_normalized = (
                 ts.astimezone(timezone.utc).replace(tzinfo=None) if ts.tzinfo else ts
             )
 
-            run_id_val = self.run_id if self.run_id is not None else "live"
-
-            # Build query filters using the unified run_id attribute
-            filters = {
-                "timestamp": ts_normalized,
-                "market_id": signal.market_id,
-                "strategy_name": signal.strategy_name,
-                "run_id": run_id_val,
-            }
-
-            # Check for existing log to prevent duplicate prediction entries on re-runs
-            log_entry = self.db.query(self.model_class).filter_by(**filters).first()
-
-            if log_entry:
-                log_entry.prediction_output = signal.prediction_output
-                log_entry.predicted_signal = signal.signal_type.value
-                log_entry.confidence = float(signal.confidence)
-            else:
-                insert_data = {
+            insert_data.append(
+                {
                     "timestamp": ts_normalized,
                     "market_id": signal.market_id,
                     "strategy_name": signal.strategy_name,
@@ -77,9 +77,53 @@ class DatabasePredictionLogger(PredictionObserver):
                     "predicted_signal": signal.signal_type.value,
                     "confidence": float(signal.confidence),
                 }
+            )
 
-                log_entry = self.model_class(**insert_data)
-                self.db.add(log_entry)
+        if not insert_data:
+            return
+
+        try:
+            if dialect_name == "sqlite":
+                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+                for row in insert_data:
+                    stmt = sqlite_insert(self.model_class).values(row)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=[
+                            "timestamp",
+                            "market_id",
+                            "strategy_name",
+                            "run_id",
+                        ],
+                        set_={
+                            "prediction_output": stmt.excluded.prediction_output,
+                            "predicted_signal": stmt.excluded.predicted_signal,
+                            "confidence": stmt.excluded.confidence,
+                        },
+                    )
+                    self.db.execute(stmt)
+            elif dialect_name == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+                for row in insert_data:
+                    stmt = pg_insert(self.model_class).values(row)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=[
+                            "timestamp",
+                            "market_id",
+                            "strategy_name",
+                            "run_id",
+                        ],
+                        set_={
+                            "prediction_output": stmt.excluded.prediction_output,
+                            "predicted_signal": stmt.excluded.predicted_signal,
+                            "confidence": stmt.excluded.confidence,
+                        },
+                    )
+                    self.db.execute(stmt)
+            else:
+                # Fallback to generic bulk insert
+                self.db.bulk_insert_mappings(self.model_class, insert_data)
 
             if self.commit:
                 self.db.commit()
@@ -87,6 +131,6 @@ class DatabasePredictionLogger(PredictionObserver):
             if self.commit:
                 self.db.rollback()
             logger.error(
-                f"Failed to log model prediction to database: {e}", exc_info=True
+                f"Failed to log prediction batch to database: {e}", exc_info=True
             )
             raise e
