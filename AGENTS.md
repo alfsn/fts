@@ -1,4 +1,4 @@
-# ♊ Gemini Agent Constitution (gemini.md)
+# ♊ Gemini Agent Constitution (AGENTS.md)
 
 ## 1. Core Identity
 
