@@ -7,7 +7,7 @@ import numpy as np
 from trading_bot.core.dataset import DatasetBuilder
 from trading_bot.core.schemas import IngestionEngineOutput, SignalType, TradeSignal
 from trading_bot.core.transforms import BaseTransform
-from trading_bot.strategy.abc import BaseStrategy, PredictionObserver
+from trading_bot.strategy.abc import BaseStrategy
 
 from ..enums import PredictionSignal
 from ..inference import ONNXPredictor
@@ -30,14 +30,12 @@ class NetsStrategy(BaseStrategy):
         lookback_period: int = 20,
         name_suffix: str = "v1",
         feature_cols: Optional[Sequence[str]] = None,
-        observers: Optional[Sequence[PredictionObserver]] = None,
     ) -> None:
         self.predictor = predictor
         self.transform = transform
         self.output_selector = output_selector
         self.lookback_period = lookback_period
         self.feature_cols = list(feature_cols) if feature_cols else ["close"]
-        self.observers = list(observers) if observers else []
         self._name = f"nets_strategy_{name_suffix}"
 
     @property
@@ -89,16 +87,6 @@ class NetsStrategy(BaseStrategy):
                 timestamp=data.timestamp,
                 prediction_output=prediction_json,
             )
-
-            # 5. Notify observers
-            for observer in self.observers:
-                try:
-                    observer.on_prediction(signal)
-                except Exception as obs_err:
-                    logger.error(
-                        f"Error in prediction observer callback: {obs_err}",
-                        exc_info=True,
-                    )
 
             signals.append(signal)
 

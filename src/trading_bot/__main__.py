@@ -179,7 +179,7 @@ def main() -> None:
             f"Event loop starting via driver: '{task_config.loop_driver.class_path}'"
         )
 
-        # Register the prediction logger observer dynamically using loop configuration (Composition Root)
+        # Register the prediction logger directly on the pipeline (Composition Root)
         start_ts = datetime.now(timezone.utc).isoformat()
         session_hash = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
 
@@ -192,9 +192,7 @@ def main() -> None:
             run_id=session_hash,
         )
 
-        for strategy in strategies:
-            if hasattr(strategy, "observers") and isinstance(strategy.observers, list):
-                strategy.observers.append(prediction_logger)
+        pipeline.prediction_logger = prediction_logger
 
         loop_driver.start(pipeline, db=db_session)
 
