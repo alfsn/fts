@@ -3,7 +3,7 @@
 import hashlib
 import logging
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -42,13 +42,15 @@ class BacktestSimulator:
         self.start_date = start_date
         self.end_date = end_date
         self.repository = MarketDataRepository(db)
+        self.last_run_id: Optional[str] = None
 
-    def run(self) -> None:
+    def run(self) -> str:
         """Runs the simulation."""
 
         # Generate a unique backtest run ID using SHA-256 hash of current timestamp
         start_ts = datetime.now(timezone.utc).isoformat()
         run_id = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
+        self.last_run_id = run_id
 
         logger.info(
             f"Starting backtest (run_id: {run_id}) from {self.start_date} to {self.end_date}"
@@ -163,3 +165,4 @@ class BacktestSimulator:
         # Commit all logged predictions in a single transaction at the end of simulation
         self.db.commit()
         logger.info("Backtest simulation complete.")
+        return run_id
