@@ -4,5 +4,6 @@ from .schemas import (
     CNNConfig,
     LSTMConfig,
     NNTrainingConfig,
+    ONNXModelMetadata,
     RNNConfig,
 )
