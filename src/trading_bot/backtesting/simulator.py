@@ -1,11 +1,13 @@
 # src/trading_bot/backtesting/simulator.py
 
+import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Sequence
 
 from sqlalchemy.orm import Session
 
+from ..core.models import BacktestPredictionLog
 from ..core.models import BarDataLog as BarDataLogModel
 from ..core.repository import MarketDataRepository
 from ..core.schemas import (
@@ -15,6 +17,7 @@ from ..core.schemas import (
     MarketDetails,
     OrderBook,
 )
+from ..monitoring.prediction_logger import DatabasePredictionLogger
 from ..strategy.engine import StrategyEngine
 
 logger = logging.getLogger(__name__)
@@ -42,7 +45,21 @@ class BacktestSimulator:
 
     def run(self) -> None:
         """Runs the simulation."""
-        logger.info(f"Starting backtest from {self.start_date} to {self.end_date}")
+
+        # Generate a unique backtest run ID using SHA-256 hash of current timestamp
+        start_ts = datetime.now(timezone.utc).isoformat()
+        run_id = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
+
+        logger.info(
+            f"Starting backtest (run_id: {run_id}) from {self.start_date} to {self.end_date}"
+        )
+
+        backtest_logger = DatabasePredictionLogger(
+            db=self.db,
+            commit=False,
+            model_class=BacktestPredictionLog,
+            run_id=run_id,
+        )
 
         # 1. Fetch all bars for the given markets and range using repository
         bars = self.repository.get_bars(
@@ -134,10 +151,15 @@ class BacktestSimulator:
             # 3. Process the tick
             signals = self.strategy_engine.process_data_tick(tick_data)
 
+            # Decoupled prediction logging
+            backtest_logger.log_predictions(signals)
+
             if signals:
                 logger.debug(
                     f"Tick {bar_log.timestamp}: Generated {len(signals)} signals."
                 )
                 # V2: Pass signals to a MockRiskManager and ExecutionSimulator
 
+        # Commit all logged predictions in a single transaction at the end of simulation
+        self.db.commit()
         logger.info("Backtest simulation complete.")

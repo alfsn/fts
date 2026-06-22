@@ -12,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 # Import the Base from our database setup
 from .database import Base
@@ -119,6 +119,7 @@ class OrderLog(Base):
     order_id: Mapped[str] = mapped_column(
         String, unique=True, index=True, nullable=False
     )
+    run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     market_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False
     )
@@ -167,6 +168,7 @@ class TradeLog(Base):
     __tablename__ = "trade_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     # Link back to the order that generated this trade
     order_id: Mapped[Optional[str]] = mapped_column(
         String, ForeignKey("order_logs.order_id"), index=True
@@ -241,6 +243,7 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     # market_id is now the sole unique identifier for the asset
     market_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False
@@ -275,20 +278,18 @@ class Position(Base):
         )
 
 
-class ModelPredictionLog(Base):
+class BasePredictionLog(Base):
     """
-    SQLAlchemy ORM Model for logging machine learning model predictions,
-    and class probabilities/outputs.
+    Abstract Base Class for machine learning prediction logs.
+    Contains all shared attributes, mapped to separate physical tables by subclasses.
     """
 
-    __tablename__ = "model_prediction_logs"
+    __abstract__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    run_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
-    )
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
     )
     strategy_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
 
@@ -302,11 +303,57 @@ class ModelPredictionLog(Base):
     # Optional actual outcome for visual analysis
     actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
 
-    # Relationships
-    market: Mapped["Market"] = relationship("Market")
+    # Declared attributes for relationships and foreign keys in abstract bases
+    @declared_attr
+    def market_id(cls) -> Mapped[str]:
+        return mapped_column(
+            String, ForeignKey("markets.market_id"), index=True, nullable=False
+        )
+
+    @declared_attr
+    def market(cls) -> Mapped["Market"]:
+        return relationship("Market")
+
+
+class ModelPredictionLog(BasePredictionLog):
+    """Logs predictions generated during live/paper trading."""
+
+    __tablename__ = "model_prediction_logs"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "timestamp",
+            "market_id",
+            "strategy_name",
+            "run_id",
+            name="uq_model_prediction_log",
+        ),
+    )
 
     def __repr__(self) -> str:
         return (
-            f"<ModelPredictionLog(market_id='{self.market_id}', "
+            f"<ModelPredictionLog(run_id='{self.run_id}', market_id='{self.market_id}', "
+            f"strategy='{self.strategy_name}', signal='{self.predicted_signal}')>"
+        )
+
+
+class BacktestPredictionLog(BasePredictionLog):
+    """Logs predictions generated during historical simulation backtests."""
+
+    __tablename__ = "backtest_prediction_logs"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "timestamp",
+            "market_id",
+            "strategy_name",
+            "run_id",
+            name="uq_backtest_prediction_log",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<BacktestPredictionLog(run_id='{self.run_id}', market_id='{self.market_id}', "
             f"strategy='{self.strategy_name}', signal='{self.predicted_signal}')>"
         )

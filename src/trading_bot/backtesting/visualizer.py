@@ -12,6 +12,8 @@ from plotly.subplots import make_subplots
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from trading_bot.core.enums import OrderSide, SignalType
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,10 @@ class BacktestVisualizer:
         )
 
     def load_data(
-        self, market_id: str, strategy_name: Optional[str] = None
+        self,
+        market_id: str,
+        strategy_name: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Loads and joins bar logs, model predictions, and trade logs from the database
@@ -57,10 +62,12 @@ class BacktestVisualizer:
             # 2. Query model predictions
             pred_filter = ""
             if strategy_name:
-                pred_filter = f"AND strategy_name = '{strategy_name}'"
+                pred_filter += f" AND strategy_name = '{strategy_name}'"
+            if run_id:
+                pred_filter += f" AND run_id = '{run_id}'"
             preds_query = f"""
                 SELECT timestamp, strategy_name, prediction_output, predicted_signal, confidence, actual_future_return
-                FROM model_prediction_logs
+                FROM backtest_prediction_logs
                 WHERE market_id = '{market_id}' {pred_filter}
                 ORDER BY timestamp ASC
             """
@@ -78,10 +85,13 @@ class BacktestVisualizer:
                 df["actual_future_return"] = None
 
             # 3. Query trade logs
+            trade_filter = ""
+            if run_id:
+                trade_filter = f"AND run_id = '{run_id}'"
             trades_query = f"""
                 SELECT fill_timestamp as timestamp, side, fill_size as size, fill_price as price
                 FROM trade_logs
-                WHERE market_id = '{market_id}'
+                WHERE market_id = '{market_id}' {trade_filter}
                 ORDER BY timestamp ASC
             """
             df_trades = pd.read_sql(trades_query, session.bind)
@@ -102,9 +112,45 @@ class BacktestVisualizer:
                 df["size"] = None
                 df["price"] = None
 
+            # Fill NaN values for prediction fields with default values to ensure clean downstream contracts
+            if "predicted_signal" in df.columns:
+                df["predicted_signal"] = (
+                    df["predicted_signal"].fillna("None").astype(str)
+                )
+            if "confidence" in df.columns:
+                df["confidence"] = df["confidence"].fillna(0.0).astype(float)
+
             # Sort chronologically
             df = df.sort_values("timestamp").reset_index(drop=True)
             return df
+        finally:
+            session.close()
+
+    def get_available_runs(
+        self, market_id: str, strategy_name: Optional[str] = None
+    ) -> List[str]:
+        """
+        Retrieves all available run_ids for a given market and strategy,
+        ordered by their minimum timestamp descending (most recent runs first).
+        """
+        session = self.SessionLocal()
+        try:
+            strategy_filter = (
+                f"AND strategy_name = '{strategy_name}'" if strategy_name else ""
+            )
+            query = f"""
+                SELECT run_id, MIN(timestamp) as min_ts
+                FROM backtest_prediction_logs
+                WHERE market_id = '{market_id}' {strategy_filter}
+                GROUP BY run_id
+                ORDER BY min_ts DESC
+            """
+            df = pd.read_sql(query, session.bind)
+            if df.empty:
+                return ["All"]
+            return ["All"] + df["run_id"].tolist()
+        except Exception:
+            return ["All"]
         finally:
             session.close()
 
@@ -116,7 +162,7 @@ class BacktestVisualizer:
         try:
             query = """
                 SELECT DISTINCT market_id, strategy_name
-                FROM model_prediction_logs
+                FROM backtest_prediction_logs
             """
             df = pd.read_sql(query, session.bind)
             if df.empty:
@@ -151,8 +197,16 @@ class BacktestVisualizer:
         if "predicted_signal" in df.columns:
             df["position"] = (
                 df["predicted_signal"]
-                .map({"BUY": 1.0, "SELL": -1.0, "FLAT": 0.0})
-                .fillna(method="ffill")
+                .str.lower()
+                .map(
+                    {
+                        SignalType.BUY.value: 1.0,
+                        SignalType.SELL.value: -1.0,
+                        SignalType.FLAT.value: 0.0,
+                        SignalType.HOLD.value: 0.0,
+                    }
+                )
+                .ffill()
                 .fillna(0.0)
             )
 
@@ -202,8 +256,16 @@ class BacktestVisualizer:
         )
 
         # Overlays: Trades
-        buys = df_pnl[df_pnl["side"] == "BUY"]
-        sells = df_pnl[df_pnl["side"] == "SELL"]
+        buys = (
+            df_pnl[df_pnl["side"].astype(str).str.lower() == OrderSide.BUY.value]
+            if "side" in df_pnl.columns
+            else pd.DataFrame()
+        )
+        sells = (
+            df_pnl[df_pnl["side"].astype(str).str.lower() == OrderSide.SELL.value]
+            if "side" in df_pnl.columns
+            else pd.DataFrame()
+        )
 
         if not buys.empty:
             fig.add_trace(
@@ -299,13 +361,23 @@ class BacktestVisualizer:
 
         # Parse predictions
         predictions_str = row.get("prediction_output")
-        signal = row.get("predicted_signal", "None")
-        confidence = row.get("confidence", 0.0)
+        if pd.isna(predictions_str) or predictions_str is None:
+            predictions_str = None
+
+        signal = str(row.get("predicted_signal", "None"))
+        confidence = float(row.get("confidence", 0.0))
 
         predictions_data = None
         if predictions_str:
             try:
                 predictions_data = json.loads(predictions_str)
+                # Unwrap 2D batch dimension if present (e.g. [[value]] or [[p1, p2, p3]])
+                if (
+                    isinstance(predictions_data, list)
+                    and len(predictions_data) == 1
+                    and isinstance(predictions_data[0], list)
+                ):
+                    predictions_data = predictions_data[0]
             except Exception:
                 pass
 
@@ -380,13 +452,16 @@ class BacktestVisualizer:
                 )
             )
 
-            if signal in ["BUY", "SELL"] and confidence > 0.5:
+            if (
+                signal.lower() in [SignalType.BUY.value, SignalType.SELL.value]
+                and confidence > 0.5
+            ):
                 p = confidence
                 q = 1.0 - p
                 if close_price > 0 and close_price < 1.0:
                     # Prediction Market Contract Odds
                     price = close_price
-                    if signal == "BUY":
+                    if signal.lower() == SignalType.BUY.value:
                         b_odds = (1.0 - price) / price
                         f_kelly = (p * b_odds - q) / b_odds
                     else:
@@ -540,6 +615,9 @@ class BacktestVisualizer:
             return
 
         markets = list(meta_dict.keys())
+        default_market = markets[0]
+        default_strategies = meta_dict[default_market]
+        default_strategy = default_strategies[0] if default_strategies else None
 
         # 2. Controls
         market_dd = widgets.Dropdown(
@@ -548,9 +626,14 @@ class BacktestVisualizer:
             layout=widgets.Layout(width="200px"),
         )
         strategy_dd = widgets.Dropdown(
-            options=meta_dict[markets[0]],
+            options=default_strategies,
             description="Strategy:",
             layout=widgets.Layout(width="250px"),
+        )
+        run_id_dd = widgets.Dropdown(
+            options=self.get_available_runs(default_market, default_strategy),
+            description="Run ID:",
+            layout=widgets.Layout(width="220px"),
         )
 
         load_btn = widgets.Button(
@@ -559,14 +642,23 @@ class BacktestVisualizer:
             layout=widgets.Layout(width="180px"),
         )
 
-        control_box = widgets.HBox([market_dd, strategy_dd, load_btn])
+        control_box = widgets.HBox([market_dd, strategy_dd, run_id_dd, load_btn])
         display(control_box)
 
         def on_market_change(change):
             m = change["new"]
-            strategy_dd.options = meta_dict.get(m, ["None"])
+            strategies = meta_dict.get(m, ["None"])
+            strategy_dd.options = strategies
+            s = strategies[0] if strategies else None
+            run_id_dd.options = self.get_available_runs(m, s if s != "None" else None)
+
+        def on_strategy_change(change):
+            s = change["new"]
+            m = market_dd.value
+            run_id_dd.options = self.get_available_runs(m, s if s != "None" else None)
 
         market_dd.observe(on_market_change, names="value")
+        strategy_dd.observe(on_strategy_change, names="value")
 
         # Layout panels
         plot_panel = widgets.Output()
@@ -586,8 +678,12 @@ class BacktestVisualizer:
             if s == "None":
                 s = None
 
+            r = run_id_dd.value
+            if r == "All":
+                r = None
+
             # Load data
-            df = self.load_data(m, s)
+            df = self.load_data(m, s, r)
             if df.empty:
                 with plot_panel:
                     clear_output()

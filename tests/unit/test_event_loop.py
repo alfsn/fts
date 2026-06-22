@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from trading_bot.core.loop import HistoricalReplayLoop, RealTimePollingLoop
+from trading_bot.core.models import BacktestPredictionLog, ModelPredictionLog
 from trading_bot.core.pipeline import TradingPipeline
 
 
@@ -50,3 +51,14 @@ def test_historical_replay_loop(mock_pipeline):
 
     # Assertions: Pipeline tick executed once
     assert mock_pipeline.execute_single_tick.call_count == 1
+
+
+def test_event_loop_prediction_log_model_property():
+    """
+    Tests that loop drivers correctly expose the polymorphic prediction_log_model property.
+    """
+    polling_loop = RealTimePollingLoop(interval_seconds=0.01, max_ticks=1)
+    replay_loop = HistoricalReplayLoop()
+
+    assert polling_loop.prediction_log_model is ModelPredictionLog
+    assert replay_loop.prediction_log_model is BacktestPredictionLog

@@ -1,7 +1,7 @@
 # src/trading_bot/core/pipeline.py
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,7 @@ class TradingPipeline:
         risk: RiskManager,
         execution: ExecutionEngine,
         portfolio: Portfolio,
+        prediction_logger: Optional[Any] = None,
     ) -> None:
         """
         Initializes the pipeline with injected core components.
@@ -40,6 +41,7 @@ class TradingPipeline:
         self.risk = risk
         self.execution = execution
         self.portfolio = portfolio
+        self.prediction_logger = prediction_logger
 
     def execute_single_tick(
         self,
@@ -68,6 +70,9 @@ class TradingPipeline:
 
             # Step 2: Generate Strategy Signals
             signals = self.strategy.process_data_tick(ingestion_output)
+            if self.prediction_logger and signals:
+                self.prediction_logger.log_predictions(signals)
+
             if not signals:
                 logger.debug("No trading signals generated this tick.")
                 return
