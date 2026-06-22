@@ -13,6 +13,7 @@ from ..core.enums import OrderSide
 from ..core.models import OrderLog as OrderLogModel
 from ..core.schemas import (
     ExecutionResult,
+    IngestionEngineOutput,
     OrderRequest,
     OrderStatus,
 )
@@ -506,3 +507,16 @@ class ExecutionEngine:
         )
 
         return results
+
+    def on_tick(self, ingestion_output: IngestionEngineOutput, db: Session) -> None:
+        """
+        Called at the start of each pipeline tick to advance the execution
+        handler and automatically check the status of any open orders.
+        """
+        if hasattr(self.handler, "on_tick"):
+            self.handler.on_tick(ingestion_output, db)
+
+        # Reconcile open orders in the portfolio
+        open_order_ids = list(self.portfolio._open_orders.keys())
+        for order_id in open_order_ids:
+            self.check_order_status(order_id, db)
