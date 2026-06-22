@@ -118,15 +118,21 @@ class HistoricalReplayLoop(BaseEventLoop):
         self,
         data_reader: Optional[BaseBacktestDataReader] = None,
         data_path: Optional[str] = None,
+        save_backtest_report: bool = False,
+        backtest_report_dir: Optional[str] = None,
     ) -> None:
         """
         Initializes the backtest replay scheduler.
 
         :param data_reader: Pluggable backtesting data reader that streams chronological ticks.
         :param data_path: Deprecated data path parameter.
+        :param save_backtest_report: Whether to automatically save backtest visualizations as HTML.
+        :param backtest_report_dir: Directory where the exported HTML report will be saved.
         """
         self.data_reader = data_reader
         self.data_path = data_path
+        self.save_backtest_report = save_backtest_report
+        self.backtest_report_dir = backtest_report_dir
 
     def start(self, pipeline: TradingPipeline, db: Optional[Session] = None) -> None:
         logger.info("Starting HistoricalReplayLoop simulation...")
@@ -160,3 +166,37 @@ class HistoricalReplayLoop(BaseEventLoop):
             raise e
 
         logger.info(f"HistoricalReplayLoop complete. Replayed {tick_count} ticks.")
+
+        if self.save_backtest_report:
+            logger.info("Automatically saving backtest visualization reports...")
+            try:
+                from ..backtesting.exporter import HTMLBacktestExporter
+                from ..config import settings
+
+                exporter = HTMLBacktestExporter(db_url=settings.DATABASE_URL)
+                run_id = (
+                    pipeline.prediction_logger.run_id
+                    if pipeline.prediction_logger
+                    else "All"
+                )
+
+                for market_id in pipeline.ingestion.market_ids:
+                    for strategy in pipeline.strategy.strategies:
+                        try:
+                            exporter.export(
+                                market_id=market_id,
+                                strategy_name=strategy.name,
+                                run_id=run_id,
+                                output_path=self.backtest_report_dir,
+                            )
+                        except Exception as export_err:
+                            logger.error(
+                                f"Failed to automatically export report for market={market_id}, "
+                                f"strategy={strategy.name}: {export_err}",
+                                exc_info=True,
+                            )
+            except Exception as err:
+                logger.error(
+                    f"Failed to initialize backtest visualization exporter: {err}",
+                    exc_info=True,
+                )

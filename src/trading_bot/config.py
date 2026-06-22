@@ -50,14 +50,6 @@ class TaskConfig(BaseModel):
     extra_models: List[str] = Field(
         default_factory=list, description="Plugin DB models to register"
     )
-    save_backtest_report: bool = Field(
-        False,
-        description="Whether to automatically save backtest visualizations as HTML reports",
-    )
-    backtest_report_dir: Optional[str] = Field(
-        None,
-        description="Custom directory where backtest report HTML files will be saved",
-    )
 
 
 class PluginLoader:
