@@ -2,93 +2,14 @@
 
 import logging
 import uuid
-from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Dict, Mapping, Optional
 
 from ...core.enums import OrderSide, OrderStatus
 from ...core.schemas import ExecutionResult, IngestionEngineOutput, OrderRequest
-from ..abc import BaseExecutionHandler
+from ..abc import BaseExecutionHandler, ExecuteDelay, PriceSlip
 
 logger = logging.getLogger(__name__)
-
-
-# --- Decoupled Delay & Slippage Interfaces ---
-
-
-class ExecuteDelay(ABC):
-    """
-    Abstract Base Class for determining trade execution delays.
-    """
-
-    @abstractmethod
-    def calculate_execution_tick(self, current_tick_index: int) -> int:
-        """
-        Determines the target tick/bar index at which an order should execute.
-
-        :param current_tick_index: The tick index when the signal is generated.
-        :return: The target tick index when the order should be executed.
-        """
-        pass
-
-
-class KBarExecuteDelay(ExecuteDelay):
-    """
-    Delays execution by a fixed number of bars/ticks (T+k shift).
-    """
-
-    def __init__(self, k: int = 1) -> None:
-        """
-        Initializes the KBar delay model.
-
-        :param k: The number of bars/ticks to delay. Must be >= 1.
-        """
-        if k < 1:
-            raise ValueError(f"Execution delay shift k must be >= 1, got {k}")
-        self.k = k
-
-    def calculate_execution_tick(self, current_tick_index: int) -> int:
-        return current_tick_index + self.k
-
-
-class PriceSlip(ABC):
-    """
-    Abstract Base Class for applying slippage and execution price penalties.
-    """
-
-    @abstractmethod
-    def apply_slippage(self, order: OrderRequest, base_price: float) -> float:
-        """
-        Calculates the execution price after applying slippage/fees.
-
-        :param order: The original OrderRequest.
-        :param base_price: The baseline price of the current execution bar.
-        :return: The adjusted average fill price.
-        """
-        pass
-
-
-class FlatPriceSlip(PriceSlip):
-    """
-    Applies a fixed basis point percentage penalty to the execution price.
-    """
-
-    def __init__(self, slippage_pct: float = 0.0005) -> None:
-        """
-        Initializes the FlatPriceSlip model.
-
-        :param slippage_pct: The fixed penalty percentage (e.g. 0.0005 for 0.05%).
-        """
-        self.slippage_pct = slippage_pct
-
-    def apply_slippage(self, order: OrderRequest, base_price: float) -> float:
-        if order.side == OrderSide.BUY:
-            return base_price * (1.0 + self.slippage_pct)
-        else:
-            return base_price * (1.0 - self.slippage_pct)
-
-
-# --- Simulated Execution Handler ---
 
 
 class SimulatedExecutionHandler(BaseExecutionHandler):

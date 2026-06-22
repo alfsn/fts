@@ -15,12 +15,10 @@ from trading_bot.core.schemas import (
     MarketDetails,
     OrderRequest,
 )
+from trading_bot.execution.delay import KBarExecuteDelay
 from trading_bot.execution.engine import ExecutionEngine
-from trading_bot.execution.handlers.simulated_handler import (
-    FlatPriceSlip,
-    KBarExecuteDelay,
-    SimulatedExecutionHandler,
-)
+from trading_bot.execution.handlers.simulated_handler import SimulatedExecutionHandler
+from trading_bot.execution.slippage import FlatPriceSlip
 from trading_bot.risk_management.portfolio import Portfolio
 
 
