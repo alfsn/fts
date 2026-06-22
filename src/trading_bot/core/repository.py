@@ -28,18 +28,20 @@ class BaseRepository:
 class PositionRepository(BaseRepository):
     """Encapsulates all database operations for Position logs."""
 
-    def get_open_positions(self) -> List[PositionSchema]:
+    def get_open_positions(self, run_id: Optional[str] = None) -> List[PositionSchema]:
         """Loads all open positions from the database."""
         try:
-            open_models = (
-                self.db.query(PositionModel).filter_by(status=PositionStatus.OPEN).all()
-            )
+            query = self.db.query(PositionModel).filter_by(status=PositionStatus.OPEN)
+            if run_id:
+                query = query.filter_by(run_id=run_id)
+            open_models = query.all()
             return [
                 PositionSchema(
                     market_id=m.market_id,
                     outcome=m.outcome,
                     size=m.size,
                     entry_price=m.entry_price,
+                    run_id=m.run_id,
                 )
                 for m in open_models
             ]
@@ -54,9 +56,10 @@ class PositionRepository(BaseRepository):
         Persists a Position schema state (Create, Update, or Close).
         """
         try:
-            # Query by market_id and outcome (prediction markets might have multiple positions in one market_id)
+            # Query by market_id, outcome, and run_id
             query = self.db.query(PositionModel).filter_by(
-                market_id=pos_schema.market_id
+                market_id=pos_schema.market_id,
+                run_id=pos_schema.run_id,
             )
             if pos_schema.outcome:
                 query = query.filter_by(outcome=pos_schema.outcome)
@@ -74,6 +77,7 @@ class PositionRepository(BaseRepository):
                     pos_model = PositionModel(
                         market_id=pos_schema.market_id,
                         outcome=pos_schema.outcome,
+                        run_id=pos_schema.run_id,
                         size=pos_schema.size,
                         entry_price=pos_schema.entry_price,
                         status=PositionStatus.OPEN,
@@ -86,7 +90,7 @@ class PositionRepository(BaseRepository):
 
             self.db.commit()
             logger.debug(
-                f"Position persisted for {pos_schema.market_id} (outcome: {pos_schema.outcome})"
+                f"Position persisted for {pos_schema.market_id} (outcome: {pos_schema.outcome}, run_id: {pos_schema.run_id})"
             )
         except Exception as e:
             self.db.rollback()

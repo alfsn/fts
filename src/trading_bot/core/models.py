@@ -119,6 +119,7 @@ class OrderLog(Base):
     order_id: Mapped[str] = mapped_column(
         String, unique=True, index=True, nullable=False
     )
+    run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     market_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False
     )
@@ -167,6 +168,7 @@ class TradeLog(Base):
     __tablename__ = "trade_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     # Link back to the order that generated this trade
     order_id: Mapped[Optional[str]] = mapped_column(
         String, ForeignKey("order_logs.order_id"), index=True
@@ -241,6 +243,7 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     # market_id is now the sole unique identifier for the asset
     market_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.market_id"), index=True, nullable=False

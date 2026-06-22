@@ -253,6 +253,9 @@ class Position(BaseModel):
     entry_price: float = Field(
         ..., description="The average price at which the position was entered.", ge=0
     )
+    run_id: Optional[str] = Field(
+        None, description="The backtest or session run ID associated with the position."
+    )
 
 
 class PortfolioState(BaseModel):
