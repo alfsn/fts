@@ -30,12 +30,14 @@ class NetsStrategy(BaseStrategy):
         lookback_period: int = 20,
         name_suffix: str = "v1",
         feature_cols: Optional[Sequence[str]] = None,
+        allow_in_sample: bool = False,
     ) -> None:
         self.predictor = predictor
         self.transform = transform
         self.output_selector = output_selector
         self.lookback_period = lookback_period
         self.feature_cols = list(feature_cols) if feature_cols else ["close"]
+        self.allow_in_sample = allow_in_sample
         self._name = f"nets_strategy_{name_suffix}"
 
     @property
@@ -45,6 +47,14 @@ class NetsStrategy(BaseStrategy):
     def evaluate(
         self, data: IngestionEngineOutput, db: Optional[object] = None
     ) -> Sequence[TradeSignal]:
+        # Check lookahead guardrail
+        if self.predictor.model_metadata:
+            self.predictor.model_metadata.validate_timestamp(
+                timestamp=data.timestamp,
+                allow_in_sample=self.allow_in_sample,
+                strategy_name=self.name,
+            )
+
         signals = []
 
         for market_id, market_data in data.market_data.items():
