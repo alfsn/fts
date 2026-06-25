@@ -19,21 +19,26 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
     historical market data from a local CSV file.
     """
 
-    def __init__(self, file_path: str, market_id: str) -> None:
+    def __init__(
+        self, file_path: str, market_id: str, lookback_limit: int = 1000
+    ) -> None:
         """
         Initializes the CSV data reader.
 
         :param file_path: Path to the target CSV file.
         :param market_id: The specific market identifier for the stream.
+        :param lookback_limit: Maximum number of recent bars to retain in lookback window.
         """
         self.file_path = file_path
         self.market_id = market_id
+        self.lookback_limit = lookback_limit
 
     def read_data(self) -> Iterator[IngestionEngineOutput]:
         """
         Reads OHLCV bars from the CSV, parses them into Pydantic models,
         and yields sequential IngestionEngineOutput packets in chronological order.
         """
+        recent_bars = []
         with open(self.file_path, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
@@ -63,6 +68,10 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
                     ),
                 )
 
+                recent_bars.append(bar)
+                if len(recent_bars) > self.lookback_limit:
+                    recent_bars.pop(0)
+
                 # Package metadata details
                 details = MarketDetails(
                     market_id=self.market_id,
@@ -74,7 +83,7 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
                 market_data = MarketData(
                     market_id=self.market_id,
                     details=details,
-                    recent_bars=[bar],
+                    recent_bars=list(recent_bars),
                     order_book=None,
                     recent_trades=None,
                 )
@@ -83,7 +92,7 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
                     timestamp=timestamp,
                     market_data={self.market_id: market_data},
                     external_data=[],
-                    bars={self.market_id: [bar]},
+                    bars={self.market_id: list(recent_bars)},
                 )
 
 
@@ -99,6 +108,8 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
         market_id: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        warmup_bars: int = 100,
+        lookback_limit: int = 1000,
     ) -> None:
         """
         Initializes the SQL data reader.
@@ -107,11 +118,15 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
         :param market_id: The specific market identifier for the stream.
         :param start_date: Optional start datetime (inclusive).
         :param end_date: Optional end datetime (inclusive).
+        :param warmup_bars: Number of prior historical bars to query for strategy warm-up.
+        :param lookback_limit: Maximum number of recent bars to retain in lookback window.
         """
         self.session = session
         self.market_id = market_id
         self.start_date = start_date
         self.end_date = end_date
+        self.warmup_bars = warmup_bars
+        self.lookback_limit = lookback_limit
 
     def read_data(self) -> Iterator[IngestionEngineOutput]:
         """
@@ -146,6 +161,40 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
                 resolution_source="sqlite_replay",
             )
 
+        # 1. Warm-up lookback pre-population
+        recent_bars = []
+        if self.warmup_bars > 0 and self.start_date:
+            prior_bar_logs = (
+                self.session.query(BarDataLogModel)
+                .filter(
+                    BarDataLogModel.market_id == self.market_id,
+                    BarDataLogModel.timestamp < self.start_date,
+                )
+                .order_by(BarDataLogModel.timestamp.desc())
+                .limit(self.warmup_bars)
+                .all()
+            )
+            prior_bar_logs.reverse()
+
+            for db_bar in prior_bar_logs:
+                timestamp = db_bar.timestamp
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+                recent_bars.append(
+                    BarData(
+                        timestamp=timestamp,
+                        open=db_bar.open,
+                        high=db_bar.high,
+                        low=db_bar.low,
+                        close=db_bar.close,
+                        volume=db_bar.volume,
+                        bar_type=db_bar.bar_type,
+                        ticks_count=db_bar.ticks_count,
+                        dollar_volume=db_bar.dollar_volume,
+                    )
+                )
+
         query = self.session.query(BarDataLogModel).filter(
             BarDataLogModel.market_id == self.market_id
         )
@@ -175,10 +224,14 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
                 dollar_volume=db_bar.dollar_volume,
             )
 
+            recent_bars.append(bar)
+            if len(recent_bars) > self.lookback_limit:
+                recent_bars.pop(0)
+
             market_data = MarketData(
                 market_id=self.market_id,
                 details=details,
-                recent_bars=[bar],
+                recent_bars=list(recent_bars),
                 order_book=None,
                 recent_trades=None,
             )
@@ -187,5 +240,5 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
                 timestamp=timestamp,
                 market_data={self.market_id: market_data},
                 external_data=[],
-                bars={self.market_id: [bar]},
+                bars={self.market_id: list(recent_bars)},
             )
