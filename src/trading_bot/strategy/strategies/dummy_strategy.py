@@ -9,7 +9,7 @@ from ..abc import BaseStrategy
 class DummyStrategy(BaseStrategy):
     """
     A simple strategy that always generates a BUY signal if data is present.
-    Used for testing the StrategyEngine and BacktestSimulator.
+    Used for testing the StrategyEngine and backtesting loop drivers.
     """
 
     @property
