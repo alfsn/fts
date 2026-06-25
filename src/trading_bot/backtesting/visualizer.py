@@ -84,14 +84,14 @@ class BacktestVisualizer:
                 df["confidence"] = None
                 df["actual_future_return"] = None
 
-            # 3. Query trade logs
+            # 3. Query filled orders as trades
             trade_filter = ""
             if run_id:
                 trade_filter = f"AND run_id = '{run_id}'"
             trades_query = f"""
-                SELECT fill_timestamp as timestamp, side, fill_size as size, fill_price as price
-                FROM trade_logs
-                WHERE market_id = '{market_id}' {trade_filter}
+                SELECT updated_at as timestamp, side, filled_size as size, avg_fill_price as price
+                FROM order_logs
+                WHERE market_id = '{market_id}' AND status = 'FILLED' {trade_filter}
                 ORDER BY timestamp ASC
             """
             df_trades = pd.read_sql(trades_query, session.bind)
