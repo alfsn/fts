@@ -47,6 +47,7 @@ class ExecutionEngine:
         portfolio: Portfolio,
         max_retry_attempts: int = 3,
         enable_auto_reconciliation: bool = True,
+        run_id: Optional[str] = None,
     ) -> None:
         """
         Initializes the engine with error handling configuration.
@@ -60,6 +61,7 @@ class ExecutionEngine:
         self.portfolio = portfolio
         self.max_retry_attempts = max_retry_attempts
         self.enable_auto_reconciliation = enable_auto_reconciliation
+        self.run_id = run_id
 
         # Track pending reconciliation items
         self._reconciliation_queue: List[Any] = []
@@ -316,6 +318,7 @@ class ExecutionEngine:
                 side=order.side,
                 requested_size=order.size,
                 requested_price=order.price,
+                run_id=self.run_id,
             )
             db.add(log)
 
@@ -329,6 +332,8 @@ class ExecutionEngine:
         log.filled_size = result.filled_size
         log.avg_fill_price = result.avg_price
         log.updated_at = datetime.now(timezone.utc)
+        if self.run_id:
+            log.run_id = self.run_id
         # Don't commit here - let caller control transaction
 
     def _create_failed_result(
