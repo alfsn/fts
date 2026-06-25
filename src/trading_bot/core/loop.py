@@ -150,6 +150,11 @@ class HistoricalReplayLoop(BaseEventLoop):
             )
             return
 
+        # Disable immediate database commits for prediction logging to enable batch committing performance
+        pred_logger = getattr(pipeline, "prediction_logger", None)
+        if pred_logger and hasattr(pred_logger, "commit"):
+            pred_logger.commit = False
+
         # Playback each historical tick sequentially, preventing live execution/ingestion queries
         tick_count = 0
         try:
@@ -164,6 +169,18 @@ class HistoricalReplayLoop(BaseEventLoop):
                 f"Error during playback at tick {tick_count + 1}: {e}", exc_info=True
             )
             raise e
+
+        # Commit all logged signals/predictions in a single batch at the end of the replay simulation
+        if db is not None:
+            try:
+                db.commit()
+            except Exception as commit_err:
+                logger.error(
+                    f"Failed to batch commit backtest database logs: {commit_err}",
+                    exc_info=True,
+                )
+                db.rollback()
+                raise commit_err
 
         logger.info(f"HistoricalReplayLoop complete. Replayed {tick_count} ticks.")
 

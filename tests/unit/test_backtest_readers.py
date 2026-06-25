@@ -88,7 +88,7 @@ def test_csv_backtest_data_reader(temp_csv_file):
     # Check second tick
     tick2 = ticks[1]
     assert tick2.timestamp == datetime.fromisoformat("2026-05-30T12:01:00+00:00")
-    assert tick2.market_data["AAPL"].recent_bars[0].close == 101.5
+    assert tick2.market_data["AAPL"].recent_bars[-1].close == 101.5
 
 
 def test_historical_replay_loop_dependency_injection():
@@ -250,7 +250,7 @@ def test_sql_backtest_data_reader(sql_db_session):
     # Check second tick
     tick2 = ticks[1]
     assert tick2.timestamp == datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
-    assert tick2.market_data["AAPL"].recent_bars[0].close == 101.5
+    assert tick2.market_data["AAPL"].recent_bars[-1].close == 101.5
 
 
 def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
@@ -303,3 +303,103 @@ def test_sql_backtest_data_reader_fallback_market(sql_db_session):
     assert len(ticks) == 1
     assert ticks[0].market_data["GOOG"].details.name == "GOOG Historical Replay"
     assert ticks[0].market_data["GOOG"].details.resolution_source == "sqlite_replay"
+
+
+def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
+    """Verifies that SQLBacktestDataReader respects warmup_bars and lookback_limit."""
+    from trading_bot.core.enums import BarType
+    from trading_bot.core.models import BarDataLog
+
+    # Clear pre-populated logs to have complete control
+    sql_db_session.query(BarDataLog).delete()
+    sql_db_session.commit()
+
+    # Pre-populate historical bars before start_date (warmup)
+    warmup_time1 = datetime(2026, 5, 30, 11, 0, 0, tzinfo=timezone.utc)
+    warmup_time2 = datetime(2026, 5, 30, 11, 30, 0, tzinfo=timezone.utc)
+    bar_warmup1 = BarDataLog(
+        market_id="AAPL",
+        timestamp=warmup_time1,
+        open=98.0,
+        high=99.0,
+        low=97.0,
+        close=98.5,
+        volume=100.0,
+        bar_type=BarType.TIME,
+        ticks_count=5,
+        dollar_volume=9850.0,
+    )
+    bar_warmup2 = BarDataLog(
+        market_id="AAPL",
+        timestamp=warmup_time2,
+        open=98.5,
+        high=100.0,
+        low=98.0,
+        close=99.5,
+        volume=150.0,
+        bar_type=BarType.TIME,
+        ticks_count=7,
+        dollar_volume=14925.0,
+    )
+
+    # Pre-populate actual bars during/after start_date
+    start_time = datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc)
+    actual_time1 = start_time
+    actual_time2 = datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
+    bar_actual1 = BarDataLog(
+        market_id="AAPL",
+        timestamp=actual_time1,
+        open=100.0,
+        high=105.0,
+        low=99.0,
+        close=102.0,
+        volume=500.0,
+        bar_type=BarType.TIME,
+        ticks_count=10,
+        dollar_volume=51000.0,
+    )
+    bar_actual2 = BarDataLog(
+        market_id="AAPL",
+        timestamp=actual_time2,
+        open=102.0,
+        high=103.0,
+        low=101.0,
+        close=101.5,
+        volume=300.0,
+        bar_type=BarType.TIME,
+        ticks_count=5,
+        dollar_volume=30450.0,
+    )
+
+    sql_db_session.add_all([bar_warmup1, bar_warmup2, bar_actual1, bar_actual2])
+    sql_db_session.commit()
+
+    # Initialize reader with warmup_bars=2 and lookback_limit=3
+    reader = SQLBacktestDataReader(
+        session=sql_db_session,
+        market_id="AAPL",
+        start_date=start_time,
+        warmup_bars=2,
+        lookback_limit=3,
+    )
+
+    ticks = list(reader.read_data())
+
+    # We expect exactly 2 ticks corresponding to the actual data (at/after start_date)
+    assert len(ticks) == 2
+
+    # Tick 1: should contain: warmup1, warmup2, actual1
+    tick1 = ticks[0]
+    bars_t1 = tick1.market_data["AAPL"].recent_bars
+    assert len(bars_t1) == 3
+    assert bars_t1[0].timestamp == warmup_time1
+    assert bars_t1[1].timestamp == warmup_time2
+    assert bars_t1[2].timestamp == actual_time1
+
+    # Tick 2: should contain: warmup2, actual1, actual2 (warmup1 is dropped due to lookback_limit=3)
+    tick2 = ticks[1]
+    bars_t2 = tick2.market_data["AAPL"].recent_bars
+    assert len(bars_t2) == 3
+    assert bars_t2[0].timestamp == warmup_time2
+    assert bars_t2[1].timestamp == actual_time1
+    assert bars_t2[2].timestamp == actual_time2
