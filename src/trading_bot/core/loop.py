@@ -3,7 +3,7 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Type
+from typing import Any, Callable, Optional, Type
 
 from sqlalchemy.orm import Session
 
@@ -134,7 +134,12 @@ class HistoricalReplayLoop(BaseEventLoop):
         self.save_backtest_report = save_backtest_report
         self.backtest_report_dir = backtest_report_dir
 
-    def start(self, pipeline: TradingPipeline, db: Optional[Session] = None) -> None:
+    def start(
+        self,
+        pipeline: TradingPipeline,
+        db: Optional[Session] = None,
+        on_tick: Optional[Callable[[Any], None]] = None,
+    ) -> None:
         logger.info("Starting HistoricalReplayLoop simulation...")
 
         reader = self.data_reader
@@ -163,6 +168,8 @@ class HistoricalReplayLoop(BaseEventLoop):
                     f"Replaying historical tick {tick_count + 1} at {tick_data.timestamp}..."
                 )
                 pipeline.execute_single_tick(db, ingestion_output=tick_data)
+                if on_tick:
+                    on_tick(tick_data)
                 tick_count += 1
         except Exception as e:
             logger.error(
@@ -193,25 +200,30 @@ class HistoricalReplayLoop(BaseEventLoop):
                 exporter = HTMLBacktestExporter(db_url=settings.DATABASE_URL)
                 run_id = (
                     pipeline.prediction_logger.run_id
-                    if pipeline.prediction_logger
-                    else "All"
+                    if (
+                        pipeline.prediction_logger and pipeline.prediction_logger.run_id
+                    )
+                    else None
                 )
 
-                for market_id in pipeline.ingestion.market_ids:
-                    for strategy in pipeline.strategy.strategies:
-                        try:
-                            exporter.export(
-                                market_id=market_id,
-                                strategy_name=strategy.name,
-                                run_id=run_id,
-                                output_path=self.backtest_report_dir,
-                            )
-                        except Exception as export_err:
-                            logger.error(
-                                f"Failed to automatically export report for market={market_id}, "
-                                f"strategy={strategy.name}: {export_err}",
-                                exc_info=True,
-                            )
+                if not run_id:
+                    logger.warning("No run_id available to export backtest reports.")
+                else:
+                    for market_id in pipeline.ingestion.market_ids:
+                        for strategy in pipeline.strategy.strategies:
+                            try:
+                                exporter.export(
+                                    market_id=market_id,
+                                    strategy_name=strategy.name,
+                                    run_id=run_id,
+                                    output_path=self.backtest_report_dir,
+                                )
+                            except Exception as export_err:
+                                logger.error(
+                                    f"Failed to automatically export report for market={market_id}, "
+                                    f"strategy={strategy.name}: {export_err}",
+                                    exc_info=True,
+                                )
             except Exception as err:
                 logger.error(
                     f"Failed to initialize backtest visualization exporter: {err}",

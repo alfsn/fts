@@ -12,7 +12,13 @@ from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.backtesting.results import BacktestResult
 from trading_bot.core.database import Base
 from trading_bot.core.enums import OrderStatus
-from trading_bot.core.models import BacktestPredictionLog, OrderLog, Position, TradeLog
+from trading_bot.core.models import (
+    BacktestEquityLog,
+    BacktestPredictionLog,
+    OrderLog,
+    Position,
+    TradeLog,
+)
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.schemas import (
     BarData,
@@ -124,44 +130,48 @@ def test_backtest_result_metrics_calculation(sql_db_session: Session):
     sql_db_session.add_all([order1, order2])
     sql_db_session.commit()
 
-    # Define a simulated equity curve over 4 consecutive days
+    # Seed BacktestEquityLog records to the database representing the simulated equity curve
     base_time = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    equity_curve = [
-        {
-            "timestamp": base_time,
-            "cash": 10000.0,
-            "position": 0.0,
-            "close": 50000.0,
-            "equity": 10000.0,
-        },
-        {
-            "timestamp": base_time + timedelta(days=1),
-            "cash": 10200.0,
-            "position": 0.0,
-            "close": 51000.0,
-            "equity": 10200.0,
-        },
-        {
-            "timestamp": base_time + timedelta(days=2),
-            "cash": 10100.0,
-            "position": 0.0,
-            "close": 50500.0,
-            "equity": 10100.0,
-        },
-        {
-            "timestamp": base_time + timedelta(days=3),
-            "cash": 10500.0,
-            "position": 0.0,
-            "close": 52500.0,
-            "equity": 10500.0,
-        },
-    ]
+    log1 = BacktestEquityLog(
+        run_id=run_id,
+        timestamp=base_time,
+        cash=10000.0,
+        position=0.0,
+        close=50000.0,
+        equity=10000.0,
+    )
+    log2 = BacktestEquityLog(
+        run_id=run_id,
+        timestamp=base_time + timedelta(days=1),
+        cash=10200.0,
+        position=0.0,
+        close=51000.0,
+        equity=10200.0,
+    )
+    log3 = BacktestEquityLog(
+        run_id=run_id,
+        timestamp=base_time + timedelta(days=2),
+        cash=10100.0,
+        position=0.0,
+        close=50500.0,
+        equity=10100.0,
+    )
+    log4 = BacktestEquityLog(
+        run_id=run_id,
+        timestamp=base_time + timedelta(days=3),
+        cash=10500.0,
+        position=0.0,
+        close=52500.0,
+        equity=10500.0,
+    )
+
+    sql_db_session.add_all([log1, log2, log3, log4])
+    sql_db_session.commit()
 
     result = BacktestResult(
         run_id=run_id,
         market_id=market_id,
         strategy_name=strategy_name,
-        equity_curve=equity_curve,
         db_session=sql_db_session,
     )
 
@@ -201,13 +211,22 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
         predicted_signal="buy",
         confidence=0.8,
     )
-    sql_db_session.add(old_log)
+    old_equity_log = BacktestEquityLog(
+        run_id=run_id,
+        timestamp=datetime.now(timezone.utc),
+        cash=10000.0,
+        position=0.0,
+        close=50000.0,
+        equity=10000.0,
+    )
+    sql_db_session.add_all([old_log, old_equity_log])
     sql_db_session.commit()
 
     assert (
         sql_db_session.query(BacktestPredictionLog).filter_by(run_id=run_id).count()
         == 1
     )
+    assert sql_db_session.query(BacktestEquityLog).filter_by(run_id=run_id).count() == 1
 
     # Mock Pipeline and subcomponents
     mock_portfolio = MagicMock()
@@ -268,6 +287,13 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
         sql_db_session.query(BacktestPredictionLog).filter_by(run_id=run_id).count()
         == 0
     )
+    # 1b. Old equity logs matching run_id were cleared, and 2 new logs were inserted
+    equity_db_logs = (
+        sql_db_session.query(BacktestEquityLog).filter_by(run_id=run_id).all()
+    )
+    assert len(equity_db_logs) == 2
+    assert equity_db_logs[0].equity == 10000.0
+    assert equity_db_logs[1].equity == 10100.0
 
     # 2. Pipeline components were configured with correct run_id
     assert mock_prediction_logger.run_id == run_id

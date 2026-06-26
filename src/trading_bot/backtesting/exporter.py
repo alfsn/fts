@@ -73,7 +73,7 @@ class HTMLBacktestExporter(BaseBacktestExporter):
 
         # Sanitize market_id for use in filenames (e.g., replace '/' with '_')
         sanitized_market = market_id.replace("/", "_")
-        filename = f"report_{sanitized_market}_{strategy_name or 'None'}_{run_id or 'All'}.html"
+        filename = f"report_{sanitized_market}_{strategy_name or 'None'}_{run_id}.html"
 
         # Determine if output_path is intended to be a directory
         is_dir = False
