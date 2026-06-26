@@ -6,8 +6,15 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from ..backtesting.abc import BaseBacktestDataReader
+from ..core.database import Base
 from ..core.loop import HistoricalReplayLoop
-from ..core.models import BacktestPredictionLog, OrderLog, Position, TradeLog
+from ..core.models import (
+    BacktestEquityLog,
+    BacktestPredictionLog,
+    OrderLog,
+    Position,
+    TradeLog,
+)
 from ..core.pipeline import TradingPipeline
 from .results import BacktestResult
 
@@ -57,6 +64,12 @@ class BacktestEngine:
         :param clear_previous_run: If True, deletes database records matching run_id before starting.
         :return: Compiled BacktestResult object.
         """
+        # Self-healing database tables creation
+        try:
+            Base.metadata.create_all(bind=self.db.bind)
+        except Exception as err:
+            logger.error(f"Failed to auto-create backtest equity log table: {err}")
+
         if clear_previous_run:
             logger.info(f"Clearing previous database logs for run_id: {run_id}")
             try:
@@ -64,6 +77,7 @@ class BacktestEngine:
                 self.db.query(OrderLog).filter_by(run_id=run_id).delete()
                 self.db.query(TradeLog).filter_by(run_id=run_id).delete()
                 self.db.query(Position).filter_by(run_id=run_id).delete()
+                self.db.query(BacktestEquityLog).filter_by(run_id=run_id).delete()
                 self.db.commit()
             except Exception as e:
                 self.db.rollback()
@@ -114,9 +128,23 @@ class BacktestEngine:
                 }
             )
 
+            # Persist the actual equity curve point to the database
+            equity_log = BacktestEquityLog(
+                run_id=run_id,
+                timestamp=tick_data.timestamp,
+                cash=current_cash,
+                position=pos_size,
+                close=close_price,
+                equity=equity,
+            )
+            self.db.add(equity_log)
+
         logger.info(f"Starting backtest engine simulation for run_id: {run_id}")
         loop_driver = HistoricalReplayLoop(data_reader=self.data_reader)
         loop_driver.start(self.pipeline, db=self.db, on_tick=on_tick_callback)
+
+        # Explicitly commit to ensure all logged predictions, orders, and equity logs are persisted
+        self.db.commit()
 
         return BacktestResult(
             run_id=run_id,
@@ -126,6 +154,5 @@ class BacktestEngine:
                 if (self.pipeline.strategy and self.pipeline.strategy.strategies)
                 else "Unknown"
             ),
-            equity_curve=equity_curve,
             db_session=self.db,
         )
