@@ -307,3 +307,18 @@ class Portfolio:
             positions=positions_list,
             open_orders=open_orders_list,
         )
+
+    @property
+    def cash_balance(self) -> float:
+        """Returns the current cash balance in quote currency."""
+        return self._cash_balance
+
+    @property
+    def positions(self) -> Dict[str, Position]:
+        """Returns the dictionary of current open positions."""
+        return self._positions
+
+    @property
+    def open_orders(self) -> Dict[str, OrderRequest]:
+        """Returns the dictionary of currently tracked open orders."""
+        return self._open_orders
