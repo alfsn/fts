@@ -57,6 +57,11 @@ class DatabasePredictionLogger:
             self.db.bind.dialect.name if self.db and self.db.bind else "sqlite"
         )
 
+        # Retrieve polymorphic discriminator identity for Single Table Inheritance
+        polymorphic_identity = getattr(
+            self.model_class.__mapper__, "polymorphic_identity", "base"
+        )
+
         for signal in signals:
             # We only log signals that have prediction_output set
             if signal.prediction_output is None:
@@ -76,6 +81,7 @@ class DatabasePredictionLogger:
                     "prediction_output": signal.prediction_output,
                     "predicted_signal": signal.signal_type.value,
                     "confidence": float(signal.confidence),
+                    "log_type": polymorphic_identity,
                 }
             )
 
