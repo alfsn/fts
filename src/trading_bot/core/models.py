@@ -278,13 +278,23 @@ class Position(Base):
         )
 
 
-class BasePredictionLog(Base):
+class PredictionLog(Base):
     """
-    Abstract Base Class for machine learning prediction logs.
-    Contains all shared attributes, mapped to separate physical tables by subclasses.
+    SQLAlchemy ORM Model for machine learning prediction logs.
+    Maps all prediction logs to a single table.
     """
 
-    __abstract__ = True
+    __tablename__ = "prediction_logs"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "timestamp",
+            "market_id",
+            "strategy_name",
+            "run_id",
+            name="uq_prediction_log",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     run_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
@@ -303,32 +313,25 @@ class BasePredictionLog(Base):
     # Optional actual outcome for visual analysis
     actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
 
-    # Declared attributes for relationships and foreign keys in abstract bases
-    @declared_attr
-    def market_id(cls) -> Mapped[str]:
-        return mapped_column(
-            String, ForeignKey("markets.market_id"), index=True, nullable=False
-        )
+    market_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    )
+    market: Mapped["Market"] = relationship("Market")
 
-    @declared_attr
-    def market(cls) -> Mapped["Market"]:
-        return relationship("Market")
+    log_type: Mapped[str] = mapped_column(String, index=True, nullable=False)
+
+    __mapper_args__ = {
+        "polymorphic_on": "log_type",
+        "polymorphic_identity": "base",
+    }
 
 
-class ModelPredictionLog(BasePredictionLog):
+class ModelPredictionLog(PredictionLog):
     """Logs predictions generated during live/paper trading."""
 
-    __tablename__ = "model_prediction_logs"
-
-    __table_args__ = (
-        UniqueConstraint(
-            "timestamp",
-            "market_id",
-            "strategy_name",
-            "run_id",
-            name="uq_model_prediction_log",
-        ),
-    )
+    __mapper_args__ = {
+        "polymorphic_identity": "live",
+    }
 
     def __repr__(self) -> str:
         return (
@@ -337,20 +340,12 @@ class ModelPredictionLog(BasePredictionLog):
         )
 
 
-class BacktestPredictionLog(BasePredictionLog):
+class BacktestPredictionLog(PredictionLog):
     """Logs predictions generated during historical simulation backtests."""
 
-    __tablename__ = "backtest_prediction_logs"
-
-    __table_args__ = (
-        UniqueConstraint(
-            "timestamp",
-            "market_id",
-            "strategy_name",
-            "run_id",
-            name="uq_backtest_prediction_log",
-        ),
-    )
+    __mapper_args__ = {
+        "polymorphic_identity": "backtest",
+    }
 
     def __repr__(self) -> str:
         return (
