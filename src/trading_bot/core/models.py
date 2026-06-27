@@ -4,13 +4,17 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import (
+    JSON,
     DateTime,
     Enum,
     ForeignKey,
+    Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
@@ -382,3 +386,53 @@ class BacktestEquityLog(Base):
             f"<BacktestEquityLog(run_id='{self.run_id}', timestamp='{self.timestamp}', "
             f"equity={self.equity:.2f})>"
         )
+
+
+class ModelRegistryLog(Base):
+    """
+    SQLAlchemy ORM Model representing the model registry.
+    Stores metadata, serialized paths, hyperparameters, and evaluation metrics.
+    """
+
+    __tablename__ = "model_registry"
+
+    __table_args__ = (
+        Index(
+            "ix_model_registry_signature",
+            "model_type",
+            "market_id",
+            "interval",
+            "horizon",
+            "status",
+        ),
+        Index(
+            "uq_production_model_signature",
+            "model_type",
+            "market_id",
+            "interval",
+            "horizon",
+            unique=True,
+            sqlite_where=text("status = 'production'"),
+        ),
+    )
+
+    model_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
+    model_type: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    market_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    interval: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    horizon: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+
+    onnx_path: Mapped[str] = mapped_column(String, nullable=False)
+    hyperparameters: Mapped[dict] = mapped_column(JSON, nullable=False)
+    metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="candidate", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<ModelRegistryLog(model_id='{self.model_id}', type='{self.model_type}', status='{self.status}')>"

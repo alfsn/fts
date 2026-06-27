@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .enums import BarType, OrderSide, OrderStatus, PositionStatus
 from .models import BarDataLog as BarDataLogModel
 from .models import Market as MarketModel
+from .models import ModelRegistryLog
 from .models import OrderLog as OrderLogModel
 from .models import Position as PositionModel
 from .schemas import BarData as BarDataSchema
@@ -280,3 +281,75 @@ class MarketDataRepository(BaseRepository):
         except Exception as e:
             logger.error(f"Failed to load bars for {market_ids}: {e}")
             raise e
+
+
+class ModelRepository(BaseRepository):
+    """Encapsulates database operations for the Model Registry. Decoupled from transaction control."""
+
+    def register_model(
+        self,
+        model_id: str,
+        model_type: str,
+        market_id: str,
+        interval: str,
+        horizon: int,
+        onnx_path: str,
+        hyperparameters: dict,
+        metrics: dict,
+        run_id: Optional[str] = None,
+        status: str = "candidate",
+    ) -> ModelRegistryLog:
+        """Adds a trained model metadata entry to the registry session."""
+        log_entry = ModelRegistryLog(
+            model_id=model_id,
+            run_id=run_id,
+            model_type=model_type,
+            market_id=market_id,
+            interval=interval,
+            horizon=horizon,
+            onnx_path=onnx_path,
+            hyperparameters=hyperparameters,
+            metrics=metrics,
+            status=status,
+        )
+        self.db.add(log_entry)
+        return log_entry
+
+    def get_production_model(
+        self, model_type: str, market_id: str, interval: str, horizon: int
+    ) -> Optional[ModelRegistryLog]:
+        """Fetches the active 'production' model matching the logical signature."""
+        return (
+            self.db.query(ModelRegistryLog)
+            .filter_by(
+                model_type=model_type,
+                market_id=market_id,
+                interval=interval,
+                horizon=horizon,
+                status="production",
+            )
+            .order_by(ModelRegistryLog.created_at.desc())
+            .first()
+        )
+
+    def get_model(self, model_id: str) -> Optional[ModelRegistryLog]:
+        """Fetches a model by its unique model ID."""
+        return self.db.query(ModelRegistryLog).filter_by(model_id=model_id).first()
+
+    def promote_to_production(self, model_id: str) -> None:
+        """Promotes a candidate model and archives previous ones sharing the signature."""
+        model = self.get_model(model_id)
+        if not model:
+            raise ValueError(f"Model with model_id {model_id} not found.")
+
+        # Demote current production model(s) with matching logical signature
+        self.db.query(ModelRegistryLog).filter_by(
+            model_type=model.model_type,
+            market_id=model.market_id,
+            interval=model.interval,
+            horizon=model.horizon,
+            status="production",
+        ).update({"status": "archived"})
+
+        # Promote this model
+        model.status = "production"
