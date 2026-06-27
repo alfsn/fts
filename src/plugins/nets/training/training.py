@@ -117,6 +117,11 @@ class LinearRegressionTrainer(BaseONNXModelTrainer):
                 logger.info(
                     f"LinearRegression Validation Selector Accuracy = {metrics['selector_accuracy']:.4f}"
                 )
+            self.best_val_loss = metrics["loss"]
+            self.best_val_metrics = metrics
+        else:
+            self.best_val_loss = 999.0
+            self.best_val_metrics = {"loss": 999.0}
 
         # 4. Export to ONNX
         onx = to_onnx(pipeline, X_train_flat[:1])
@@ -217,8 +222,12 @@ class XGBoostTrainer(BaseONNXModelTrainer):
                 logger.info(
                     f"XGBoost Validation Selector Accuracy = {metrics['selector_accuracy']:.4f}"
                 )
+            self.best_val_loss = metrics["loss"]
+            self.best_val_metrics = metrics
         else:
             model.fit(X_train_scaled, y_train_flat, verbose=False)
+            self.best_val_loss = 999.0
+            self.best_val_metrics = {"loss": 999.0}
 
         # Re-create pipeline with fitted components for ONNX export
         pipeline = Pipeline([("scaler", scaler), ("model", model)])

@@ -17,6 +17,7 @@ dependencies = [
     "onnx",
     "tensorboard",
     "onnxscript",
+    "optuna",
 ]
 requires-python = ">=3.12"
 license = { text = "MIT" }
