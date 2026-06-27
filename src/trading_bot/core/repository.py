@@ -88,12 +88,10 @@ class PositionRepository(BaseRepository):
                     pos_model.entry_price = pos_schema.entry_price
                     pos_model.status = PositionStatus.OPEN
 
-            self.db.commit()
             logger.debug(
                 f"Position persisted for {pos_schema.market_id} (outcome: {pos_schema.outcome}, run_id: {pos_schema.run_id})"
             )
         except Exception as e:
-            self.db.rollback()
             logger.error(f"Failed to persist position for {pos_schema.market_id}: {e}")
             raise e
 
@@ -125,10 +123,8 @@ class OrderRepository(BaseRepository):
                 status=status,
             )
             self.db.add(order_model)
-            self.db.commit()
             logger.debug(f"Logged new order {order_id} in DB.")
         except Exception as e:
-            self.db.rollback()
             logger.error(f"Failed to log order {order_id}: {e}")
             raise e
 
@@ -148,12 +144,10 @@ class OrderRepository(BaseRepository):
                 order_model.status = status
                 order_model.filled_size = filled_size
                 order_model.avg_fill_price = avg_fill_price
-                self.db.commit()
                 logger.debug(f"Updated order {order_id} status to {status} in DB.")
             else:
                 logger.warning(f"Order {order_id} not found in DB for status update.")
         except Exception as e:
-            self.db.rollback()
             logger.error(f"Failed to update order {order_id}: {e}")
             raise e
 
@@ -181,10 +175,8 @@ class MarketDataRepository(BaseRepository):
                 market.name = details.name
                 market.end_date = details.end_date
                 market.resolution_source = details.resolution_source
-            self.db.commit()
             return market
         except Exception as e:
-            self.db.rollback()
             logger.error(f"Failed to ensure market {details.market_id}: {e}")
             raise e
 
@@ -245,11 +237,9 @@ class MarketDataRepository(BaseRepository):
 
             if new_logs:
                 self.db.bulk_save_objects(new_logs)
-                self.db.commit()
                 logger.info(f"Saved {len(new_logs)} new bars for {market_id} to SQL.")
             return len(new_logs)
         except Exception as e:
-            self.db.rollback()
             logger.error(f"Failed to save bars for {market_id}: {e}")
             raise e
 
