@@ -111,6 +111,7 @@ def test_order_repository_flow(in_memory_db):
         avg_fill_price=149.8,
     )
 
+    in_memory_db.commit()
     in_memory_db.refresh(db_order)
     assert db_order.status == OrderStatus.FILLED
     assert db_order.filled_size == 100.0

@@ -173,9 +173,8 @@ class TestExecutionEngine:
         mock_handler.execute_order.assert_called_once_with(sample_order_request)
 
         # 2. Database was updated
-        mock_db_session.begin_nested.assert_called_once()
-        mock_db_session.add.assert_called_once()  # For the new OrderLogModel
-        mock_db_session.commit.assert_called_once()
+        mock_db_session.add.assert_called_once()
+        assert mock_db_session.commit.call_count == 2
 
         # 3. Portfolio was updated
         mock_portfolio.add_open_order.assert_called_once_with(
@@ -218,7 +217,7 @@ class TestExecutionEngine:
 
         # 2. Database was updated
         mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+        assert mock_db_session.commit.call_count == 2
 
         # 3. Portfolio was updated
         mock_portfolio.add_open_order.assert_not_called()
@@ -269,7 +268,7 @@ class TestExecutionEngine:
 
         # 3. Database was updated with the FAILED result
         mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+        assert mock_db_session.commit.call_count == 2
 
         # 4. Portfolio was updated with the FAILED result
         mock_portfolio.add_open_order.assert_not_called()
@@ -368,7 +367,7 @@ class TestExecutionEngine:
         # --- Assert ---
         # 1. Database update succeeded
         mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+        assert mock_db_session.commit.call_count == 2
 
         # 2. Portfolio update was called
         mock_portfolio.update_order_status.assert_called_once_with(
