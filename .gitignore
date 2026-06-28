@@ -11,7 +11,11 @@ __pycache__/
 runs/*
 notebooks/runs/*
 models/*.onnx
+models/registry/*.onnx
+/models/registry/trials/*.onnx
 notebooks/models/*.onnx
+notebooks/models/registry/*.onnx
+
 
 # Distribution / packaging
 .Python

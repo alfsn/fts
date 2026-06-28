@@ -114,20 +114,77 @@ class BaseONNXModelTrainer(BaseModelTrainer, ABC):
         """Trains the model and returns the raw ONNX bytes representation."""
         pass
 
+    def log_to_tensorboard(self) -> None:
+        """Logs hyperparameters and final validation metrics to TensorBoard HParams."""
+        config = getattr(self, "config", getattr(self, "training_config", None))
+        if config is None or not getattr(config, "tensorboard_log_dir", None):
+            return
+
+        metrics = getattr(self, "best_val_metrics", None)
+        if not metrics:
+            return
+
+        import os
+
+        from torch.utils.tensorboard import SummaryWriter
+
+        log_dir = config.tensorboard_log_dir
+        os.makedirs(log_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir=log_dir)
+
+        # Build hparam_dict
+        hparam_dict = {
+            "lr": getattr(config, "learning_rate", 0.0),
+            "batch_size": getattr(config, "batch_size", 0),
+            "epochs": getattr(config, "epochs", 0),
+            "optimizer": getattr(config, "optimizer", "none"),
+            "loss_fn": getattr(config, "loss_fn", "none"),
+            "lookback": self.lookback_period,
+            "horizon": config.horizon,
+        }
+
+        # Add model config details if available (PyTorch models)
+        model_config = getattr(self, "model_config", None)
+        if model_config:
+            from pydantic import BaseModel
+
+            cfg_dict = (
+                model_config.model_dump()
+                if isinstance(model_config, BaseModel)
+                else dict(model_config)
+            )
+            for k, v in cfg_dict.items():
+                if isinstance(v, (int, float, str, bool)):
+                    hparam_dict[f"model/{k}"] = v
+                elif isinstance(v, list):
+                    hparam_dict[f"model/{k}"] = str(v)
+
+        # Build metric_dict
+        metric_dict = {
+            "hparam/val_loss": metrics.get("loss", 999.0),
+            "hparam/val_ic": metrics.get("ic", 0.0),
+            "hparam/val_directional_accuracy": metrics.get("directional_accuracy", 0.5),
+        }
+        if "selector_accuracy" in metrics:
+            metric_dict["hparam/val_selector_accuracy"] = metrics["selector_accuracy"]
+
+        writer.add_hparams(hparam_dict, metric_dict)
+        writer.close()
+
     def train(self, historical_bars: Sequence[BarData]) -> bytes:
         onnx_bytes = self._train_to_onnx(historical_bars)
         if not onnx_bytes:
             return onnx_bytes
 
         config = getattr(self, "config", getattr(self, "training_config", None))
-        if config is None:
-            return onnx_bytes
+        if config is not None:
+            self.log_to_tensorboard()
 
         metadata = _get_training_metadata(
             historical_bars=historical_bars,
             lookback_period=self.lookback_period,
-            horizon=config.horizon,
-            val_ratio=config.validation_split,
+            horizon=config.horizon if config else 1,
+            val_ratio=config.validation_split if config else 0.2,
         )
         return _add_onnx_metadata(onnx_bytes, metadata)
 
@@ -310,9 +367,11 @@ class BasePyTorchTrainer(BaseONNXModelTrainer):
 
         best_val_loss = float("inf")
         best_model_state = copy.deepcopy(model.state_dict())
+        best_val_metrics_dct = None
         epochs_since_improvement = 0
 
         global_step = 0
+        epoch_loss = 0.0
         for epoch in range(self.training_config.epochs):
             model.train()
             epoch_loss = 0.0
@@ -371,6 +430,7 @@ class BasePyTorchTrainer(BaseONNXModelTrainer):
                 ):
                     best_val_loss = val_loss
                     best_model_state = copy.deepcopy(model.state_dict())
+                    best_val_metrics_dct = copy.deepcopy(val_metrics)
                     epochs_since_improvement = 0
                 else:
                     epochs_since_improvement += 1
@@ -392,6 +452,13 @@ class BasePyTorchTrainer(BaseONNXModelTrainer):
                 f"Restoring best model state with validation loss: {best_val_loss:.6f}"
             )
             model.load_state_dict(best_model_state)
+            self.best_val_loss = best_val_loss
+            self.best_val_metrics = (
+                best_val_metrics_dct if best_val_metrics_dct is not None else {}
+            )
+        else:
+            self.best_val_loss = epoch_loss
+            self.best_val_metrics = {"loss": epoch_loss}
 
         if writer:
             writer.close()

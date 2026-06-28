@@ -9,6 +9,7 @@ source of truth for all other modules.
 """
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -53,6 +54,8 @@ class TaskConfig(BaseModel):
 
 from trading_bot.core.loader import PluginLoader
 
+ROOT_DIR = str(Path(__file__).resolve().parents[2])
+
 
 def get_env_filename() -> str:
     """
@@ -86,6 +89,12 @@ class Settings(BaseSettings):
     # Example for dev (SQLite): "sqlite+pysqlite:///./dev.db"
     # Example for prod (PostgreSQL): "postgresql+psycopg2://user:pass@db:5432/trading"
     DATABASE_URL: str = "sqlite+pysqlite:///./dev.db"
+
+    # --- Path Configuration ---
+    # Central repository paths, resolved relative to project root
+    ROOT_DIR: str = ROOT_DIR
+    MODELS_DIR: str = os.path.join(ROOT_DIR, "models")
+    RUNS_DIR: str = os.path.join(ROOT_DIR, "runs")
 
     # Configure the settings model to load from the .env file
     # determined by the `get_env_filename` method.
