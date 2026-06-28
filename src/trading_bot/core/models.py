@@ -388,6 +388,27 @@ class BacktestEquityLog(Base):
         )
 
 
+class TimeSeriesDataset(Base):
+    """
+    SQLAlchemy ORM Model representing a dataset.
+    Identifies a specific versioned slice of time-series bar data.
+    """
+
+    __tablename__ = "time_series_datasets"
+
+    dataset_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    market_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    interval: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    start_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    hash: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<TimeSeriesDataset(dataset_id='{self.dataset_id}', market_id='{self.market_id}', interval='{self.interval}')>"
+
+
 class ModelRegistryLog(Base):
     """
     SQLAlchemy ORM Model representing the model registry.
@@ -422,6 +443,11 @@ class ModelRegistryLog(Base):
     market_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     interval: Mapped[str] = mapped_column(String, index=True, nullable=False)
     horizon: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+
+    dataset_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("time_series_datasets.dataset_id"), nullable=True, index=True
+    )
+    dataset: Mapped[Optional["TimeSeriesDataset"]] = relationship("TimeSeriesDataset")
 
     onnx_path: Mapped[str] = mapped_column(String, nullable=False)
     hyperparameters: Mapped[dict] = mapped_column(JSON, nullable=False)
