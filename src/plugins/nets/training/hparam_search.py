@@ -40,7 +40,7 @@ TRAINER_REGISTRY = {
 def generate_model_id(model_type: str, market_id: str, interval: str) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     rand_id = uuid.uuid4().hex[:6]
-    clean_market = market_id.replace("_", "").lower()
+    clean_market = market_id.replace("_", "").replace("/", "").lower()
     return f"model_{model_type}_{clean_market}_{interval.lower()}_{timestamp}_{rand_id}"
 
 
