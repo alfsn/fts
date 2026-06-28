@@ -208,6 +208,75 @@ def run_hparam_search(config_path: str):
     print(f"Best trial: {study.best_trial.number} with loss {study.best_value}")
 
 
+def get_scored_models(
+    db_session,
+    weight_ic: float = 0.4,
+    weight_da: float = 0.4,
+    weight_val_loss: float = 0.2,
+) -> "pd.DataFrame":
+    """
+    Fetches all registered models, parses metrics, scales them,
+    and returns a DataFrame ranked by a balanced composite performance score.
+    """
+    import json
+
+    import pandas as pd
+
+    # ponytail: direct SQL read and standard pandas operations keep this utility lightweight and YAGNI-compliant
+    df_models = pd.read_sql("SELECT * FROM model_registry", db_session.bind)
+    if df_models.empty:
+        return df_models
+
+    def extract_metric(metrics_raw, key, default=0.0):
+        if not metrics_raw:
+            return default
+        try:
+            metrics_dict = (
+                json.loads(metrics_raw) if isinstance(metrics_raw, str) else metrics_raw
+            )
+            return metrics_dict.get(key, default)
+        except Exception:
+            return default
+
+    df_models["val_loss"] = df_models["metrics"].apply(
+        lambda m: extract_metric(m, "val_loss", 999.0)
+    )
+    df_models["ic"] = df_models["metrics"].apply(lambda m: extract_metric(m, "ic", 0.0))
+    df_models["directional_accuracy"] = df_models["metrics"].apply(
+        lambda m: extract_metric(m, "directional_accuracy", 0.5)
+    )
+
+    # Normalize metrics for balanced composite score calculation
+    vl_min, vl_max = df_models["val_loss"].min(), df_models["val_loss"].max()
+    df_models["norm_val_loss"] = (
+        (df_models["val_loss"] - vl_min) / (vl_max - vl_min) if vl_max > vl_min else 0.0
+    )
+
+    ic_min, ic_max = df_models["ic"].min(), df_models["ic"].max()
+    df_models["norm_ic"] = (
+        (df_models["ic"] - ic_min) / (ic_max - ic_min) if ic_max > ic_min else 0.5
+    )
+
+    da_min, da_max = (
+        df_models["directional_accuracy"].min(),
+        df_models["directional_accuracy"].max(),
+    )
+    df_models["norm_da"] = (
+        (df_models["directional_accuracy"] - da_min) / (da_max - da_min)
+        if da_max > da_min
+        else 0.5
+    )
+
+    # Calculate a balanced composite score (higher is better) using parameters
+    df_models["composite_score"] = (
+        weight_ic * df_models["norm_ic"]
+        + weight_da * df_models["norm_da"]
+        + weight_val_loss * (1.0 - df_models["norm_val_loss"])
+    )
+
+    return df_models.sort_values(by="composite_score", ascending=False)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/hparam_search.yaml")
