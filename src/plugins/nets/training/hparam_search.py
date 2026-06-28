@@ -1,8 +1,9 @@
 import argparse
+import hashlib
+import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
 
 import optuna
 import yaml
@@ -37,11 +38,26 @@ TRAINER_REGISTRY = {
 }
 
 
-def generate_model_id(model_type: str, market_id: str, interval: str) -> str:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    rand_id = uuid.uuid4().hex[:6]
-    clean_market = market_id.replace("_", "").replace("/", "").lower()
-    return f"model_{model_type}_{clean_market}_{interval.lower()}_{timestamp}_{rand_id}"
+def generate_model_id(onnx_bytes: bytes) -> str:
+    return hashlib.sha256(onnx_bytes).hexdigest()[:12]
+
+
+def calculate_dataset_hash(bars: list) -> str:
+    sorted_bars = sorted(bars, key=lambda b: b.timestamp)
+    data_list = [
+        (
+            (
+                b.timestamp.isoformat()
+                if hasattr(b.timestamp, "isoformat")
+                else str(b.timestamp)
+            ),
+            b.close,
+            b.volume,
+        )
+        for b in sorted_bars
+    ]
+    serialized = json.dumps(data_list, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
 
 
 def parse_search_space(trial: optuna.Trial, space_config: dict) -> dict:
@@ -101,6 +117,20 @@ def run_hparam_search(config_path: str):
             for b in raw_bars
         ]
 
+        # Pre-calculate dataset hash and register/retrieve TimeSeriesDataset
+        sorted_raw_bars = sorted(raw_bars, key=lambda b: b.timestamp)
+        dataset_full_hash = calculate_dataset_hash(sorted_raw_bars)
+        model_repo = ModelRepository(db)
+        dataset_obj = model_repo.get_or_create_dataset(
+            market_id=market_id,
+            interval=interval,
+            start_time=sorted_raw_bars[0].timestamp,
+            end_time=sorted_raw_bars[-1].timestamp,
+            hash_val=dataset_full_hash,
+        )
+        db.commit()
+        dataset_id = dataset_obj.dataset_id
+
     model_type = config["model_type"]
     if model_type not in TRAINER_REGISTRY:
         raise ValueError(f"Model type {model_type} not found in TRAINER_REGISTRY.")
@@ -147,10 +177,10 @@ def run_hparam_search(config_path: str):
         if not onnx_bytes:
             raise optuna.TrialPruned("Training failed or returned empty bytes.")
 
-        # Save ONNX artifact
-        registry_dir = os.path.join(settings.MODELS_DIR, "registry")
+        # Save ONNX artifact to trials subdirectory
+        registry_dir = os.path.join(settings.MODELS_DIR, "registry", "trials")
         os.makedirs(registry_dir, exist_ok=True)
-        model_id = generate_model_id(model_type, market_id, interval)
+        model_id = generate_model_id(onnx_bytes)
         onnx_filename = os.path.join(registry_dir, f"{model_id}.onnx")
         with open(onnx_filename, "wb") as f:
             f.write(onnx_bytes)
@@ -186,6 +216,7 @@ def run_hparam_search(config_path: str):
                     metrics=metrics,
                     run_id=run_id,
                     status="candidate",
+                    dataset_id=dataset_id,
                 )
                 trial_db.commit()  # Decoupled commit managed at caller level
             except Exception as e:
@@ -210,20 +241,36 @@ def run_hparam_search(config_path: str):
 
 def get_scored_models(
     db_session,
+    model_type: str = None,
+    market_id: str = None,
+    interval: str = None,
+    horizon: int = None,
     weight_ic: float = 0.4,
     weight_da: float = 0.4,
     weight_val_loss: float = 0.2,
 ) -> "pd.DataFrame":
     """
-    Fetches all registered models, parses metrics, scales them,
-    and returns a DataFrame ranked by a balanced composite performance score.
+    Fetches all registered models, filters them by logical signature, parses metrics,
+    scales them, and returns a DataFrame ranked by a balanced composite performance score.
     """
     import json
 
     import pandas as pd
 
-    # ponytail: direct SQL read and standard pandas operations keep this utility lightweight and YAGNI-compliant
-    df_models = pd.read_sql("SELECT * FROM model_registry", db_session.bind)
+    from trading_bot.core.models import ModelRegistryLog
+
+    # ponytail: direct SQL read using SQLAlchemy query statement keeps this utility lightweight and YAGNI-compliant
+    query = db_session.query(ModelRegistryLog)
+    if model_type:
+        query = query.filter(ModelRegistryLog.model_type == model_type)
+    if market_id:
+        query = query.filter(ModelRegistryLog.market_id == market_id)
+    if interval:
+        query = query.filter(ModelRegistryLog.interval == interval)
+    if horizon is not None:
+        query = query.filter(ModelRegistryLog.horizon == horizon)
+
+    df_models = pd.read_sql(query.statement, db_session.bind)
     if df_models.empty:
         return df_models
 
