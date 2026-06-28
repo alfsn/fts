@@ -108,7 +108,7 @@ def run_hparam_search(config_path: str):
     trainer_cls, config_cls = TRAINER_REGISTRY[model_type]
 
     def objective(trial: optuna.Trial) -> float:
-        trial_params = parse_search_space(trial, config["search_space"])
+        trial_params = parse_search_space(trial, config.get("search_space") or {})
         run_id = f"trial_{trial.number}_{uuid.uuid4().hex[:8]}"
 
         # Separate NNTrainingConfig vs architecture config_cls
