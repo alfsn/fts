@@ -1,0 +1,14 @@
+# XGBoost Hyperparameter Search Configuration File
+study_name: "xgboost_btc_optimization"
+direction: "minimize"  # Minimize validation loss
+n_trials: 1
+model_type: "xgboost"
+market_id: "BTC_USD"
+interval: "1h"
+
+# Preprocessing & Feature parameters
+lookback_period: 20
+feature_cols: ["close"]
+
+# Search Space Definitions (Hardcoded model parameters in trainer, empty search space)
+search_space: {}
