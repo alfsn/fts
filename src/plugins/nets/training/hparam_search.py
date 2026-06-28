@@ -127,11 +127,20 @@ def run_hparam_search(config_path: str):
         }
         model_config = config_cls(**model_params)
 
-        trainer = trainer_cls(
-            lookback_period=config["lookback_period"],
-            model_config=model_config,
-            training_config=training_config,
-        )
+        import inspect
+
+        sig = inspect.signature(trainer_cls.__init__)
+        if "model_config" in sig.parameters:
+            trainer = trainer_cls(
+                lookback_period=config["lookback_period"],
+                model_config=model_config,
+                training_config=training_config,
+            )
+        else:
+            trainer = trainer_cls(
+                lookback_period=config["lookback_period"],
+                config=model_config,
+            )
 
         # Train model
         onnx_bytes = trainer.train(bar_schemas)
