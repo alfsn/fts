@@ -99,3 +99,36 @@ class BaseExecutionHandler(ABC):
                  {'USD': 5000.0, 'EUR': 1000.0, 'AAPL': 10, 'BTC': 0.5}
         """
         pass
+
+
+class ExecuteDelay(ABC):
+    """
+    Abstract Base Class for determining trade execution delays.
+    """
+
+    @abstractmethod
+    def calculate_execution_tick(self, current_tick_index: int) -> int:
+        """
+        Determines the target tick/bar index at which an order should execute.
+
+        :param current_tick_index: The tick index when the signal is generated.
+        :return: The target tick index when the order should be executed.
+        """
+        pass
+
+
+class PriceSlip(ABC):
+    """
+    Abstract Base Class for applying slippage and execution price penalties.
+    """
+
+    @abstractmethod
+    def apply_slippage(self, order: OrderRequest, base_price: float) -> float:
+        """
+        Calculates the execution price after applying slippage/fees.
+
+        :param order: The original OrderRequest.
+        :param base_price: The baseline price of the current execution bar.
+        :return: The adjusted average fill price.
+        """
+        pass

@@ -4,6 +4,8 @@ from typing import Dict, Union
 import numpy as np
 import onnxruntime as ort
 
+from ..models import ONNXModelMetadata
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,6 +21,17 @@ class ONNXPredictor:
         try:
             self.session = ort.InferenceSession(model_path)
             self.input_metadata = {i.name: i for i in self.session.get_inputs()}
+            meta = self.session.get_modelmeta()
+            custom_map = (
+                meta.custom_metadata_map if hasattr(meta, "custom_metadata_map") else {}
+            )
+            try:
+                self.model_metadata = ONNXModelMetadata.from_custom_metadata(custom_map)
+            except Exception as e:
+                logger.warning(
+                    f"Could not parse ONNX model metadata for {model_path}: {e}"
+                )
+                self.model_metadata = None
             logger.info(f"Loaded ONNX model from {model_path}")
         except Exception as e:
             logger.critical(f"Failed to load ONNX model from {model_path}: {e}")

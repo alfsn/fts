@@ -3,7 +3,7 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Type
+from typing import Any, Callable, Optional, Type
 
 from sqlalchemy.orm import Session
 
@@ -118,17 +118,28 @@ class HistoricalReplayLoop(BaseEventLoop):
         self,
         data_reader: Optional[BaseBacktestDataReader] = None,
         data_path: Optional[str] = None,
+        save_backtest_report: bool = False,
+        backtest_report_dir: Optional[str] = None,
     ) -> None:
         """
         Initializes the backtest replay scheduler.
 
         :param data_reader: Pluggable backtesting data reader that streams chronological ticks.
         :param data_path: Deprecated data path parameter.
+        :param save_backtest_report: Whether to automatically save backtest visualizations as HTML.
+        :param backtest_report_dir: Directory where the exported HTML report will be saved.
         """
         self.data_reader = data_reader
         self.data_path = data_path
+        self.save_backtest_report = save_backtest_report
+        self.backtest_report_dir = backtest_report_dir
 
-    def start(self, pipeline: TradingPipeline, db: Optional[Session] = None) -> None:
+    def start(
+        self,
+        pipeline: TradingPipeline,
+        db: Optional[Session] = None,
+        on_tick: Optional[Callable[[Any], None]] = None,
+    ) -> None:
         logger.info("Starting HistoricalReplayLoop simulation...")
 
         reader = self.data_reader
@@ -144,6 +155,11 @@ class HistoricalReplayLoop(BaseEventLoop):
             )
             return
 
+        # Disable immediate database commits for prediction logging to enable batch committing performance
+        pred_logger = getattr(pipeline, "prediction_logger", None)
+        if pred_logger and hasattr(pred_logger, "commit"):
+            pred_logger.commit = False
+
         # Playback each historical tick sequentially, preventing live execution/ingestion queries
         tick_count = 0
         try:
@@ -152,6 +168,8 @@ class HistoricalReplayLoop(BaseEventLoop):
                     f"Replaying historical tick {tick_count + 1} at {tick_data.timestamp}..."
                 )
                 pipeline.execute_single_tick(db, ingestion_output=tick_data)
+                if on_tick:
+                    on_tick(tick_data)
                 tick_count += 1
         except Exception as e:
             logger.error(
@@ -159,4 +177,55 @@ class HistoricalReplayLoop(BaseEventLoop):
             )
             raise e
 
+        # Commit all logged signals/predictions in a single batch at the end of the replay simulation
+        if db is not None:
+            try:
+                db.commit()
+            except Exception as commit_err:
+                logger.error(
+                    f"Failed to batch commit backtest database logs: {commit_err}",
+                    exc_info=True,
+                )
+                db.rollback()
+                raise commit_err
+
         logger.info(f"HistoricalReplayLoop complete. Replayed {tick_count} ticks.")
+
+        if self.save_backtest_report:
+            logger.info("Automatically saving backtest visualization reports...")
+            try:
+                from ..backtesting.exporter import HTMLBacktestExporter
+                from ..config import settings
+
+                exporter = HTMLBacktestExporter(db_url=settings.DATABASE_URL)
+                run_id = (
+                    pipeline.prediction_logger.run_id
+                    if (
+                        pipeline.prediction_logger and pipeline.prediction_logger.run_id
+                    )
+                    else None
+                )
+
+                if not run_id:
+                    logger.warning("No run_id available to export backtest reports.")
+                else:
+                    for market_id in pipeline.ingestion.market_ids:
+                        for strategy in pipeline.strategy.strategies:
+                            try:
+                                exporter.export(
+                                    market_id=market_id,
+                                    strategy_name=strategy.name,
+                                    run_id=run_id,
+                                    output_path=self.backtest_report_dir,
+                                )
+                            except Exception as export_err:
+                                logger.error(
+                                    f"Failed to automatically export report for market={market_id}, "
+                                    f"strategy={strategy.name}: {export_err}",
+                                    exc_info=True,
+                                )
+            except Exception as err:
+                logger.error(
+                    f"Failed to initialize backtest visualization exporter: {err}",
+                    exc_info=True,
+                )

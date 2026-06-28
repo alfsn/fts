@@ -68,6 +68,10 @@ class TradingPipeline:
                 logger.debug("No active market data received this tick.")
                 return
 
+            # Advance execution engine state for the new tick
+            if db is not None:
+                self.execution.on_tick(ingestion_output, db)
+
             # Step 2: Generate Strategy Signals
             signals = self.strategy.process_data_tick(ingestion_output)
             if self.prediction_logger and signals:

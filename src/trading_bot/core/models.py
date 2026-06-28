@@ -357,3 +357,33 @@ class BacktestPredictionLog(BasePredictionLog):
             f"<BacktestPredictionLog(run_id='{self.run_id}', market_id='{self.market_id}', "
             f"strategy='{self.strategy_name}', signal='{self.predicted_signal}')>"
         )
+
+
+class BacktestEquityLog(Base):
+    """Logs cash, position size, and overall equity per tick for a backtest simulation run."""
+
+    __tablename__ = "backtest_equity_logs"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "timestamp",
+            "run_id",
+            name="uq_backtest_equity_log",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    run_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+    cash: Mapped[float] = mapped_column(nullable=False)
+    position: Mapped[float] = mapped_column(nullable=False)
+    close: Mapped[float] = mapped_column(nullable=False)
+    equity: Mapped[float] = mapped_column(nullable=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"<BacktestEquityLog(run_id='{self.run_id}', timestamp='{self.timestamp}', "
+            f"equity={self.equity:.2f})>"
+        )

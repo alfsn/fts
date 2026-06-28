@@ -9,7 +9,9 @@ __pycache__/
 .antigravitycli/*
 
 runs/*
+notebooks/runs/*
 models/*.onnx
+notebooks/models/*.onnx
 
 # Distribution / packaging
 .Python

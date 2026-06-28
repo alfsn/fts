@@ -1,5 +1,4 @@
-# src/plugins/nets/schemas.py
-
+from datetime import datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -113,3 +112,86 @@ class LSTMConfig(NNTrainingConfig):
     bidirectional: bool = Field(
         default=False, description="Whether the LSTM is bidirectional"
     )
+
+
+class ONNXModelMetadata(BaseModel):
+    """Schema representing the metadata serialized into exported ONNX models."""
+
+    train_start_date: datetime = Field(
+        ..., description="Start timestamp of model training data"
+    )
+    train_end_date: datetime = Field(
+        ..., description="End timestamp of model training data"
+    )
+    lookback_period: int = Field(
+        ..., description="The lookback period used for features"
+    )
+    horizon: int = Field(..., description="Forecasting target horizon")
+    val_ratio: float = Field(..., description="Validation split ratio")
+
+    def to_custom_metadata(self) -> dict[str, str]:
+        """Converts class attributes to string dictionary for ONNX serialization."""
+        return {
+            "train_start_date": self.train_start_date.isoformat(),
+            "train_end_date": self.train_end_date.isoformat(),
+            "lookback_period": str(self.lookback_period),
+            "horizon": str(self.horizon),
+            "val_ratio": str(self.val_ratio),
+        }
+
+    @classmethod
+    def from_custom_metadata(
+        cls, custom_metadata: dict[str, str]
+    ) -> "ONNXModelMetadata":
+        """Parses ONNX custom metadata properties into a validated Pydantic model."""
+        required_keys = [
+            "train_start_date",
+            "train_end_date",
+            "lookback_period",
+            "horizon",
+            "val_ratio",
+        ]
+        for key in required_keys:
+            if key not in custom_metadata:
+                raise ValueError(f"Missing required ONNX model metadata key: '{key}'")
+        return cls(
+            train_start_date=datetime.fromisoformat(
+                custom_metadata["train_start_date"]
+            ),
+            train_end_date=datetime.fromisoformat(custom_metadata["train_end_date"]),
+            lookback_period=int(custom_metadata["lookback_period"]),
+            horizon=int(custom_metadata["horizon"]),
+            val_ratio=float(custom_metadata["val_ratio"]),
+        )
+
+    def validate_timestamp(
+        self,
+        timestamp: datetime,
+        allow_in_sample: bool = False,
+        strategy_name: str = "strategy",
+    ) -> None:
+        """
+        Validates that the given timestamp is chronologically after the model's training range.
+        Raises a ValueError if lookahead leakage is detected and allow_in_sample is False.
+        """
+        if allow_in_sample:
+            return
+
+        from datetime import timezone
+
+        # Align timezones
+        tick_time = timestamp
+        train_end_date = self.train_end_date
+
+        if tick_time.tzinfo is not None and train_end_date.tzinfo is None:
+            train_end_date = train_end_date.replace(tzinfo=timezone.utc)
+        elif tick_time.tzinfo is None and train_end_date.tzinfo is not None:
+            train_end_date = train_end_date.replace(tzinfo=None)
+
+        if tick_time <= train_end_date:
+            raise ValueError(
+                f"Lookahead Guardrail Violation: Tick timestamp {tick_time} "
+                f"is within the training period (ended {train_end_date.isoformat()}) "
+                f"for strategy {strategy_name}. To bypass this check for diagnostic runs, "
+                f"set allow_in_sample=True in the strategy configuration."
+            )

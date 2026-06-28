@@ -126,7 +126,7 @@ def main() -> None:
 
         risk_manager = RiskManager(
             portfolio=portfolio,
-            sizing_strategy=sizing_strategy,
+            sizer=sizing_strategy,
         )
 
         execution_engine = ExecutionEngine(

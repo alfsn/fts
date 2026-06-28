@@ -533,3 +533,159 @@ def test_trainers_with_multi_step_horizon(tmp_path):
     )
     onnx_bytes_cnn = cnn_trainer.train(bars)
     assert onnx_bytes_cnn is not None
+
+
+def test_onnx_metadata_serialization_and_guardrails(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import MagicMock
+
+    import onnx
+    import onnxruntime as ort
+    from nets.inference import ONNXPredictor
+    from nets.models import BaseTrainerConfig, CNNConfig, NNTrainingConfig
+    from nets.output_selectors import SimpleThresholdClassifier
+    from nets.strategies.nets_strategy import NetsStrategy
+    from nets.training import CNNTrainer, LinearRegressionTrainer, XGBoostTrainer
+
+    from trading_bot.core.schemas import (
+        IngestionEngineOutput,
+        MarketData,
+        MarketDetails,
+    )
+
+    # Generate sequential historical bars with fixed timezone
+    base_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    bars = [
+        BarData(
+            timestamp=base_time + timedelta(hours=i),
+            open=100.0 + i,
+            high=102.0 + i,
+            low=98.0 + i,
+            close=101.0 + i,
+            volume=1000.0,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=100000.0,
+        )
+        for i in range(50)
+    ]
+
+    # Train a LinearRegression model
+    config = BaseTrainerConfig(lookback_period=10, validation_split=0.2, horizon=2)
+    trainer = LinearRegressionTrainer(lookback_period=10, config=config)
+    onnx_bytes = trainer.train(bars)
+
+    # 1. Assert metadata was serialized correctly
+    model = onnx.load_model_from_string(onnx_bytes)
+    props = {p.key: p.value for p in model.metadata_props}
+
+    assert "train_start_date" in props
+    assert "train_end_date" in props
+    assert "lookback_period" in props
+    assert "horizon" in props
+    assert "val_ratio" in props
+
+    assert props["train_start_date"] == bars[0].timestamp.isoformat()
+    # Expected end timestamp index is 40
+    assert props["train_end_date"] == bars[40].timestamp.isoformat()
+
+    # Save the model to file to load via ONNXPredictor
+    model_path = tmp_path / "test_model.onnx"
+    model_path.write_bytes(onnx_bytes)
+
+    # 2. Assert ONNXPredictor correctly loads custom_metadata and parses to ONNXModelMetadata
+    from nets.models import ONNXModelMetadata
+
+    predictor = ONNXPredictor(str(model_path))
+    assert isinstance(predictor.model_metadata, ONNXModelMetadata)
+    assert predictor.model_metadata.train_start_date == bars[0].timestamp
+    assert predictor.model_metadata.train_end_date == bars[40].timestamp
+    assert predictor.model_metadata.lookback_period == 10
+    assert predictor.model_metadata.horizon == 2
+    assert predictor.model_metadata.val_ratio == 0.2
+
+    # 3. Assert NetsStrategy guardrail checks
+    transform = LogReturnTransform()
+    output_selector = SimpleThresholdClassifier(threshold=0.001)
+
+    strategy = NetsStrategy(
+        predictor=predictor,
+        transform=transform,
+        output_selector=output_selector,
+        lookback_period=10,
+        allow_in_sample=False,
+    )
+
+    # Mock ingestion inputs at different timestamps
+    # Inside training range:
+    mdata_in_sample = MarketData(
+        market_id="mock-market",
+        details=MarketDetails(
+            market_id="mock-market",
+            name="mock",
+            end_date=datetime.now(timezone.utc),
+            resolution_source="test",
+        ),
+        recent_bars=bars[:12],
+    )
+    tick_in_sample = IngestionEngineOutput(
+        timestamp=bars[11].timestamp,  # <= train_end_date
+        market_data={"mock-market": mdata_in_sample},
+        external_data=[],
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        strategy.evaluate(tick_in_sample)
+    assert "Lookahead Guardrail Violation" in str(excinfo.value)
+
+    # Strategy with allow_in_sample=True should bypass the check without error
+    strategy_allowed = NetsStrategy(
+        predictor=predictor,
+        transform=transform,
+        output_selector=output_selector,
+        lookback_period=10,
+        allow_in_sample=True,
+    )
+    # Mock predictor to not fail inside strategy evaluate
+    predictor.predict = MagicMock(return_value=np.array([0.01]))
+    signals = strategy_allowed.evaluate(tick_in_sample)
+    assert len(signals) == 1
+
+    # Outside training range:
+    mdata_out_of_sample = MarketData(
+        market_id="mock-market",
+        details=MarketDetails(
+            market_id="mock-market",
+            name="mock",
+            end_date=datetime.now(timezone.utc),
+            resolution_source="test",
+        ),
+        recent_bars=bars[35:48],
+    )
+    tick_out_of_sample = IngestionEngineOutput(
+        timestamp=bars[47].timestamp,  # > train_end_date (bars[40])
+        market_data={"mock-market": mdata_out_of_sample},
+        external_data=[],
+    )
+    signals = strategy.evaluate(tick_out_of_sample)
+    assert len(signals) == 1
+
+
+def test_trainer_base_classes():
+    from nets.training import (
+        BaseONNXModelTrainer,
+        BasePyTorchTrainer,
+        CNNTrainer,
+        LinearRegressionTrainer,
+        LSTMTrainer,
+        RNNTrainer,
+        XGBoostTrainer,
+    )
+
+    # Assert explicit BaseONNXModelTrainer inheritance
+    assert issubclass(LinearRegressionTrainer, BaseONNXModelTrainer)
+    assert issubclass(XGBoostTrainer, BaseONNXModelTrainer)
+    assert issubclass(BasePyTorchTrainer, BaseONNXModelTrainer)
+    assert issubclass(CNNTrainer, BaseONNXModelTrainer)
+    assert issubclass(LSTMTrainer, BaseONNXModelTrainer)
+    assert issubclass(RNNTrainer, BaseONNXModelTrainer)

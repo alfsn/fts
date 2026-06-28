@@ -60,11 +60,9 @@ class BacktestVisualizer:
             df_bars["timestamp"] = pd.to_datetime(df_bars["timestamp"])
 
             # 2. Query model predictions
-            pred_filter = ""
+            pred_filter = f" AND run_id = '{run_id}'"
             if strategy_name:
                 pred_filter += f" AND strategy_name = '{strategy_name}'"
-            if run_id:
-                pred_filter += f" AND run_id = '{run_id}'"
             preds_query = f"""
                 SELECT timestamp, strategy_name, prediction_output, predicted_signal, confidence, actual_future_return
                 FROM backtest_prediction_logs
@@ -84,14 +82,12 @@ class BacktestVisualizer:
                 df["confidence"] = None
                 df["actual_future_return"] = None
 
-            # 3. Query trade logs
-            trade_filter = ""
-            if run_id:
-                trade_filter = f"AND run_id = '{run_id}'"
+            # 3. Query filled orders as trades
+            trade_filter = f"AND run_id = '{run_id}'"
             trades_query = f"""
-                SELECT fill_timestamp as timestamp, side, fill_size as size, fill_price as price
-                FROM trade_logs
-                WHERE market_id = '{market_id}' {trade_filter}
+                SELECT updated_at as timestamp, side, filled_size as size, avg_fill_price as price
+                FROM order_logs
+                WHERE market_id = '{market_id}' AND status = 'FILLED' {trade_filter}
                 ORDER BY timestamp ASC
             """
             df_trades = pd.read_sql(trades_query, session.bind)
@@ -120,6 +116,29 @@ class BacktestVisualizer:
             if "confidence" in df.columns:
                 df["confidence"] = df["confidence"].fillna(0.0).astype(float)
 
+            # 4. Query backtest equity logs
+            equity_query = f"""
+                SELECT timestamp, cash, position as equity_position, close as equity_close, equity as actual_equity
+                FROM backtest_equity_logs
+                WHERE run_id = '{run_id}'
+                ORDER BY timestamp ASC
+            """
+            try:
+                df_equity = pd.read_sql(equity_query, session.bind)
+                if not df_equity.empty:
+                    df_equity["timestamp"] = pd.to_datetime(df_equity["timestamp"])
+                    df_equity = df_equity.sort_values("timestamp")
+                    df = df.sort_values("timestamp")
+                    df = pd.merge_asof(
+                        df,
+                        df_equity,
+                        on="timestamp",
+                        direction="nearest",
+                        tolerance=pd.Timedelta("1h"),
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to query or merge backtest equity logs: {e}")
+
             # Sort chronologically
             df = df.sort_values("timestamp").reset_index(drop=True)
             return df
@@ -147,10 +166,10 @@ class BacktestVisualizer:
             """
             df = pd.read_sql(query, session.bind)
             if df.empty:
-                return ["All"]
-            return ["All"] + df["run_id"].tolist()
+                return []
+            return df["run_id"].tolist()
         except Exception:
-            return ["All"]
+            return []
         finally:
             session.close()
 
@@ -210,13 +229,27 @@ class BacktestVisualizer:
                 .fillna(0.0)
             )
 
-        # Shift position by 1 step to avoid lookahead bias (trade occurs at next bar open)
-        df["strat_position"] = df["position"].shift(1).fillna(0.0)
-        df["strat_return"] = df["strat_position"] * df["raw_return"]
-
         # Cumulative P&L
         df["cum_baseline_return"] = (1.0 + df["raw_return"]).cumprod() - 1.0
-        df["cum_strat_return"] = (1.0 + df["strat_return"]).cumprod() - 1.0
+
+        if "actual_equity" in df.columns and not df["actual_equity"].isnull().all():
+            # Use actual logged portfolio equity
+            initial_equity = df["actual_equity"].iloc[0]
+            if initial_equity > 0:
+                df["cum_strat_return"] = (
+                    df["actual_equity"] - initial_equity
+                ) / initial_equity
+            else:
+                df["cum_strat_return"] = 0.0
+
+            if "equity_position" in df.columns:
+                df["strat_position"] = df["equity_position"]
+        else:
+            # Fall back to signal-based simulated returns
+            df["strat_position"] = df["position"].shift(1).fillna(0.0)
+            df["strat_return"] = df["strat_position"] * df["raw_return"]
+            df["cum_strat_return"] = (1.0 + df["strat_return"]).cumprod() - 1.0
+
         return df
 
     def render_charts(self, df: pd.DataFrame, market_id: str) -> go.Figure:
@@ -312,17 +345,42 @@ class BacktestVisualizer:
             )
 
         # Subplot 2: Cumulative P&L
-        fig.add_trace(
-            go.Scatter(
-                x=df_pnl["timestamp"],
-                y=df_pnl["cum_strat_return"] * 100,
-                mode="lines",
-                name="ML Strategy P&L",
-                line=dict(color="#2196f3", width=2),
-            ),
-            row=2,
-            col=1,
-        )
+        if "actual_equity" in df_pnl.columns:
+            hovertext = df_pnl.apply(
+                lambda r: (
+                    f"Date: {r['timestamp'].strftime('%Y-%m-%d %H:%M')}<br>"
+                    f"Return: {r['cum_strat_return']*100:.2f}%<br>"
+                    f"Equity: ${r['actual_equity']:.2f}<br>"
+                    f"Cash: ${r.get('cash', 0.0):.2f}<br>"
+                    f"Position: {r.get('equity_position', 0.0):.4f}"
+                ),
+                axis=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df_pnl["timestamp"],
+                    y=df_pnl["cum_strat_return"] * 100,
+                    mode="lines",
+                    name="ML Strategy P&L",
+                    line=dict(color="#2196f3", width=2),
+                    hovertext=hovertext,
+                    hoverinfo="text",
+                ),
+                row=2,
+                col=1,
+            )
+        else:
+            fig.add_trace(
+                go.Scatter(
+                    x=df_pnl["timestamp"],
+                    y=df_pnl["cum_strat_return"] * 100,
+                    mode="lines",
+                    name="ML Strategy P&L",
+                    line=dict(color="#2196f3", width=2),
+                ),
+                row=2,
+                col=1,
+            )
 
         fig.add_trace(
             go.Scatter(
@@ -630,8 +688,10 @@ class BacktestVisualizer:
             description="Strategy:",
             layout=widgets.Layout(width="250px"),
         )
+        run_ids = self.get_available_runs(default_market, default_strategy)
         run_id_dd = widgets.Dropdown(
-            options=self.get_available_runs(default_market, default_strategy),
+            options=run_ids,
+            value=run_ids[0] if run_ids else None,
             description="Run ID:",
             layout=widgets.Layout(width="220px"),
         )
@@ -650,12 +710,16 @@ class BacktestVisualizer:
             strategies = meta_dict.get(m, ["None"])
             strategy_dd.options = strategies
             s = strategies[0] if strategies else None
-            run_id_dd.options = self.get_available_runs(m, s if s != "None" else None)
+            runs = self.get_available_runs(m, s if s != "None" else None)
+            run_id_dd.options = runs
+            run_id_dd.value = runs[0] if runs else None
 
         def on_strategy_change(change):
             s = change["new"]
             m = market_dd.value
-            run_id_dd.options = self.get_available_runs(m, s if s != "None" else None)
+            runs = self.get_available_runs(m, s if s != "None" else None)
+            run_id_dd.options = runs
+            run_id_dd.value = runs[0] if runs else None
 
         market_dd.observe(on_market_change, names="value")
         strategy_dd.observe(on_strategy_change, names="value")
@@ -679,8 +743,15 @@ class BacktestVisualizer:
                 s = None
 
             r = run_id_dd.value
-            if r == "All":
-                r = None
+            if not r:
+                with plot_panel:
+                    clear_output()
+                    display(
+                        widgets.HTML(
+                            "<p style='color:#ef5350;'>No Run ID available or selected.</p>"
+                        )
+                    )
+                return
 
             # Load data
             df = self.load_data(m, s, r)
