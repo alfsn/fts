@@ -127,3 +127,60 @@ def test_hparam_search_and_promotion_integration(temp_db_and_config, tmp_path):
     assert prod.status == "production"
 
     db.close()
+
+
+def test_all_config_files_integration(temp_db_and_config, tmp_path):
+    configs_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "configs",
+    )
+
+    model_types = ["lstm", "rnn", "cnn", "linear_regression", "xgboost"]
+
+    for model_type in model_types:
+        config_path = os.path.join(
+            configs_dir, "train", "BTCUSDT", f"{model_type}_hparam_search.yaml"
+        )
+        assert os.path.exists(config_path), f"Config file not found: {config_path}"
+
+        with open(config_path, "r") as f:
+            config_dict = yaml.safe_load(f)
+
+        # Override configurations to run extremely fast in tests
+        config_dict["n_trials"] = 1
+        config_dict["study_name"] = f"test_study_{model_type}"
+        config_dict["market_id"] = "BTC_USD"
+        config_dict["interval"] = "1h"
+
+        # neural network specific scaling-down for testing speed
+        if "search_space" in config_dict:
+            if "epochs" in config_dict["search_space"]:
+                config_dict["search_space"]["epochs"]["low"] = 1
+                config_dict["search_space"]["epochs"]["high"] = 1
+            if "hidden_dim" in config_dict["search_space"]:
+                config_dict["search_space"]["hidden_dim"]["low"] = 8
+                config_dict["search_space"]["hidden_dim"]["high"] = 8
+            if "dense_units" in config_dict["search_space"]:
+                config_dict["search_space"]["dense_units"]["low"] = 8
+                config_dict["search_space"]["dense_units"]["high"] = 8
+
+        temp_config_file = tmp_path / f"{model_type}_test_config.yaml"
+        with open(temp_config_file, "w") as f:
+            yaml.safe_dump(config_dict, f)
+
+        # Run the search
+        run_hparam_search(str(temp_config_file))
+
+        # Verify candidate was registered in DB
+        db = create_db_session(settings.DATABASE_URL)
+        from trading_bot.core.models import ModelRegistryLog
+
+        models = db.query(ModelRegistryLog).filter_by(model_type=model_type).all()
+        assert len(models) == 1, f"Failed to find registered model for {model_type}"
+        m = models[0]
+        assert m.status == "candidate"
+        assert m.market_id == "BTC_USD"
+        assert m.interval == "1h"
+        assert os.path.exists(m.onnx_path)
+
+        db.close()
