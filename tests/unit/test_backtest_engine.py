@@ -1,7 +1,7 @@
 # tests/unit/test_backtest_engine.py
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -233,6 +233,12 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
     # Mock portfolio cash and positions state
     mock_portfolio._cash_balance = 10000.0
     mock_portfolio._positions = {}
+    type(mock_portfolio).cash_balance = PropertyMock(
+        side_effect=lambda: mock_portfolio._cash_balance
+    )
+    type(mock_portfolio).positions = PropertyMock(
+        side_effect=lambda: mock_portfolio._positions
+    )
 
     mock_strategy = MagicMock()
     mock_strategy_instance = MagicMock()

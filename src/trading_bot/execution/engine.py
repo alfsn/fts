@@ -116,13 +116,13 @@ class ExecutionEngine:
         # Phase 2: Database and portfolio updates (critical section)
         if result:
             try:
-                # Use a nested transaction for atomicity
-                with db.begin_nested():
-                    self._log_order(db, order, result, strategy_name)
-                    db.commit()
+                # Log order to database and commit
+                self._log_order(db, order, result, strategy_name)
+                db.commit()
 
                 # Only update portfolio if DB logging succeeded
                 self._safe_portfolio_update(db, order, result)
+                db.commit()
 
             except SQLAlchemyError as e:
                 logger.critical(
@@ -185,12 +185,14 @@ class ExecutionEngine:
                 )
 
                 try:
-                    with db.begin_nested():
-                        self._update_order_log(db, log, result)
-                        db.commit()
+                    # Log change to database
+                    self._update_order_log(db, log, result)
 
                     # Update portfolio after successful DB update
                     self._safe_portfolio_update(db, None, result)
+
+                    # Commit both atomically
+                    db.commit()
 
                 except SQLAlchemyError as e:
                     logger.error(
@@ -231,11 +233,10 @@ class ExecutionEngine:
                 log = self._get_order_log(db, order_id)
 
                 if log:
-                    with db.begin_nested():
-                        self._update_order_log(db, log, result)
-                        db.commit()
+                    self._update_order_log(db, log, result)
 
                 self._safe_portfolio_update(db, None, result)
+                db.commit()
 
             except Exception as e:
                 logger.critical(
@@ -264,9 +265,9 @@ class ExecutionEngine:
                 self.portfolio.add_open_order(result.order_id, order)
             else:
                 if order and isinstance(
-                    getattr(self.portfolio, "_open_orders", None), dict
+                    getattr(self.portfolio, "open_orders", None), dict
                 ):
-                    if result.order_id not in self.portfolio._open_orders:
+                    if result.order_id not in self.portfolio.open_orders:
                         logger.warning(
                             f"Order {result.order_id} was filled (or finalized) immediately "
                             f"without being previously tracked as OPEN. Temporarily tracking it "
@@ -522,6 +523,6 @@ class ExecutionEngine:
             self.handler.on_tick(ingestion_output, db)
 
         # Reconcile open orders in the portfolio
-        open_order_ids = list(self.portfolio._open_orders.keys())
+        open_order_ids = list(self.portfolio.open_orders.keys())
         for order_id in open_order_ids:
             self.check_order_status(order_id, db)

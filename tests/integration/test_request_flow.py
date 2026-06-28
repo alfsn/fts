@@ -85,8 +85,13 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     5. A second (closing) trade is processed to check P&L.
     """
 
-    # --- 1. ARRANGE (Initial Setup) ---
-    portfolio = Portfolio(initial_balance=10000.0)
+    from trading_bot.core.repository import OrderRepository, PositionRepository
+
+    portfolio = Portfolio(
+        initial_balance=10000.0,
+        pos_repo=PositionRepository(db_session),
+        order_repo=OrderRepository(db_session),
+    )
 
     sizer = FixedAmountSizer(default_amount_quote=600.0)
     risk_manager = RiskManager(portfolio=portfolio, sizer=sizer)
@@ -128,6 +133,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
 
     #
     portfolio.update_order_status(db_session, fill_result)
+    db_session.commit()
 
     # --- 5. ASSERT (Post-Trade State & DB) ---
 
@@ -181,6 +187,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
         timestamp=datetime.now(timezone.utc),
     )
     portfolio.update_order_status(db_session, fill_result_2)
+    db_session.commit()
 
     # --- 7. ASSERT (Final State) ---
 

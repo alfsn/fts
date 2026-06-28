@@ -189,7 +189,7 @@ class TestPortfolio:
         assert base_portfolio._positions[pos_key].size == 200
         assert base_portfolio._positions[pos_key].entry_price == 0.5
         mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_sell_new_short(
         self, base_portfolio: Portfolio, mock_db_session
@@ -219,7 +219,7 @@ class TestPortfolio:
         assert base_portfolio._positions[pos_key].size == -100
         assert base_portfolio._positions[pos_key].entry_price == 0.6
         mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_buy_add_to_long(
         self, base_portfolio: Portfolio, mock_db_session
@@ -259,7 +259,7 @@ class TestPortfolio:
 
         # Entry = (100 * 0.4 + 100 * 0.6) / 200 = 0.5
         assert base_portfolio._positions[pos_key].entry_price == 0.5
-        mock_db_session.commit.assert_called_once()
+        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_sell_close_long(
         self, base_portfolio: Portfolio, mock_db_session
@@ -295,7 +295,7 @@ class TestPortfolio:
         # Position should be closed
         pos_key = "MKT1"
         assert pos_key not in base_portfolio._positions
-        mock_db_session.commit.assert_called_once()
+        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_non_fill(self, base_portfolio: Portfolio):
         order = OrderRequest(

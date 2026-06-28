@@ -1,7 +1,7 @@
 # tests/unit/test_simulated_handler.py
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 from sqlalchemy.orm import Session
@@ -294,6 +294,9 @@ def test_execution_engine_integration():
     handler = SimulatedExecutionHandler(delay_model=delay, slippage_model=slip)
     portfolio = MagicMock(spec=Portfolio)
     portfolio._open_orders = {}
+    type(portfolio).open_orders = PropertyMock(
+        side_effect=lambda: portfolio._open_orders
+    )
 
     engine = ExecutionEngine(
         execution_handler=handler,
