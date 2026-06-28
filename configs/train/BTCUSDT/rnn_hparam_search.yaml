@@ -1,10 +1,10 @@
-# LSTM Hyperparameter Search Configuration File
-study_name: "lstm_btc_optimization"
+# RNN Hyperparameter Search Configuration File
+study_name: "rnn_btc_optimization"
 direction: "minimize"  # Minimize validation loss
 n_trials: 10
-model_type: "lstm"
-market_id: "BTC_USD"
-interval: "1h"
+model_type: "rnn"
+market_id: "BTC/USDT"
+interval: "30m"
 
 # Preprocessing & Feature parameters
 lookback_period: 20
@@ -37,9 +37,9 @@ search_space:
     type: "float"
     low: 0.1
     high: 0.1
-  bidirectional:
+  nonlinearity:
     type: "categorical"
-    choices: [false]
+    choices: ["tanh"]
   optimizer:
     type: "categorical"
     choices: ["adam"]

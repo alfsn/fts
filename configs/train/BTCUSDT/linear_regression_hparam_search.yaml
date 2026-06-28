@@ -1,14 +1,11 @@
 # Linear Regression Hyperparameter Search Configuration File
 study_name: "linear_regression_btc_optimization"
 direction: "minimize"  # Minimize validation loss
-n_trials: 1
+n_trials: 5
 model_type: "linear_regression"
-market_id: "BTC_USD"
-interval: "1h"
+market_id: "BTC/USDT"
+interval: "30m"
 
 # Preprocessing & Feature parameters
 lookback_period: 20
 feature_cols: ["close"]
-
-# Search Space Definitions (Deterministic model, empty search space)
-search_space: {}

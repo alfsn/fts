@@ -1,10 +1,10 @@
-# CNN Hyperparameter Search Configuration File
-study_name: "cnn_btc_optimization"
+# LSTM Hyperparameter Search Configuration File
+study_name: "lstm_btc_optimization"
 direction: "minimize"  # Minimize validation loss
 n_trials: 10
-model_type: "cnn"
-market_id: "BTC_USD"
-interval: "1h"
+model_type: "lstm"
+market_id: "BTC/USDT"
+interval: "30m"
 
 # Preprocessing & Feature parameters
 lookback_period: 20
@@ -17,10 +17,10 @@ search_space:
     low: 0.0001
     high: 0.01
     log: true
-  dense_units:
+  hidden_dim:
     type: "int"
-    low: 32
-    high: 128
+    low: 16
+    high: 64
   epochs:
     type: "int"
     low: 10
@@ -29,10 +29,17 @@ search_space:
     type: "int"
     low: 32
     high: 32
+  num_layers:
+    type: "int"
+    low: 1
+    high: 1
   dropout:
     type: "float"
     low: 0.1
     high: 0.1
+  bidirectional:
+    type: "categorical"
+    choices: [false]
   optimizer:
     type: "categorical"
     choices: ["adam"]

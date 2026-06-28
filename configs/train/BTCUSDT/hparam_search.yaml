@@ -3,8 +3,8 @@ study_name: "lstm_btc_optimization"
 direction: "minimize"  # Minimize validation loss
 n_trials: 10
 model_type: "lstm"
-market_id: "BTC_USD"
-interval: "1h"
+market_id: "BTC/USDT"
+interval: "30m"
 
 # Preprocessing & Feature parameters
 lookback_period: 20
