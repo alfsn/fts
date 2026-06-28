@@ -115,8 +115,8 @@ def run_hparam_search(config_path: str):
         train_params = {
             k: v for k, v in trial_params.items() if k in NNTrainingConfig.model_fields
         }
-        train_params["tensorboard_log_dir"] = (
-            f"runs/optuna/{config['study_name']}/{run_id}"
+        train_params["tensorboard_log_dir"] = os.path.join(
+            settings.RUNS_DIR, "optuna", config["study_name"], run_id
         )
         train_params["feature_cols"] = config["feature_cols"]
         train_params["validation_split"] = 0.2
@@ -148,9 +148,10 @@ def run_hparam_search(config_path: str):
             raise optuna.TrialPruned("Training failed or returned empty bytes.")
 
         # Save ONNX artifact
-        os.makedirs("models/registry", exist_ok=True)
+        registry_dir = os.path.join(settings.MODELS_DIR, "registry")
+        os.makedirs(registry_dir, exist_ok=True)
         model_id = generate_model_id(model_type, market_id, interval)
-        onnx_filename = f"models/registry/{model_id}.onnx"
+        onnx_filename = os.path.join(registry_dir, f"{model_id}.onnx")
         with open(onnx_filename, "wb") as f:
             f.write(onnx_bytes)
 

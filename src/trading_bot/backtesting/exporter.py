@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from trading_bot.backtesting.visualizer import BacktestVisualizer
+from trading_bot.config import settings
 
 
 class BaseBacktestExporter(ABC):
@@ -93,7 +94,7 @@ class HTMLBacktestExporter(BaseBacktestExporter):
 
         if output_path is None:
             # Default to runs/reports/ directory
-            target_dir = os.path.join("runs", "reports")
+            target_dir = os.path.join(settings.RUNS_DIR, "reports")
             os.makedirs(target_dir, exist_ok=True)
             full_path = os.path.join(target_dir, filename)
         elif is_dir:
