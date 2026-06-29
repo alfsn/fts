@@ -296,6 +296,7 @@ class PredictionLog(Base):
             "market_id",
             "strategy_name",
             "run_id",
+            "log_type",
             name="uq_prediction_log",
         ),
     )
