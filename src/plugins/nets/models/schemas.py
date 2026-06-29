@@ -128,16 +128,22 @@ class ONNXModelMetadata(BaseModel):
     )
     horizon: int = Field(..., description="Forecasting target horizon")
     val_ratio: float = Field(..., description="Validation split ratio")
+    feature_pipeline: Optional[str] = Field(
+        None, description="Serialized FeaturePipeline configuration JSON"
+    )
 
     def to_custom_metadata(self) -> dict[str, str]:
         """Converts class attributes to string dictionary for ONNX serialization."""
-        return {
+        meta = {
             "train_start_date": self.train_start_date.isoformat(),
             "train_end_date": self.train_end_date.isoformat(),
             "lookback_period": str(self.lookback_period),
             "horizon": str(self.horizon),
             "val_ratio": str(self.val_ratio),
         }
+        if self.feature_pipeline is not None:
+            meta["feature_pipeline"] = self.feature_pipeline
+        return meta
 
     @classmethod
     def from_custom_metadata(
@@ -162,6 +168,7 @@ class ONNXModelMetadata(BaseModel):
             lookback_period=int(custom_metadata["lookback_period"]),
             horizon=int(custom_metadata["horizon"]),
             val_ratio=float(custom_metadata["val_ratio"]),
+            feature_pipeline=custom_metadata.get("feature_pipeline"),
         )
 
     def validate_timestamp(
