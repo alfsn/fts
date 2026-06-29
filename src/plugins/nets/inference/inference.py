@@ -27,11 +27,26 @@ class ONNXPredictor:
             )
             try:
                 self.model_metadata = ONNXModelMetadata.from_custom_metadata(custom_map)
+                self.pipeline = None
+                if self.model_metadata and self.model_metadata.feature_pipeline:
+                    try:
+                        import json
+
+                        from trading_bot.core.transforms import BaseTransform
+
+                        pipeline_data = json.loads(self.model_metadata.feature_pipeline)
+                        self.pipeline = BaseTransform.from_dict(pipeline_data)
+                        logger.info(
+                            "Successfully deserialized FeaturePipeline from ONNX metadata."
+                        )
+                    except Exception as pe:
+                        logger.warning(f"Failed to deserialize FeaturePipeline: {pe}")
             except Exception as e:
                 logger.warning(
                     f"Could not parse ONNX model metadata for {model_path}: {e}"
                 )
                 self.model_metadata = None
+                self.pipeline = None
             logger.info(f"Loaded ONNX model from {model_path}")
         except Exception as e:
             logger.critical(f"Failed to load ONNX model from {model_path}: {e}")

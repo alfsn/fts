@@ -25,18 +25,39 @@ class NetsStrategy(BaseStrategy):
     def __init__(
         self,
         predictor: ONNXPredictor,
-        transform: BaseTransform,
         output_selector: BaseOutputSelector,
+        transform: Optional[BaseTransform] = None,
         lookback_period: int = 20,
         name_suffix: str = "v1",
         feature_cols: Optional[Sequence[str]] = None,
         allow_in_sample: bool = False,
     ) -> None:
         self.predictor = predictor
-        self.transform = transform
+
+        # Smart fallback for transform
+        if transform is not None:
+            self.transform = transform
+        elif getattr(predictor, "pipeline", None) is not None:
+            self.transform = predictor.pipeline
+        else:
+            from trading_bot.core.transforms import LogReturnTransform
+
+            self.transform = LogReturnTransform()
+
         self.output_selector = output_selector
         self.lookback_period = lookback_period
-        self.feature_cols = list(feature_cols) if feature_cols else ["close"]
+
+        # Smart fallback for feature columns
+        if feature_cols is not None:
+            self.feature_cols = list(feature_cols)
+        else:
+            from trading_bot.core.transforms import FeaturePipeline
+
+            if isinstance(self.transform, FeaturePipeline):
+                self.feature_cols = ["open", "high", "low", "close", "volume"]
+            else:
+                self.feature_cols = ["close"]
+
         self.allow_in_sample = allow_in_sample
         self._name = f"nets_strategy_{name_suffix}"
 

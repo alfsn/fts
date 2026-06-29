@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from trading_bot.core.dataset import DatasetBuilder
 from trading_bot.core.schemas import BarData
 from trading_bot.core.training import BaseModelTrainer
-from trading_bot.core.transforms import LogReturnTransform
+from trading_bot.core.transforms import BaseTransform, LogReturnTransform
 
 from ..models import (
     NNTrainingConfig,
@@ -31,6 +31,7 @@ def _get_training_metadata(
     lookback_period: int,
     horizon: int,
     val_ratio: float,
+    transform: Optional[BaseTransform] = None,
 ) -> ONNXModelMetadata:
     """
     Computes metadata about the training period, ensuring we exactly identify
@@ -59,12 +60,19 @@ def _get_training_metadata(
             ),
         )
 
+    import json
+
+    feature_pipeline_json = None
+    if transform is not None:
+        feature_pipeline_json = json.dumps(transform.to_dict())
+
     return ONNXModelMetadata(
         train_start_date=historical_bars[0].timestamp,
         train_end_date=historical_bars[train_end_idx].timestamp,
         lookback_period=lookback_period,
         horizon=horizon,
         val_ratio=val_ratio,
+        feature_pipeline=feature_pipeline_json,
     )
 
 
@@ -185,6 +193,7 @@ class BaseONNXModelTrainer(BaseModelTrainer, ABC):
             lookback_period=self.lookback_period,
             horizon=config.horizon if config else 1,
             val_ratio=config.validation_split if config else 0.2,
+            transform=getattr(self, "transform", None),
         )
         return _add_onnx_metadata(onnx_bytes, metadata)
 
@@ -200,9 +209,10 @@ class BasePyTorchTrainer(BaseONNXModelTrainer):
         lookback_period: int = 20,
         training_config: Union[NNTrainingConfig, Dict[str, Any], None] = None,
         output_selector: Optional[BaseOutputSelector] = None,
+        transform: Optional[BaseTransform] = None,
     ) -> None:
         self.lookback_period = lookback_period
-        self.transform = LogReturnTransform()
+        self.transform = transform or LogReturnTransform()
         self.training_config = (
             training_config
             if isinstance(training_config, NNTrainingConfig)
