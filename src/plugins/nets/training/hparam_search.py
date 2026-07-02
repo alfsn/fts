@@ -24,6 +24,7 @@ from nets.training import (
 
 from trading_bot.config import settings
 from trading_bot.core.database import init_db
+from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import MarketDataRepository, ModelRepository
 
 logger = logging.getLogger(__name__)
@@ -40,24 +41,6 @@ TRAINER_REGISTRY = {
 
 def generate_model_id(onnx_bytes: bytes) -> str:
     return hashlib.sha256(onnx_bytes).hexdigest()[:12]
-
-
-def calculate_dataset_hash(bars: list) -> str:
-    sorted_bars = sorted(bars, key=lambda b: b.timestamp)
-    data_list = [
-        (
-            (
-                b.timestamp.isoformat()
-                if hasattr(b.timestamp, "isoformat")
-                else str(b.timestamp)
-            ),
-            b.close,
-            b.volume,
-        )
-        for b in sorted_bars
-    ]
-    serialized = json.dumps(data_list, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(serialized).hexdigest()
 
 
 def parse_search_space(trial: optuna.Trial, space_config: dict) -> dict:
