@@ -148,7 +148,7 @@ def test_spec_file_not_found():
 
 def test_repo_specs_loading():
     # Verify canonical backtest spec load
-    backtest_path = PROJECT_ROOT / "specs/backtests/BTCUSDT/lstm_backtest.yaml"
+    backtest_path = PROJECT_ROOT / "specs/backtests/BTCUSDT/lstm_close_backtest.yaml"
     bt_spec = BacktestSpec.from_yaml(backtest_path)
     assert bt_spec.market.market_id == "BTC/USDT"
     assert bt_spec.market.interval == "30m"

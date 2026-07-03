@@ -1,0 +1,16 @@
+# Backtest Specification for RNN BTC/USDT (Close Only)
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/dates/backtest_2026_june.yaml"
+  - "specs/components/execution/default_paper_execution.yaml"
+  - "specs/components/classifiers/dynamic_threshold.yaml"
+  - "specs/components/features/close_only.yaml"
+
+model_type: "rnn"
+horizon: 1
+
+warmup_bars: 100
+lookback_limit: 1000
+run_id: "presentation_rnn_close"
+
+output_dir: "../runs/reports"
