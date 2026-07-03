@@ -4,7 +4,7 @@ imports:
   - "specs/components/features/close_only.yaml"
 
 study:
-  study_name: "xgboost_btc_optimization"
+  study_name: "presentation_xgboost_close_only"
   direction: "minimize"
   n_trials: 1
   model_type: "xgboost"

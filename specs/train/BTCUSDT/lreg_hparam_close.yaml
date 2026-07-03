@@ -1,0 +1,10 @@
+# Linear Regression Hyperparameter Search Configuration File
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/features/close_only.yaml"
+
+study:
+  study_name: "presentation_linear_regression_close_only"
+  direction: "minimize"
+  n_trials: 5
+  model_type: "linear_regression"

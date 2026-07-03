@@ -1,0 +1,40 @@
+# CNN Hyperparameter Search Configuration File
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/features/close_only.yaml"
+
+study:
+  study_name: "presentation_cnn_close_only"
+  direction: "minimize"
+  n_trials: 10
+  model_type: "cnn"
+
+# Search Space Definitions
+search_space:
+  learning_rate:
+    type: "float"
+    low: 0.0001
+    high: 0.01
+    log: true
+  dense_units:
+    type: "int"
+    low: 32
+    high: 128
+  epochs:
+    type: "int"
+    low: 10
+    high: 10
+  batch_size:
+    type: "int"
+    low: 32
+    high: 32
+  dropout:
+    type: "float"
+    low: 0.1
+    high: 0.1
+  optimizer:
+    type: "categorical"
+    choices: ["adam"]
+  loss_fn:
+    type: "categorical"
+    choices: ["mse"]

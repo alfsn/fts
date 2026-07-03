@@ -1,10 +1,10 @@
 # RNN Hyperparameter Search Configuration File
 imports:
   - "specs/components/markets/btc_usdt_30m.yaml"
-  - "specs/components/features/close_only.yaml"
+  - "specs/components/features/ohlcv_transforms.yaml"
 
 study:
-  study_name: "rnn_btc_optimization"
+  study_name: "presentation_rnn_all_features"
   direction: "minimize"
   n_trials: 10
   model_type: "rnn"
