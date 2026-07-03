@@ -35,9 +35,12 @@ def create_db_engine(database_url: str | None = None, **kwargs: Any) -> Engine:
 def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
     if type(dbapi_connection).__module__.startswith("sqlite3"):
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=60000")
         cursor.execute("PRAGMA synchronous=NORMAL")
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
         cursor.close()
 
 
