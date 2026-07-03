@@ -9,6 +9,7 @@ from trading_bot.core.spec_models import (
     ClassifierSpec,
     DateRangeSpec,
     ExecutionRiskSpec,
+    FeatureSetSpec,
     MarketSpec,
 )
 
@@ -24,6 +25,7 @@ class BacktestSpec(BaseComposableSpec):
     dates: DateRangeSpec = Field(default_factory=DateRangeSpec)
     execution: ExecutionRiskSpec = Field(default_factory=ExecutionRiskSpec)
     classifier: ClassifierSpec = Field(default_factory=ClassifierSpec)
+    features: FeatureSetSpec = Field(default_factory=FeatureSetSpec)
 
     # Model Selection & Simulation Specifics
     model_type: str = Field(default="lstm", description="ML model architecture name")

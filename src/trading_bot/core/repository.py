@@ -352,10 +352,15 @@ class ModelRepository(BaseRepository):
         return log_entry
 
     def get_production_model(
-        self, model_type: str, market_id: str, interval: str, horizon: int
+        self,
+        model_type: str,
+        market_id: str,
+        interval: str,
+        horizon: int,
+        feature_cols: Optional[Sequence[str]] = None,
     ) -> Optional[ModelRegistryLog]:
-        """Fetches the active 'production' model matching the logical signature."""
-        return (
+        """Fetches the active 'production' model matching the logical signature and optional feature_cols."""
+        query = (
             self.db.query(ModelRegistryLog)
             .filter_by(
                 model_type=model_type,
@@ -365,8 +370,62 @@ class ModelRepository(BaseRepository):
                 status="production",
             )
             .order_by(ModelRegistryLog.created_at.desc())
-            .first()
         )
+        candidates = query.all()
+        if not candidates:
+            return None
+
+        if feature_cols is None:
+            return candidates[0]
+
+        target_features = list(feature_cols)
+        for model in candidates:
+            if model.hyperparameters and isinstance(model.hyperparameters, dict):
+                model_features = model.hyperparameters.get("feature_cols")
+                if (
+                    model_features is not None
+                    and list(model_features) == target_features
+                ):
+                    return model
+        return None
+
+    def get_candidate_model(
+        self,
+        model_type: str,
+        market_id: str,
+        interval: Optional[str] = None,
+        horizon: Optional[int] = None,
+        feature_cols: Optional[Sequence[str]] = None,
+    ) -> Optional[ModelRegistryLog]:
+        """Fetches the latest candidate model matching the logical signature and optional feature_cols."""
+        query = self.db.query(ModelRegistryLog).filter_by(
+            model_type=model_type,
+            market_id=market_id,
+            status="candidate",
+        )
+        if interval:
+            query = query.filter_by(interval=interval)
+        if horizon:
+            query = query.filter_by(horizon=horizon)
+
+        query = query.order_by(ModelRegistryLog.created_at.desc())
+        candidates = query.all()
+        if not candidates:
+            return None
+
+        if feature_cols is None:
+            return candidates[0]
+
+        target_features = list(feature_cols)
+        for model in candidates:
+            if model.hyperparameters and isinstance(model.hyperparameters, dict):
+                model_features = model.hyperparameters.get("feature_cols")
+                if (
+                    model_features is not None
+                    and list(model_features) == target_features
+                ):
+                    return model
+        return None
 
     def get_model(self, model_id: str) -> Optional[ModelRegistryLog]:
         """Fetches a model by its unique model ID."""
