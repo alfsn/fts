@@ -100,6 +100,7 @@ class DatabasePredictionLogger:
                             "market_id",
                             "strategy_name",
                             "run_id",
+                            "log_type",
                         ],
                         set_={
                             "prediction_output": stmt.excluded.prediction_output,
@@ -119,6 +120,7 @@ class DatabasePredictionLogger:
                             "market_id",
                             "strategy_name",
                             "run_id",
+                            "log_type",
                         ],
                         set_={
                             "prediction_output": stmt.excluded.prediction_output,

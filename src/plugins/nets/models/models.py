@@ -18,9 +18,9 @@ def prepare_scaling_parameters(
     mean_tensor = torch.tensor(mean, dtype=torch.float32)
     std_tensor = torch.tensor(std, dtype=torch.float32)
     if mean_tensor.dim() == 0 or mean_tensor.numel() == 1:
-        mean_tensor = mean_tensor.expand(n_features)
+        mean_tensor = mean_tensor.expand(n_features).clone()
     if std_tensor.dim() == 0 or std_tensor.numel() == 1:
-        std_tensor = std_tensor.expand(n_features)
+        std_tensor = std_tensor.expand(n_features).clone()
     return mean_tensor.view(-1, 1), std_tensor.view(-1, 1)
 
 

@@ -1,6 +1,6 @@
 # tests/unit/test_nets_plugin.py
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import pytest
@@ -689,3 +689,15 @@ def test_trainer_base_classes():
     assert issubclass(CNNTrainer, BaseONNXModelTrainer)
     assert issubclass(LSTMTrainer, BaseONNXModelTrainer)
     assert issubclass(RNNTrainer, BaseONNXModelTrainer)
+
+
+def test_run_hparam_search_date_filtering():
+    from nets.training.hparam_search import parse_datetime_param
+
+    dt_str = "2025-11-04T19:30:00+00:00"
+    parsed_dt = parse_datetime_param(dt_str)
+    assert parsed_dt == datetime(2025, 11, 4, 19, 30, 0, tzinfo=timezone.utc)
+
+    dt_obj = datetime(2025, 5, 30, 19, 30, 0)
+    parsed_dt_obj = parse_datetime_param(dt_obj)
+    assert parsed_dt_obj == datetime(2025, 5, 30, 19, 30, 0, tzinfo=timezone.utc)

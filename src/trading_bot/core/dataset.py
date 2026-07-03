@@ -1,10 +1,31 @@
-# src/trading_bot/core/dataset.py
-
-from typing import List, Sequence, Tuple
+import hashlib
+import json
+from typing import Any, List, Sequence, Tuple
 
 import numpy as np
 
 from .schemas import BarData
+
+
+def calculate_dataset_hash(bars: Sequence[Any]) -> str:
+    """
+    Computes a deterministic SHA-256 hash for a sequence of bar objects.
+    """
+    sorted_bars = sorted(bars, key=lambda b: b.timestamp)
+    data_list = [
+        (
+            (
+                b.timestamp.isoformat()
+                if hasattr(b.timestamp, "isoformat")
+                else str(b.timestamp)
+            ),
+            float(b.close),
+            float(b.volume),
+        )
+        for b in sorted_bars
+    ]
+    serialized = json.dumps(data_list, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
 
 
 class DatasetBuilder:

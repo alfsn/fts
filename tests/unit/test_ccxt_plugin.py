@@ -91,3 +91,30 @@ def test_ccxt_get_trade_history(mock_binance):
     assert trades[0].price == 50025.0
     assert trades[0].side == OrderSide.BUY
     assert trades[1].side == OrderSide.SELL
+
+
+@patch("ccxt_plugin.data_providers.ccxt.binance")
+def test_ccxt_get_bars_paginated(mock_binance):
+    mock_exchange = MagicMock()
+    mock_binance.return_value = mock_exchange
+    mock_exchange.parse_timeframe.return_value = 1800  # 30m in seconds
+
+    # Simulate two batches returned by fetch_ohlcv
+    batch1 = [
+        [1700000000000 + i * 1800000, 100.0, 105.0, 95.0, 102.0, 10.0]
+        for i in range(1000)
+    ]
+    batch2 = [
+        [1700000000000 + (1000 + i) * 1800000, 102.0, 106.0, 98.0, 104.0, 12.0]
+        for i in range(500)
+    ]
+    mock_exchange.fetch_ohlcv.side_effect = [batch1, batch2]
+
+    provider = CCXTMarketDataProvider(exchange_id="binance", timeframe="30m")
+    until_dt = datetime.fromtimestamp(
+        (1700000000000 + 1500 * 1800000) / 1000.0, tz=timezone.utc
+    )
+    bars = provider.get_bars("BTC/USDT", count=1500, until=until_dt)
+
+    assert len(bars) == 1500
+    assert mock_exchange.fetch_ohlcv.call_count == 2

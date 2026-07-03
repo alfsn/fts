@@ -154,44 +154,137 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             )
             return []
 
-    def get_bars(self, market_id: str, count: int = 100) -> Sequence[BarData]:
+    def get_bars(
+        self,
+        market_id: str,
+        count: int = 100,
+        until: Optional[datetime] = None,
+        since: Optional[datetime] = None,
+    ) -> Sequence[BarData]:
         """
-        Downloads historical candlesticks (OHLCV) from the exchange.
+        Downloads historical candlesticks (OHLCV) from the exchange in batches.
+
+        :param market_id: Symbol identifier (e.g. 'BTC/USDT').
+        :param count: Total number of bars requested.
+        :param until: Optional cutoff datetime (inclusive end).
+        :param since: Optional starting datetime (inclusive start).
         """
         try:
-            # fetch_ohlcv returns list of lists: [ [timestamp_ms, open, high, low, close, volume], ... ]
-            ohlcv = self.exchange.fetch_ohlcv(
-                market_id, timeframe=self.timeframe, limit=count
+            # Determine timeframe duration in milliseconds
+            if hasattr(self.exchange, "parse_timeframe"):
+                tf_sec = self.exchange.parse_timeframe(self.timeframe)
+            else:
+                tf_sec = 1800  # Default to 30m if unknown
+            tf_ms = tf_sec * 1000
+
+            until_utc = (
+                until.astimezone(timezone.utc)
+                if until and until.tzinfo
+                else (until.replace(tzinfo=timezone.utc) if until else None)
+            )
+            since_utc = (
+                since.astimezone(timezone.utc)
+                if since and since.tzinfo
+                else (since.replace(tzinfo=timezone.utc) if since else None)
             )
 
-            bars = []
-            for candle in ohlcv:
-                # CCXT time is Unix timestamp in milliseconds
-                dt = datetime.fromtimestamp(candle[0] / 1000.0, tz=timezone.utc)
-                op = float(candle[1])
-                hi = float(candle[2])
-                lo = float(candle[3])
-                cl = float(candle[4])
-                vol = float(candle[5])
+            until_ms = int(until_utc.timestamp() * 1000) if until_utc else None
 
-                # Check constraints (gt=0 for prices)
-                if op <= 0 or hi <= 0 or lo <= 0 or cl <= 0:
-                    continue
+            if since_utc is not None:
+                since_ms = int(since_utc.timestamp() * 1000)
+            elif until_ms is not None:
+                since_ms = until_ms - (count * tf_ms)
+            else:
+                since_ms = None
 
-                bars.append(
-                    BarData(
-                        timestamp=dt,
-                        open=op,
-                        high=hi,
-                        low=lo,
-                        close=cl,
-                        volume=vol,
-                        bar_type=BarType.TIME,
-                        interval=self.timeframe,
-                        ticks_count=1,
-                        dollar_volume=cl * vol,
+            # Single-batch optimization for small non-time-bounded queries
+            if count <= 1000 and since_ms is None and until_ms is None:
+                ohlcv_data = [
+                    self.exchange.fetch_ohlcv(
+                        market_id, timeframe=self.timeframe, limit=count
                     )
-                )
+                ]
+            else:
+                # Paginated multi-batch fetching
+                ohlcv_data = []
+                current_since = since_ms
+                last_fetched_ts = -1
+
+                while sum(len(b) for b in ohlcv_data) < count:
+                    batch_limit = min(1000, count - sum(len(b) for b in ohlcv_data))
+                    fetch_kwargs: Dict[str, Any] = {"limit": batch_limit}
+                    if current_since is not None:
+                        fetch_kwargs["since"] = current_since
+
+                    logger.info(
+                        f"Fetching CCXT batch: symbol={market_id}, since={current_since}, limit={batch_limit}"
+                    )
+                    batch = self.exchange.fetch_ohlcv(
+                        market_id, timeframe=self.timeframe, **fetch_kwargs
+                    )
+
+                    if not batch:
+                        logger.info("No more bars returned by CCXT exchange.")
+                        break
+
+                    # Check for progress to avoid infinite loop
+                    latest_ts = batch[-1][0]
+                    if latest_ts <= last_fetched_ts:
+                        break
+
+                    ohlcv_data.append(batch)
+                    last_fetched_ts = latest_ts
+                    current_since = latest_ts + tf_ms
+
+                    if until_ms is not None and current_since > until_ms:
+                        break
+
+                    if len(batch) < batch_limit:
+                        break
+
+            bars = []
+            seen_timestamps = set()
+
+            for batch in ohlcv_data:
+                for candle in batch:
+                    dt = datetime.fromtimestamp(candle[0] / 1000.0, tz=timezone.utc)
+
+                    if until_utc and dt > until_utc:
+                        continue
+                    if since_utc and dt < since_utc:
+                        continue
+
+                    if dt in seen_timestamps:
+                        continue
+                    seen_timestamps.add(dt)
+
+                    op = float(candle[1])
+                    hi = float(candle[2])
+                    lo = float(candle[3])
+                    cl = float(candle[4])
+                    vol = float(candle[5])
+
+                    if op <= 0 or hi <= 0 or lo <= 0 or cl <= 0:
+                        continue
+
+                    bars.append(
+                        BarData(
+                            timestamp=dt,
+                            open=op,
+                            high=hi,
+                            low=lo,
+                            close=cl,
+                            volume=vol,
+                            bar_type=BarType.TIME,
+                            interval=self.timeframe,
+                            ticks_count=1,
+                            dollar_volume=cl * vol,
+                        )
+                    )
+
+            if len(bars) > count:
+                bars = bars[-count:]
+
             return bars
         except Exception as e:
             logger.error(

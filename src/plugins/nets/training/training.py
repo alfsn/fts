@@ -9,6 +9,7 @@ from sklearn.preprocessing import StandardScaler
 
 from trading_bot.core.dataset import DatasetBuilder
 from trading_bot.core.schemas import BarData
+from trading_bot.core.transforms import BaseTransform
 
 from ..models import (
     BaseTrainerConfig,
@@ -37,12 +38,13 @@ class LinearRegressionTrainer(BaseONNXModelTrainer):
         lookback_period: int = 20,
         config: Optional[BaseTrainerConfig] = None,
         output_selector: Optional[BaseOutputSelector] = None,
+        transform: Optional[BaseTransform] = None,
     ) -> None:
         self.config = config or BaseTrainerConfig(lookback_period=lookback_period)
         self.lookback_period = self.config.lookback_period
         from trading_bot.core.transforms import LogReturnTransform
 
-        self.transform = LogReturnTransform()
+        self.transform = transform or LogReturnTransform()
         self.output_selector = output_selector
 
     def _train_to_onnx(self, historical_bars: Sequence[BarData]) -> Any:
@@ -138,12 +140,13 @@ class XGBoostTrainer(BaseONNXModelTrainer):
         lookback_period: int = 20,
         config: Optional[BaseTrainerConfig] = None,
         output_selector: Optional[BaseOutputSelector] = None,
+        transform: Optional[BaseTransform] = None,
     ) -> None:
         self.config = config or BaseTrainerConfig(lookback_period=lookback_period)
         self.lookback_period = self.config.lookback_period
         from trading_bot.core.transforms import LogReturnTransform
 
-        self.transform = LogReturnTransform()
+        self.transform = transform or LogReturnTransform()
         self.output_selector = output_selector
 
     def _train_to_onnx(self, historical_bars: Sequence[BarData]) -> Any:
