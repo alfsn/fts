@@ -1,0 +1,53 @@
+# XGBoost Hyperparameter Search Configuration File
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/dates/train_2025_2026.yaml"
+  - "specs/components/features/ohlcv_transforms.yaml"
+
+study:
+  study_name: "presentation_xgboost_all_features"
+  direction: "minimize"
+  n_trials: 10
+  model_type: "xgboost"
+
+# Search Space Definitions
+search_space:
+  max_depth:
+    type: "int"
+    low: 2
+    high: 8
+  n_estimators:
+    type: "int"
+    low: 50
+    high: 300
+  learning_rate:
+    type: "float"
+    low: 0.01
+    high: 0.2
+    log: true
+  subsample:
+    type: "float"
+    low: 0.6
+    high: 1.0
+  colsample_bytree:
+    type: "float"
+    low: 0.6
+    high: 1.0
+  min_child_weight:
+    type: "int"
+    low: 1
+    high: 10
+  gamma:
+    type: "float"
+    low: 0.0
+    high: 0.5
+  reg_alpha:
+    type: "float"
+    low: 1e-8
+    high: 1.0
+    log: true
+  reg_lambda:
+    type: "float"
+    low: 1e-8
+    high: 1.0
+    log: true
