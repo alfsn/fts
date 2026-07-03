@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -31,18 +30,9 @@ from trading_bot.core.repository import MarketDataRepository, ModelRepository
 
 logger = logging.getLogger(__name__)
 
-# OCP Trainer Registry Map
-TRAINER_REGISTRY = {
-    "lstm": (LSTMTrainer, LSTMConfig),
-    "rnn": (RNNTrainer, RNNConfig),
-    "cnn": (CNNTrainer, CNNConfig),
-    "linear_regression": (LinearRegressionTrainer, BaseTrainerConfig),
-    "xgboost": (XGBoostTrainer, BaseTrainerConfig),
-}
+from nets.training.registry import TRAINER_REGISTRY
 
-
-def generate_model_id(onnx_bytes: bytes) -> str:
-    return hashlib.sha256(onnx_bytes).hexdigest()[:12]
+from trading_bot.utils.model_id import generate_model_id
 
 
 def parse_datetime_param(val: Optional[Union[str, datetime]]) -> Optional[datetime]:
