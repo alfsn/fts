@@ -1,0 +1,6 @@
+# Reusable Component Spec: Dynamic Threshold Classifier Settings
+classifier:
+  classifier_k: 0.03
+  confidence_multiplier: 20.0
+  period: 10
+  allow_in_sample: false

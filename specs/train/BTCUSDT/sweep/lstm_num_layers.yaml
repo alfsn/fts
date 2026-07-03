@@ -1,10 +1,11 @@
 # Controlled Parameter Sweep Spec: LSTM Model Complexity (num_layers)
 # Principle: All non-swept parameters are FIXED scalar values (Ceteris Paribus).
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/features/ohlcv_transforms.yaml"
+
 sweep_name: "lstm_num_layers_sweep"
 model_type: "lstm"
-market_id: "BTC/USDT"
-interval: "30m"
-lookback_period: 20
 
 # Date Split Configuration
 train_start_date: "2025-11-04T19:30:00+00:00"
@@ -29,31 +30,6 @@ base_train_params:
   epochs: 10
   optimizer: "adam"
   loss_fn: "mse"
-
-# Preprocessing & Feature parameters
-feature_cols: ["open", "high", "low", "close", "volume"]
-feature_pipeline:
-  class_path: "trading_bot.core.transforms.FeaturePipeline"
-  params:
-    transforms:
-      - class_path: "trading_bot.core.transforms.LogReturnTransform"
-        params:
-          col_idx: 3
-      - class_path: "trading_bot.core.transforms.RatioTransform"
-        params:
-          num_idx: 1
-          den_idx: 3
-      - class_path: "trading_bot.core.transforms.RatioTransform"
-        params:
-          num_idx: 2
-          den_idx: 3
-      - class_path: "trading_bot.core.transforms.RatioTransform"
-        params:
-          num_idx: 0
-          den_idx: 3
-      - class_path: "trading_bot.core.transforms.LogReturnTransform"
-        params:
-          col_idx: 4
 
 # Backtest Execution Parameters (Held Constant)
 backtest_params:

@@ -1,14 +1,13 @@
 # RNN Hyperparameter Search Configuration File
-study_name: "rnn_btc_optimization"
-direction: "minimize"  # Minimize validation loss
-n_trials: 10
-model_type: "rnn"
-market_id: "BTC/USDT"
-interval: "30m"
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/features/close_only.yaml"
 
-# Preprocessing & Feature parameters
-lookback_period: 20
-feature_cols: ["close"]
+study:
+  study_name: "rnn_btc_optimization"
+  direction: "minimize"
+  n_trials: 10
+  model_type: "rnn"
 
 # Search Space Definitions
 search_space:

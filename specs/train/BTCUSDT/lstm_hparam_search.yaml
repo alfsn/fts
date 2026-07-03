@@ -1,38 +1,14 @@
 # LSTM Hyperparameter Search Configuration File
-study_name: "lstm_btc_optimization"
-direction: "minimize"  # Minimize validation loss
-n_trials: 10
-model_type: "lstm"
-market_id: "BTC/USDT"
-interval: "30m"
-start_date: "2025-11-04T19:30:00+00:00"
-end_date: "2026-05-30T19:30:00+00:00"
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/dates/train_2025_2026.yaml"
+  - "specs/components/features/ohlcv_transforms.yaml"
 
-# Preprocessing & Feature parameters
-lookback_period: 20
-feature_cols: ["open", "high", "low", "close", "volume"]
-feature_pipeline:
-  class_path: "trading_bot.core.transforms.FeaturePipeline"
-  params:
-    transforms:
-      - class_path: "trading_bot.core.transforms.LogReturnTransform"
-        params:
-          col_idx: 3
-      - class_path: "trading_bot.core.transforms.RatioTransform"
-        params:
-          num_idx: 1
-          den_idx: 3
-      - class_path: "trading_bot.core.transforms.RatioTransform"
-        params:
-          num_idx: 2
-          den_idx: 3
-      - class_path: "trading_bot.core.transforms.RatioTransform"
-        params:
-          num_idx: 0
-          den_idx: 3
-      - class_path: "trading_bot.core.transforms.LogReturnTransform"
-        params:
-          col_idx: 4
+study:
+  study_name: "lstm_btc_optimization"
+  direction: "minimize"
+  n_trials: 10
+  model_type: "lstm"
 
 # Search Space Definitions
 search_space:

@@ -1,0 +1,4 @@
+# Reusable Component Spec: BTC/USDT 30m Market
+market:
+  market_id: "BTC/USDT"
+  interval: "30m"

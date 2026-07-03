@@ -1,0 +1,7 @@
+# Reusable Component Spec: Default Execution and Risk Parameters
+execution:
+  execution_delay_k: 1
+  slippage_pct: 0.001
+  initial_balance: 10000.0
+  quote_currency: "USD"
+  position_size_pct: 0.10
