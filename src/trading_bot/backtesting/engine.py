@@ -1,6 +1,8 @@
 # src/trading_bot/backtesting/engine.py
 
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -17,6 +19,7 @@ from ..core.models import (
     TradeLog,
 )
 from ..core.pipeline import TradingPipeline
+from ..utils.run_id import generate_backtest_run_id
 from .results import BacktestResult
 
 logger = logging.getLogger(__name__)
@@ -28,7 +31,7 @@ class BacktestEngine:
 
     Integrates with the `HistoricalReplayLoop` to step through historical ticks,
     coordinates data flow through the `TradingPipeline`, records the portfolio
-    equity curve per tick, and returns a compiled `BacktestResult`.
+    equity state over time, and generates a structured `BacktestResult`.
     """
 
     def __init__(
@@ -37,11 +40,11 @@ class BacktestEngine:
         data_reader: BaseBacktestDataReader,
         db: Session,
         market_id: Optional[str] = None,
-    ) -> None:
+    ):
         """
-        Initializes the backtest engine.
+        Initializes the Backtest Engine.
 
-        :param pipeline: The instantiated TradingPipeline to execute.
+        :param pipeline: The fully wired trading pipeline (strategy, risk, execution).
         :param data_reader: The historical data provider streaming chronological ticks.
         :param db: SQLAlchemy database session for order persistence.
         :param market_id: Optional market identifier. If omitted, it will be inferred
@@ -52,7 +55,9 @@ class BacktestEngine:
         self.db = db
         self.market_id = market_id or getattr(data_reader, "market_id", None)
 
-    def run(self, run_id: str, clear_previous_run: bool = False) -> BacktestResult:
+    def run(
+        self, run_id: Optional[str] = None, clear_previous_run: bool = False
+    ) -> BacktestResult:
         """
         Executes the backtest simulation run.
 
@@ -62,10 +67,22 @@ class BacktestEngine:
         - Runs the replay loop while tracking cash, positions, and equity.
         - Returns a detailed BacktestResult.
 
-        :param run_id: Unique identifier for this backtest run.
+        :param run_id: Unique identifier for this backtest run. Auto-generated if omitted or 'backtest_run'.
         :param clear_previous_run: If True, deletes database records matching run_id before starting.
         :return: Compiled BacktestResult object.
         """
+        if not run_id or run_id == "backtest_run":
+            model_id = getattr(self.pipeline, "model_id", None) or getattr(
+                self, "model_id", None
+            )
+            dataset_sha = getattr(self.data_reader, "dataset_sha", None)
+            if model_id and dataset_sha:
+                run_id = generate_backtest_run_id(model_id, dataset_sha)
+            else:
+                ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                short_uid = uuid.uuid4().hex[:8]
+                run_id = f"bt_adhoc_{ts}_{short_uid}"
+
         db_url = str(self.db.bind.url) if self.db and self.db.bind else ""
         is_test_env = ":memory:" in db_url or "test" in db_url
         orig_db = self.db

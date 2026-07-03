@@ -22,6 +22,7 @@ from trading_bot.core.models import (
     ModelRegistryLog,
     OrderLog,
     Position,
+    TimeSeriesDataset,
     TradeLog,
 )
 from trading_bot.core.pipeline import TradingPipeline
@@ -40,6 +41,7 @@ from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_percentage import FixedPercentageSizer
 from trading_bot.strategy.engine import StrategyEngine
+from trading_bot.utils.run_id import generate_backtest_run_id
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +57,30 @@ def run_model_backtest(
     Returns strategy performance summary metrics.
     """
     backtest_params = backtest_params or {}
-    run_id = f"bt_{model_entry.model_id}"
-
     start_dt = parse_datetime_param(test_start_date)
     end_dt = parse_datetime_param(test_end_date)
 
     with SessionLocal() as db:
+        test_dataset_sha = None
+        if getattr(model_entry, "dataset", None) and getattr(
+            model_entry.dataset, "hash", None
+        ):
+            test_dataset_sha = model_entry.dataset.hash
+        elif getattr(model_entry, "dataset_id", None):
+            ds = (
+                db.query(TimeSeriesDataset)
+                .filter_by(dataset_id=model_entry.dataset_id)
+                .first()
+            )
+            if ds:
+                test_dataset_sha = ds.hash
+
+        run_id = generate_backtest_run_id(
+            model_id=model_entry.model_id,
+            test_dataset_sha=test_dataset_sha,
+            params=backtest_params,
+        )
+
         # Clear prior backtest logs for clean calculation
         db.query(BacktestPredictionLog).filter_by(run_id=run_id).delete()
         db.query(OrderLog).filter_by(run_id=run_id).delete()
