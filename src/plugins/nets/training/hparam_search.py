@@ -342,6 +342,12 @@ def get_scored_models(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="configs/hparam_search.yaml")
+    parser.add_argument(
+        "--spec",
+        "--config",
+        dest="spec",
+        type=str,
+        default="specs/train/BTCUSDT/lstm_hparam_search.yaml",
+    )
     args = parser.parse_args()
-    run_hparam_search(args.config)
+    run_hparam_search(args.spec)

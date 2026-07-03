@@ -130,16 +130,16 @@ def test_hparam_search_and_promotion_integration(temp_db_and_config, tmp_path):
 
 
 def test_all_config_files_integration(temp_db_and_config, tmp_path):
-    configs_dir = os.path.join(
+    specs_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "configs",
+        "specs",
     )
 
     model_types = ["lstm", "rnn", "cnn", "linear_regression", "xgboost"]
 
     for model_type in model_types:
         config_path = os.path.join(
-            configs_dir, "train", "BTCUSDT", f"{model_type}_hparam_search.yaml"
+            specs_dir, "train", "BTCUSDT", f"{model_type}_hparam_search.yaml"
         )
         assert os.path.exists(config_path), f"Config file not found: {config_path}"
 
@@ -151,6 +151,8 @@ def test_all_config_files_integration(temp_db_and_config, tmp_path):
         config_dict["study_name"] = f"test_study_{model_type}"
         config_dict["market_id"] = "BTC_USD"
         config_dict["interval"] = "1h"
+        config_dict.pop("start_date", None)
+        config_dict.pop("end_date", None)
 
         # neural network specific scaling-down for testing speed
         if "search_space" in config_dict:
