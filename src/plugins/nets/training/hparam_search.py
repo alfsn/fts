@@ -79,8 +79,10 @@ def run_hparam_search(
     else:
         spec = HParamStudySpec.from_yaml(config_path)
 
+    from trading_bot.core.database import create_db_engine
+
     # Dynamic SQLite engine and SessionLocal bound at run-time
-    engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
+    engine = create_db_engine(settings.DATABASE_URL)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     # Initialize DB (creates model_registry table if not exists)

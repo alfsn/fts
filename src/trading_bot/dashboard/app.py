@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from trading_bot.config import get_settings
 from trading_bot.core.catalog_repository import CatalogQueryService
+from trading_bot.core.database import create_db_engine
 from trading_bot.core.schemas import BacktestDetailDTO, ModelDetailDTO
 from trading_bot.dashboard.renderers import (
     render_backtest_comparison,
@@ -24,7 +25,7 @@ from trading_bot.dashboard.renderers import (
 
 # Page Configuration
 st.set_page_config(
-    page_title="Quant Data Catalog & Backtest Visibility",
+    page_title="Quant Trading System Dashboard",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -32,9 +33,7 @@ st.set_page_config(
 
 # Initialize Database Session Factory
 db_url = os.getenv("DATABASE_URL", get_settings().DATABASE_URL)
-engine = create_engine(
-    db_url, connect_args={"check_same_thread": False} if "sqlite" in db_url else {}
-)
+engine = create_db_engine(db_url)
 SessionFactory = sessionmaker(bind=engine)
 query_service = CatalogQueryService(SessionFactory)
 

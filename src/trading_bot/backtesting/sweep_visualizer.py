@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from trading_bot.backtesting.sweep_results import SweepResult, SweepTrialResult
 from trading_bot.config import get_settings
+from trading_bot.core.database import create_db_engine
 from trading_bot.core.models import BacktestEquityLog
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ class SweepVisualizer:
         Initializes the visualizer with a database URL.
         """
         resolved_db_url = db_url or get_settings().DATABASE_URL
-        self.engine = create_engine(resolved_db_url)
+        self.engine = create_db_engine(resolved_db_url)
         self.SessionLocal = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False
         )

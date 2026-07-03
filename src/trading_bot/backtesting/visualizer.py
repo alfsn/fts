@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from trading_bot.config import get_settings
+from trading_bot.core.database import create_db_engine
 from trading_bot.core.enums import OrderSide, SignalType
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class BacktestVisualizer:
         resolved_db_url = db_url or getattr(
             st, "BACKTEST_DATABASE_URL", st.DATABASE_URL
         )
-        self.engine = create_engine(resolved_db_url)
+        self.engine = create_db_engine(resolved_db_url)
         self.SessionLocal = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False
         )

@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from trading_bot.config import settings
-from trading_bot.core.database import init_db
+from trading_bot.core.database import create_db_engine, init_db
 from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import MarketDataRepository, ModelRepository
 from trading_bot.core.schemas import BarData
@@ -69,7 +69,7 @@ def train_and_register_candidate(
     """
     train_params = train_params or {}
 
-    engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
+    engine = create_db_engine(settings.DATABASE_URL)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     init_db(extra_models=["trading_bot.core.models"], bind_engine=engine)
 
