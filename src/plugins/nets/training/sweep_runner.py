@@ -178,10 +178,24 @@ def run_model_backtest(
         }
 
 
-def run_parameter_sweep(spec_yaml_path: Union[str, Path]) -> pd.DataFrame:
+import os
+from pathlib import Path
+
+from trading_bot.backtesting import SweepResult, SweepTrialResult
+
+
+def run_parameter_sweep(
+    spec_yaml_path: Union[str, Path, Any],
+    output_dir: Optional[str] = "runs/reports",
+) -> SweepResult:
     """
     Executes a controlled parameter sweep from a YAML spec file.
     All non-swept parameters are held constant (ceteris paribus).
+
+    :param spec_yaml_path: Path to YAML spec file or loaded SweepSpec object.
+    :param output_dir: Optional directory to save summary JSON (defaults to 'runs/reports').
+                       If set to None, runs purely in-memory.
+    :return: Evaluated SweepResult object.
     """
     from nets.spec import SweepSpec
 
@@ -190,10 +204,17 @@ def run_parameter_sweep(spec_yaml_path: Union[str, Path]) -> pd.DataFrame:
     else:
         spec = SweepSpec.from_yaml(spec_yaml_path)
 
-    results = []
+    sweep_result = SweepResult(
+        sweep_name=spec.sweep_name,
+        sweep_param=spec.sweep_param,
+        sweep_values=spec.sweep_values,
+        market_id=spec.market.market_id,
+    )
 
-    for val in spec.sweep_values:
-        logger.info(f"--- Running Sweep Trial: {spec.sweep_param} = {val} ---")
+    for i, val in enumerate(spec.sweep_values):
+        logger.info(
+            f"--- Running Sweep Trial [{i+1}/{len(spec.sweep_values)}]: {spec.sweep_param} = {val} ---"
+        )
 
         # 1. Override target parameter while keeping all other hyperparams fixed
         model_params = spec.base_model_params.copy()
@@ -228,19 +249,26 @@ def run_parameter_sweep(spec_yaml_path: Union[str, Path]) -> pd.DataFrame:
             backtest_params=spec.execution.model_dump(),
         )
 
-        results.append(
-            {
-                "model_id": train_res.model_id,
-                spec.sweep_param: val,
-                "val_ic": train_res.val_ic,
-                "val_loss": train_res.val_loss,
-                "oos_pnl": bt_res["total_pnl"],
-                "oos_sharpe": bt_res["sharpe_ratio"],
-                "oos_max_dd": bt_res["max_drawdown"],
-                "win_rate": bt_res["win_rate"],
-                "total_trades": bt_res["total_trades"],
-            }
+        trial_result = SweepTrialResult(
+            trial_index=i,
+            param_value=val,
+            model_id=train_res.model_id,
+            run_id=bt_res["run_id"],
+            val_ic=train_res.val_ic,
+            val_loss=train_res.val_loss,
+            oos_pnl=bt_res["total_pnl"],
+            oos_sharpe=bt_res["sharpe_ratio"],
+            oos_max_dd=bt_res["max_drawdown"],
+            win_rate=bt_res["win_rate"],
+            total_trades=bt_res["total_trades"],
+            final_equity=bt_res["final_equity"],
         )
+        sweep_result.add_trial(trial_result)
 
-    df = pd.DataFrame(results).sort_values(by=spec.sweep_param)
-    return df
+    # Optional summary JSON persistence
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        json_path = os.path.join(output_dir, f"sweep_{spec.sweep_name}.json")
+        sweep_result.save_summary(json_path)
+
+    return sweep_result
