@@ -134,6 +134,7 @@ class BacktestEngine:
                 and self.pipeline.prediction_logger
             ):
                 self.pipeline.prediction_logger.run_id = run_id
+                self.pipeline.prediction_logger.db = self.db
                 self.pipeline.prediction_logger.commit = False
 
             if hasattr(self.pipeline, "execution") and self.pipeline.execution:

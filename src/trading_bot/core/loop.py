@@ -157,8 +157,11 @@ class HistoricalReplayLoop(BaseEventLoop):
 
         # Disable immediate database commits for prediction logging to enable batch committing performance
         pred_logger = getattr(pipeline, "prediction_logger", None)
-        if pred_logger and hasattr(pred_logger, "commit"):
-            pred_logger.commit = False
+        if pred_logger:
+            if hasattr(pred_logger, "commit"):
+                pred_logger.commit = False
+            if db is not None and hasattr(pred_logger, "db"):
+                pred_logger.db = db
 
         # Playback each historical tick sequentially, preventing live execution/ingestion queries
         tick_count = 0

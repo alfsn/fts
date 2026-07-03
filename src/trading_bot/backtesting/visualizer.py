@@ -51,6 +51,11 @@ class BacktestVisualizer:
         """
         session = self.SessionLocal()
         try:
+            if strategy_name == "None":
+                strategy_name = None
+            if run_id == "None":
+                run_id = None
+
             # 1. Query bar logs
             bars_query = f"""
                 SELECT timestamp, open, high, low, close, volume, dollar_volume
@@ -60,13 +65,23 @@ class BacktestVisualizer:
             """
             df_bars = pd.read_sql(bars_query, session.bind)
             if df_bars.empty:
+                # Fallback to primary database if bar logs are stored in main DB
+                try:
+                    primary_engine = create_db_engine(get_settings().DATABASE_URL)
+                    df_bars = pd.read_sql(bars_query, primary_engine)
+                except Exception as e:
+                    logger.warning(f"Failed to query primary DB for bars: {e}")
+
+            if df_bars.empty:
                 logger.warning(f"No bar data found for market: {market_id}")
                 return pd.DataFrame()
 
-            df_bars["timestamp"] = pd.to_datetime(df_bars["timestamp"])
+            df_bars["timestamp"] = pd.to_datetime(df_bars["timestamp"], utc=True)
 
             # 2. Query model predictions
-            pred_filter = f" AND run_id = '{run_id}'"
+            pred_filter = ""
+            if run_id:
+                pred_filter += f" AND run_id = '{run_id}'"
             if strategy_name:
                 pred_filter += f" AND strategy_name = '{strategy_name}'"
             preds_query = f"""
@@ -77,7 +92,7 @@ class BacktestVisualizer:
             """
             df_preds = pd.read_sql(preds_query, session.bind)
             if not df_preds.empty:
-                df_preds["timestamp"] = pd.to_datetime(df_preds["timestamp"])
+                df_preds["timestamp"] = pd.to_datetime(df_preds["timestamp"], utc=True)
                 # Merge predictions with bar data
                 df = pd.merge(df_bars, df_preds, on="timestamp", how="left")
             else:
@@ -89,7 +104,7 @@ class BacktestVisualizer:
                 df["actual_future_return"] = None
 
             # 3. Query filled orders as trades
-            trade_filter = f"AND run_id = '{run_id}'"
+            trade_filter = f" AND run_id = '{run_id}'" if run_id else ""
             trades_query = f"""
                 SELECT updated_at as timestamp, side, filled_size as size, avg_fill_price as price
                 FROM order_logs
@@ -98,7 +113,9 @@ class BacktestVisualizer:
             """
             df_trades = pd.read_sql(trades_query, session.bind)
             if not df_trades.empty:
-                df_trades["timestamp"] = pd.to_datetime(df_trades["timestamp"])
+                df_trades["timestamp"] = pd.to_datetime(
+                    df_trades["timestamp"], utc=True
+                )
                 # We will match trades to the nearest bar timestamp for overlaying
                 df_trades = df_trades.sort_values("timestamp")
                 df = df.sort_values("timestamp")
@@ -123,16 +140,19 @@ class BacktestVisualizer:
                 df["confidence"] = df["confidence"].fillna(0.0).astype(float)
 
             # 4. Query backtest equity logs
+            equity_filter = f"WHERE run_id = '{run_id}'" if run_id else ""
             equity_query = f"""
                 SELECT timestamp, cash, position as equity_position, close as equity_close, equity as actual_equity
                 FROM backtest_equity_logs
-                WHERE run_id = '{run_id}'
+                {equity_filter}
                 ORDER BY timestamp ASC
             """
             try:
                 df_equity = pd.read_sql(equity_query, session.bind)
                 if not df_equity.empty:
-                    df_equity["timestamp"] = pd.to_datetime(df_equity["timestamp"])
+                    df_equity["timestamp"] = pd.to_datetime(
+                        df_equity["timestamp"], utc=True
+                    )
                     df_equity = df_equity.sort_values("timestamp")
                     df = df.sort_values("timestamp")
                     df = pd.merge_asof(
@@ -160,6 +180,9 @@ class BacktestVisualizer:
         """
         session = self.SessionLocal()
         try:
+            if strategy_name == "None":
+                strategy_name = None
+
             strategy_filter = (
                 f"AND strategy_name = '{strategy_name}'" if strategy_name else ""
             )
@@ -191,10 +214,27 @@ class BacktestVisualizer:
             """
             df = pd.read_sql(query, session.bind)
             if df.empty:
-                # Fallback to general markets
+                # Fallback to general markets or bar logs
                 df_m = pd.read_sql(
-                    "SELECT DISTINCT market_id FROM markets", session.bind
+                    "SELECT DISTINCT market_id FROM bar_data_logs", session.bind
                 )
+                if df_m.empty:
+                    try:
+                        primary_engine = create_db_engine(get_settings().DATABASE_URL)
+                        df_m = pd.read_sql(
+                            "SELECT DISTINCT market_id FROM bar_data_logs",
+                            primary_engine,
+                        )
+                        if df_m.empty:
+                            df_m = pd.read_sql(
+                                "SELECT DISTINCT market_id FROM markets", primary_engine
+                            )
+                    except Exception:
+                        pass
+                if df_m.empty:
+                    df_m = pd.read_sql(
+                        "SELECT DISTINCT market_id FROM markets", session.bind
+                    )
                 markets = df_m["market_id"].tolist() if not df_m.empty else []
                 return {m: ["None"] for m in markets}
 
