@@ -10,6 +10,8 @@ import os
 import subprocess
 import sys
 
+from trading_bot.config import get_settings
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -18,8 +20,8 @@ def main():
     parser.add_argument(
         "--db",
         type=str,
-        default="dev.db",
-        help="Database file path or connection URL (e.g. dev.db or sqlite:///dev.db or postgresql://...)",
+        default=None,
+        help="Database file path or connection URL (defaults to settings.DATABASE_URL)",
     )
     parser.add_argument(
         "--port",
@@ -37,7 +39,7 @@ def main():
     args = parser.parse_args()
 
     # Format database URL
-    db_url = args.db
+    db_url = args.db if args.db is not None else get_settings().DATABASE_URL
     if not (
         db_url.startswith("sqlite:")
         or db_url.startswith("postgresql:")

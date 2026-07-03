@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from trading_bot.backtesting.sweep_results import SweepResult, SweepTrialResult
+from trading_bot.config import get_settings
 from trading_bot.core.models import BacktestEquityLog
 
 logger = logging.getLogger(__name__)
@@ -23,11 +24,12 @@ class SweepVisualizer:
     overlaid trial equity curves, and interactive trial metrics tables.
     """
 
-    def __init__(self, db_url: str = "sqlite:///./dev.db") -> None:
+    def __init__(self, db_url: Optional[str] = None) -> None:
         """
         Initializes the visualizer with a database URL.
         """
-        self.engine = create_engine(db_url)
+        resolved_db_url = db_url or get_settings().DATABASE_URL
+        self.engine = create_engine(resolved_db_url)
         self.SessionLocal = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False
         )

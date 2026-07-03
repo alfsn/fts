@@ -43,7 +43,7 @@ class HTMLBacktestExporter(BaseBacktestExporter):
     def __init__(
         self,
         visualizer: Optional[BacktestVisualizer] = None,
-        db_url: str = "sqlite:///./dev.db",
+        db_url: Optional[str] = None,
     ) -> None:
         """
         Initializes the HTML exporter. Supports dependency injection of the visualizer.

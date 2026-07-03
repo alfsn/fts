@@ -12,6 +12,7 @@ import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from trading_bot.config import get_settings
 from trading_bot.core.catalog_repository import CatalogQueryService
 from trading_bot.core.schemas import BacktestDetailDTO, ModelDetailDTO
 from trading_bot.dashboard.renderers import (
@@ -30,7 +31,7 @@ st.set_page_config(
 )
 
 # Initialize Database Session Factory
-db_url = os.getenv("DATABASE_URL", "sqlite:///dev.db")
+db_url = os.getenv("DATABASE_URL", get_settings().DATABASE_URL)
 engine = create_engine(
     db_url, connect_args={"check_same_thread": False} if "sqlite" in db_url else {}
 )

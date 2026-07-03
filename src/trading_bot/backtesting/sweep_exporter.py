@@ -44,7 +44,7 @@ class HTMLSweepExporter(BaseSweepExporter):
     def __init__(
         self,
         visualizer: Optional[SweepVisualizer] = None,
-        db_url: str = "sqlite:///./dev.db",
+        db_url: Optional[str] = None,
     ) -> None:
         """
         Initializes the HTML sweep exporter. Supports dependency injection of the visualizer.

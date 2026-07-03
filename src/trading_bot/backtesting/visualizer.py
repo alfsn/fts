@@ -12,6 +12,7 @@ from plotly.subplots import make_subplots
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from trading_bot.config import get_settings
 from trading_bot.core.enums import OrderSide, SignalType
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,12 @@ class BacktestVisualizer:
     and neural network filters/weights.
     """
 
-    def __init__(self, db_url: str = "sqlite:///./dev.db") -> None:
+    def __init__(self, db_url: Optional[str] = None) -> None:
         """
         Initializes the visualizer with a SQLite database URL.
         """
-        self.engine = create_engine(db_url)
+        resolved_db_url = db_url or get_settings().DATABASE_URL
+        self.engine = create_engine(resolved_db_url)
         self.SessionLocal = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False
         )
