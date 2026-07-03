@@ -326,7 +326,15 @@ class ModelRepository(BaseRepository):
         status: str = "candidate",
         dataset_id: Optional[str] = None,
     ) -> ModelRegistryLog:
-        """Adds a trained model metadata entry to the registry session."""
+        """Adds a trained model metadata entry to the registry session idempotently."""
+        existing = self.db.query(ModelRegistryLog).filter_by(model_id=model_id).first()
+        if existing:
+            logger.info(
+                f"Model '{model_id}' already registered in model_registry. "
+                "Returning existing entry."
+            )
+            return existing
+
         log_entry = ModelRegistryLog(
             model_id=model_id,
             run_id=run_id,

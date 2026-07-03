@@ -185,3 +185,38 @@ def test_partial_unique_index_constraint(test_db):
 
     with pytest.raises(IntegrityError):
         test_db.commit()
+
+
+def test_register_duplicate_model_id_idempotent(test_db):
+    repo = ModelRepository(test_db)
+    model_id = "dup_model_123"
+
+    m1 = repo.register_model(
+        model_id=model_id,
+        model_type="linear_regression",
+        market_id="BTC/USDT",
+        interval="30m",
+        horizon=1,
+        onnx_path="test_path_1.onnx",
+        hyperparameters={},
+        metrics={"loss": 0.01},
+        run_id="run_1",
+    )
+    test_db.commit()
+
+    # Attempt duplicate registration with same model_id
+    m2 = repo.register_model(
+        model_id=model_id,
+        model_type="linear_regression",
+        market_id="BTC/USDT",
+        interval="30m",
+        horizon=1,
+        onnx_path="test_path_2.onnx",
+        hyperparameters={},
+        metrics={"loss": 0.02},
+        run_id="run_2",
+    )
+    test_db.commit()
+
+    assert m2.model_id == model_id
+    assert m2.onnx_path == "test_path_1.onnx"  # Preserved original entry
