@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from ..backtesting.abc import BaseBacktestDataReader
+from ..config import settings
 from ..core.database import Base
 from ..core.loop import HistoricalReplayLoop
 from ..core.models import (
@@ -72,7 +73,7 @@ class BacktestEngine:
         if not is_test_env:
             from ..core.database import create_db_session, init_db
 
-            backtest_db_url = "sqlite+pysqlite:///./backtests.db"
+            backtest_db_url = settings.BACKTEST_DATABASE_URL
             logger.info(
                 f"Isolating backtest data by binding database session to: {backtest_db_url}"
             )

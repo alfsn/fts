@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     # Example for dev (SQLite): "sqlite+pysqlite:///./dev.db"
     # Example for prod (PostgreSQL): "postgresql+psycopg2://user:pass@db:5432/trading"
     DATABASE_URL: str = "sqlite+pysqlite:///./dev.db"
+    BACKTEST_DATABASE_URL: str = "sqlite+pysqlite:///./backtests.db"
 
     # --- Path Configuration ---
     # Central repository paths, resolved relative to project root
@@ -103,6 +104,22 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",  # Ignore extra fields not defined in the model
     )
+
+    @model_validator(mode="after")
+    def _resolve_database_url(self) -> "Settings":
+        """Ensure relative SQLite database URLs resolve relative to project ROOT_DIR."""
+        for field in ("DATABASE_URL", "BACKTEST_DATABASE_URL"):
+            val = getattr(self, field, None)
+            if not val:
+                continue
+            for prefix in ("sqlite+pysqlite:///", "sqlite:///"):
+                if val.startswith(prefix):
+                    raw_path = val[len(prefix) :]
+                    if not os.path.isabs(raw_path):
+                        abs_path = os.path.abspath(os.path.join(ROOT_DIR, raw_path))
+                        setattr(self, field, f"{prefix}{abs_path}")
+                    break
+        return self
 
 
 @lru_cache

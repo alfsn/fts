@@ -29,7 +29,10 @@ class BacktestVisualizer:
         """
         Initializes the visualizer with a SQLite database URL.
         """
-        resolved_db_url = db_url or get_settings().DATABASE_URL
+        st = get_settings()
+        resolved_db_url = db_url or getattr(
+            st, "BACKTEST_DATABASE_URL", st.DATABASE_URL
+        )
         self.engine = create_engine(resolved_db_url)
         self.SessionLocal = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False
