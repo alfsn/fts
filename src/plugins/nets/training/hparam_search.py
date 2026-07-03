@@ -24,7 +24,7 @@ from nets.training import (
 )
 
 from trading_bot.config import settings
-from trading_bot.core.database import init_db
+from trading_bot.core.database import create_db_session, init_db
 from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import MarketDataRepository, ModelRepository
 
@@ -205,7 +205,7 @@ def run_hparam_search(
         }
 
         # Log details to SQLite Model Registry inside a context-managed session per trial
-        with SessionLocal() as trial_db:
+        with create_db_session(settings.DATABASE_URL) as trial_db:
             model_repo = ModelRepository(trial_db)
             try:
                 model_repo.register_model(

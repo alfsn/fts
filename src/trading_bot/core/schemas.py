@@ -8,13 +8,19 @@ acting as the "contracts" between different modules. Using Pydantic
 ensures that all data is validated, typed, and well-documented.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 # Refactored: MarketOutcome removed
 from .enums import AlertSeverity, BarType, OrderSide, OrderStatus, OrderType, SignalType
+
+
+def utc_now() -> datetime:
+    """Returns the current UTC datetime."""
+    return datetime.now(timezone.utc)
+
 
 # --- Module 1: Data Ingestion Engine Schemas ---
 
@@ -222,7 +228,7 @@ class TradeSignal(BaseModel):
         le=1.0,
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=utc_now,
         description="The timestamp when this signal was generated.",
     )
     prediction_output: Optional[str] = Field(
@@ -384,7 +390,7 @@ class Alert(BaseModel):
     message: str = Field(..., description="The content of the alert message.")
     severity: AlertSeverity = Field(..., description="The severity level of the alert.")
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=utc_now,
         description="The time the alert was generated.",
     )
 
@@ -408,6 +414,9 @@ class ModelCatalogItem(BaseModel):
         "candidate", description="Lifecycle status (candidate, production, archived)."
     )
     onnx_path: str = Field(..., description="Path to ONNX serialized artifact.")
+    hyperparameters: Dict = Field(
+        default_factory=dict, description="Training hyperparameters."
+    )
     metrics: Dict[str, float] = Field(
         default_factory=dict, description="Evaluation metric summary."
     )
@@ -450,6 +459,10 @@ class BacktestRunCatalogItem(BaseModel):
     strategy_name: str = Field("unknown", description="Strategy algorithm name.")
     market_id: str = Field(
         "all", description="Market identifier or multi-market scope."
+    )
+    model_id: Optional[str] = Field(None, description="Linked model ID.")
+    hyperparameters: Dict = Field(
+        default_factory=dict, description="Linked model hyperparameters."
     )
     start_time: Optional[datetime] = Field(
         None, description="Simulation start timestamp."

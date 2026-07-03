@@ -1,6 +1,6 @@
 # tests/test_catalog_repository.py
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -122,7 +122,7 @@ def test_model_promotion_demotes_prior_production(db_session_factory):
 
 def test_backtest_catalog_repository_metrics(db_session_factory):
     repo = BacktestCatalogRepository(db_session_factory)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     with db_session_factory() as session:
         # Populate backtest equity curve: 100 -> 110 -> 105 -> 120
@@ -209,7 +209,7 @@ def test_catalog_query_service_summary(db_session_factory):
         m = Market(
             market_id="TSLA",
             name="Tesla Inc.",
-            end_date=datetime.utcnow() + timedelta(days=365),
+            end_date=datetime.now(timezone.utc) + timedelta(days=365),
         )
         session.add(m)
         session.commit()

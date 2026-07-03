@@ -9,7 +9,7 @@ computing performance metrics dynamically, and managing model promotion lifecycl
 
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -83,6 +83,11 @@ class ModelCatalogRepository:
                         dataset_id=r.dataset_id,
                         status=r.status,
                         onnx_path=r.onnx_path,
+                        hyperparameters=(
+                            r.hyperparameters
+                            if isinstance(r.hyperparameters, dict)
+                            else {}
+                        ),
                         metrics=clean_metrics,
                         created_at=r.created_at,
                     )
@@ -150,12 +155,14 @@ class ModelCatalogRepository:
                             ModelRegistryLog.status == "production",
                             ModelRegistryLog.model_id != model_id,
                         )
-                        .values(status="candidate", updated_at=datetime.utcnow())
+                        .values(
+                            status="candidate", updated_at=datetime.now(timezone.utc)
+                        )
                     )
                     session.execute(stmt_demote)
 
                 model.status = new_status.lower()
-                model.updated_at = datetime.utcnow()
+                model.updated_at = datetime.now(timezone.utc)
             return True
 
 
@@ -288,11 +295,43 @@ class BacktestCatalogRepository:
                 if min_sharpe is not None and sharpe < min_sharpe:
                     continue
 
+                # Resolve associated model registry log
+                model_log = session.scalar(
+                    select(ModelRegistryLog).where(ModelRegistryLog.run_id == r_id)
+                )
+                if not model_log and r_id.startswith("bt_"):
+                    model_log = session.scalar(
+                        select(ModelRegistryLog).where(
+                            ModelRegistryLog.model_id == r_id[3:]
+                        )
+                    )
+                if not model_log:
+                    pred_sample = session.scalar(
+                        select(BacktestPredictionLog)
+                        .where(BacktestPredictionLog.run_id == r_id)
+                        .limit(1)
+                    )
+                    if pred_sample and pred_sample.model_id:
+                        model_log = session.scalar(
+                            select(ModelRegistryLog).where(
+                                ModelRegistryLog.model_id == pred_sample.model_id
+                            )
+                        )
+
+                mod_id = model_log.model_id if model_log else None
+                hparams = (
+                    model_log.hyperparameters
+                    if (model_log and isinstance(model_log.hyperparameters, dict))
+                    else {}
+                )
+
                 items.append(
                     BacktestRunCatalogItem(
                         run_id=r_id,
                         strategy_name=strategy_name,
                         market_id=m_id,
+                        model_id=mod_id,
+                        hyperparameters=hparams,
                         start_time=start_time,
                         end_time=end_time,
                         total_return=tot_ret,
