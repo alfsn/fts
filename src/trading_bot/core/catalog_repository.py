@@ -171,8 +171,13 @@ class BacktestCatalogRepository:
     Repository for aggregating and computing backtest performance metrics.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session]):
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        backtest_session_factory: Optional[sessionmaker[Session]] = None,
+    ):
         self.session_factory = session_factory
+        self.backtest_session_factory = backtest_session_factory or session_factory
 
     def _compute_metrics(
         self, equity_records: List[BacktestEquityLog], trade_records: List[TradeLog]
@@ -245,134 +250,72 @@ class BacktestCatalogRepository:
         self, market_id: Optional[str] = None, min_sharpe: Optional[float] = None
     ) -> List[BacktestRunCatalogItem]:
         """List backtest runs with dynamically calculated summary metrics."""
-        with self.session_factory() as session:
-            # Query unique run_ids from BacktestEquityLog and OrderLog/TradeLog
+        run_ids = set()
+        with self.backtest_session_factory() as bt_session:
             run_ids_stmt = select(BacktestEquityLog.run_id).distinct()
-            run_ids = session.scalars(run_ids_stmt).all()
+            for r in bt_session.scalars(run_ids_stmt).all():
+                if r:
+                    run_ids.add(r)
 
-            items = []
-            for r_id in run_ids:
-                if not r_id:
-                    continue
+        if self.session_factory != self.backtest_session_factory:
+            with self.session_factory() as main_session:
+                run_ids_stmt = select(BacktestEquityLog.run_id).distinct()
+                for r in main_session.scalars(run_ids_stmt).all():
+                    if r:
+                        run_ids.add(r)
 
+        items = []
+        for r_id in run_ids:
+            equity_records = []
+            trade_records = []
+            order_sample = None
+            pred_sample = None
+
+            with self.backtest_session_factory() as bt_session:
                 equity_stmt = (
                     select(BacktestEquityLog)
                     .where(BacktestEquityLog.run_id == r_id)
                     .order_by(BacktestEquityLog.timestamp.asc())
                 )
-                equity_records = session.scalars(equity_stmt).all()
-                if not equity_records:
-                    continue
-
-                trade_stmt = select(TradeLog).where(TradeLog.run_id == r_id)
-                trade_records = session.scalars(trade_stmt).all()
-
-                # Infer strategy_name and market_id from OrderLog or PredictionLog
-                order_sample = session.scalar(
-                    select(OrderLog).where(OrderLog.run_id == r_id).limit(1)
-                )
-                strategy_name = (
-                    order_sample.strategy_name
-                    if (order_sample and order_sample.strategy_name)
-                    else "MLStrategy"
-                )
-                m_id = (
-                    order_sample.market_id
-                    if (order_sample and order_sample.market_id)
-                    else "ALL"
-                )
-
-                if market_id and market_id.upper() != "ALL" and m_id != market_id:
-                    continue
-
-                start_time = equity_records[0].timestamp
-                end_time = equity_records[-1].timestamp
-
-                tot_ret, sharpe, max_dd, win_rate, total_trades = self._compute_metrics(
-                    equity_records, trade_records
-                )
-
-                if min_sharpe is not None and sharpe < min_sharpe:
-                    continue
-
-                # Resolve associated model registry log
-                model_log = session.scalar(
-                    select(ModelRegistryLog).where(ModelRegistryLog.run_id == r_id)
-                )
-                if not model_log and r_id.startswith("bt_"):
-                    model_log = session.scalar(
-                        select(ModelRegistryLog).where(
-                            ModelRegistryLog.model_id == r_id[3:]
-                        )
+                equity_records = bt_session.scalars(equity_stmt).all()
+                if equity_records:
+                    trade_stmt = select(TradeLog).where(TradeLog.run_id == r_id)
+                    trade_records = bt_session.scalars(trade_stmt).all()
+                    order_sample = bt_session.scalar(
+                        select(OrderLog).where(OrderLog.run_id == r_id).limit(1)
                     )
-                if not model_log:
-                    pred_sample = session.scalar(
+                    pred_sample = bt_session.scalar(
                         select(BacktestPredictionLog)
                         .where(BacktestPredictionLog.run_id == r_id)
                         .limit(1)
                     )
-                    if pred_sample and pred_sample.model_id:
-                        model_log = session.scalar(
-                            select(ModelRegistryLog).where(
-                                ModelRegistryLog.model_id == pred_sample.model_id
-                            )
+
+            if (
+                not equity_records
+                and self.session_factory != self.backtest_session_factory
+            ):
+                with self.session_factory() as main_session:
+                    equity_stmt = (
+                        select(BacktestEquityLog)
+                        .where(BacktestEquityLog.run_id == r_id)
+                        .order_by(BacktestEquityLog.timestamp.asc())
+                    )
+                    equity_records = main_session.scalars(equity_stmt).all()
+                    if equity_records:
+                        trade_stmt = select(TradeLog).where(TradeLog.run_id == r_id)
+                        trade_records = main_session.scalars(trade_stmt).all()
+                        order_sample = main_session.scalar(
+                            select(OrderLog).where(OrderLog.run_id == r_id).limit(1)
+                        )
+                        pred_sample = main_session.scalar(
+                            select(BacktestPredictionLog)
+                            .where(BacktestPredictionLog.run_id == r_id)
+                            .limit(1)
                         )
 
-                mod_id = model_log.model_id if model_log else None
-                hparams = (
-                    model_log.hyperparameters
-                    if (model_log and isinstance(model_log.hyperparameters, dict))
-                    else {}
-                )
-
-                items.append(
-                    BacktestRunCatalogItem(
-                        run_id=r_id,
-                        strategy_name=strategy_name,
-                        market_id=m_id,
-                        model_id=mod_id,
-                        hyperparameters=hparams,
-                        start_time=start_time,
-                        end_time=end_time,
-                        total_return=tot_ret,
-                        sharpe_ratio=sharpe,
-                        max_drawdown=max_dd,
-                        win_rate=win_rate,
-                        total_trades=total_trades,
-                    )
-                )
-
-            return items
-
-    def get_run_details(self, run_id: str) -> Optional[BacktestDetailDTO]:
-        """Get time-series equity curves, trade logs, and prediction logs for a run."""
-        with self.session_factory() as session:
-            equity_stmt = (
-                select(BacktestEquityLog)
-                .where(BacktestEquityLog.run_id == run_id)
-                .order_by(BacktestEquityLog.timestamp.asc())
-            )
-            equity_records = session.scalars(equity_stmt).all()
             if not equity_records:
-                return None
+                continue
 
-            trade_stmt = (
-                select(TradeLog)
-                .where(TradeLog.run_id == run_id)
-                .order_by(TradeLog.fill_timestamp.asc())
-            )
-            trade_records = session.scalars(trade_stmt).all()
-
-            pred_stmt = (
-                select(BacktestPredictionLog)
-                .where(BacktestPredictionLog.run_id == run_id)
-                .order_by(BacktestPredictionLog.timestamp.asc())
-            )
-            pred_records = session.scalars(pred_stmt).all()
-
-            order_sample = session.scalar(
-                select(OrderLog).where(OrderLog.run_id == run_id).limit(1)
-            )
             strategy_name = (
                 order_sample.strategy_name
                 if (order_sample and order_sample.strategy_name)
@@ -384,62 +327,216 @@ class BacktestCatalogRepository:
                 else "ALL"
             )
 
+            if market_id and market_id.upper() != "ALL" and m_id != market_id:
+                continue
+
+            start_time = equity_records[0].timestamp
+            end_time = equity_records[-1].timestamp
+
             tot_ret, sharpe, max_dd, win_rate, total_trades = self._compute_metrics(
                 equity_records, trade_records
             )
 
-            equity_curve = [
-                {
-                    "timestamp": e.timestamp.isoformat() if e.timestamp else "",
-                    "cash": e.cash,
-                    "position": e.position,
-                    "close": e.close,
-                    "equity": e.equity,
-                }
-                for e in equity_records
-            ]
+            if min_sharpe is not None and sharpe < min_sharpe:
+                continue
 
-            trades_list = [
-                {
-                    "id": t.id,
-                    "order_id": t.order_id,
-                    "market_id": t.market_id,
-                    "side": t.side.value if hasattr(t.side, "value") else str(t.side),
-                    "fill_size": t.fill_size,
-                    "fill_price": t.fill_price,
-                    "fill_timestamp": (
-                        t.fill_timestamp.isoformat() if t.fill_timestamp else ""
-                    ),
-                }
-                for t in trade_records
-            ]
+            # Resolve associated model registry log
+            model_log = None
+            with self.session_factory() as main_session:
+                model_log = main_session.scalar(
+                    select(ModelRegistryLog).where(ModelRegistryLog.run_id == r_id)
+                )
+                if not model_log and r_id.startswith("bt_"):
+                    model_log = main_session.scalar(
+                        select(ModelRegistryLog).where(
+                            ModelRegistryLog.model_id == r_id[3:]
+                        )
+                    )
+                if (
+                    not model_log
+                    and pred_sample
+                    and getattr(pred_sample, "model_id", None)
+                ):
+                    model_log = main_session.scalar(
+                        select(ModelRegistryLog).where(
+                            ModelRegistryLog.model_id == pred_sample.model_id
+                        )
+                    )
 
-            predictions_list = [
-                {
-                    "timestamp": p.timestamp.isoformat() if p.timestamp else "",
-                    "market_id": p.market_id,
-                    "predicted_signal": p.predicted_signal,
-                    "confidence": p.confidence,
-                    "actual_future_return": p.actual_future_return,
-                }
-                for p in pred_records
-            ]
+            if not model_log and self.backtest_session_factory != self.session_factory:
+                with self.backtest_session_factory() as bt_session:
+                    model_log = bt_session.scalar(
+                        select(ModelRegistryLog).where(ModelRegistryLog.run_id == r_id)
+                    )
+                    if not model_log and r_id.startswith("bt_"):
+                        model_log = bt_session.scalar(
+                            select(ModelRegistryLog).where(
+                                ModelRegistryLog.model_id == r_id[3:]
+                            )
+                        )
+                    if (
+                        not model_log
+                        and pred_sample
+                        and getattr(pred_sample, "model_id", None)
+                    ):
+                        model_log = bt_session.scalar(
+                            select(ModelRegistryLog).where(
+                                ModelRegistryLog.model_id == pred_sample.model_id
+                            )
+                        )
 
-            return BacktestDetailDTO(
-                run_id=run_id,
-                strategy_name=strategy_name,
-                market_id=m_id,
-                start_time=equity_records[0].timestamp,
-                end_time=equity_records[-1].timestamp,
-                total_return=tot_ret,
-                sharpe_ratio=sharpe,
-                max_drawdown=max_dd,
-                win_rate=win_rate,
-                total_trades=total_trades,
-                equity_curve=equity_curve,
-                trades=trades_list,
-                predictions=predictions_list,
+            mod_id = model_log.model_id if model_log else None
+            hparams = (
+                model_log.hyperparameters
+                if (model_log and isinstance(model_log.hyperparameters, dict))
+                else {}
             )
+
+            items.append(
+                BacktestRunCatalogItem(
+                    run_id=r_id,
+                    strategy_name=strategy_name,
+                    market_id=m_id,
+                    model_id=mod_id,
+                    hyperparameters=hparams,
+                    start_time=start_time,
+                    end_time=end_time,
+                    total_return=tot_ret,
+                    sharpe_ratio=sharpe,
+                    max_drawdown=max_dd,
+                    win_rate=win_rate,
+                    total_trades=total_trades,
+                )
+            )
+
+        return items
+
+    def get_run_details(self, run_id: str) -> Optional[BacktestDetailDTO]:
+        """Get time-series equity curves, trade logs, and prediction logs for a run."""
+        equity_records = []
+        trade_records = []
+        pred_records = []
+        order_sample = None
+
+        with self.backtest_session_factory() as bt_session:
+            equity_stmt = (
+                select(BacktestEquityLog)
+                .where(BacktestEquityLog.run_id == run_id)
+                .order_by(BacktestEquityLog.timestamp.asc())
+            )
+            equity_records = bt_session.scalars(equity_stmt).all()
+            if equity_records:
+                trade_stmt = (
+                    select(TradeLog)
+                    .where(TradeLog.run_id == run_id)
+                    .order_by(TradeLog.fill_timestamp.asc())
+                )
+                trade_records = bt_session.scalars(trade_stmt).all()
+                pred_stmt = (
+                    select(BacktestPredictionLog)
+                    .where(BacktestPredictionLog.run_id == run_id)
+                    .order_by(BacktestPredictionLog.timestamp.asc())
+                )
+                pred_records = bt_session.scalars(pred_stmt).all()
+                order_sample = bt_session.scalar(
+                    select(OrderLog).where(OrderLog.run_id == run_id).limit(1)
+                )
+
+        if not equity_records and self.session_factory != self.backtest_session_factory:
+            with self.session_factory() as main_session:
+                equity_stmt = (
+                    select(BacktestEquityLog)
+                    .where(BacktestEquityLog.run_id == run_id)
+                    .order_by(BacktestEquityLog.timestamp.asc())
+                )
+                equity_records = main_session.scalars(equity_stmt).all()
+                if equity_records:
+                    trade_stmt = (
+                        select(TradeLog)
+                        .where(TradeLog.run_id == run_id)
+                        .order_by(TradeLog.fill_timestamp.asc())
+                    )
+                    trade_records = main_session.scalars(trade_stmt).all()
+                    pred_stmt = (
+                        select(BacktestPredictionLog)
+                        .where(BacktestPredictionLog.run_id == run_id)
+                        .order_by(BacktestPredictionLog.timestamp.asc())
+                    )
+                    pred_records = main_session.scalars(pred_stmt).all()
+                    order_sample = main_session.scalar(
+                        select(OrderLog).where(OrderLog.run_id == run_id).limit(1)
+                    )
+
+        if not equity_records:
+            return None
+
+        strategy_name = (
+            order_sample.strategy_name
+            if (order_sample and order_sample.strategy_name)
+            else "MLStrategy"
+        )
+        m_id = (
+            order_sample.market_id
+            if (order_sample and order_sample.market_id)
+            else "ALL"
+        )
+
+        tot_ret, sharpe, max_dd, win_rate, total_trades = self._compute_metrics(
+            equity_records, trade_records
+        )
+
+        equity_curve = [
+            {
+                "timestamp": e.timestamp.isoformat() if e.timestamp else "",
+                "cash": e.cash,
+                "position": e.position,
+                "close": e.close,
+                "equity": e.equity,
+            }
+            for e in equity_records
+        ]
+
+        trades_list = [
+            {
+                "id": t.id,
+                "order_id": t.order_id,
+                "market_id": t.market_id,
+                "side": t.side.value if hasattr(t.side, "value") else str(t.side),
+                "fill_size": t.fill_size,
+                "fill_price": t.fill_price,
+                "fill_timestamp": (
+                    t.fill_timestamp.isoformat() if t.fill_timestamp else ""
+                ),
+            }
+            for t in trade_records
+        ]
+
+        predictions_list = [
+            {
+                "timestamp": p.timestamp.isoformat() if p.timestamp else "",
+                "market_id": p.market_id,
+                "predicted_signal": p.predicted_signal,
+                "confidence": p.confidence,
+                "actual_future_return": p.actual_future_return,
+            }
+            for p in pred_records
+        ]
+
+        return BacktestDetailDTO(
+            run_id=run_id,
+            strategy_name=strategy_name,
+            market_id=m_id,
+            start_time=equity_records[0].timestamp,
+            end_time=equity_records[-1].timestamp,
+            total_return=tot_ret,
+            sharpe_ratio=sharpe,
+            max_drawdown=max_dd,
+            win_rate=win_rate,
+            total_trades=total_trades,
+            equity_curve=equity_curve,
+            trades=trades_list,
+            predictions=predictions_list,
+        )
 
 
 class CatalogQueryService:
@@ -447,35 +544,63 @@ class CatalogQueryService:
     Facade service exposing high-level data catalog query APIs and database health stats.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session]):
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        backtest_session_factory: Optional[sessionmaker[Session]] = None,
+    ):
         self.session_factory = session_factory
+        self.backtest_session_factory = backtest_session_factory or session_factory
         self.model_repo = ModelCatalogRepository(session_factory)
-        self.backtest_repo = BacktestCatalogRepository(session_factory)
+        self.backtest_repo = BacktestCatalogRepository(
+            session_factory, backtest_session_factory
+        )
 
     def get_database_summary(self) -> Dict[str, int]:
         """Retrieve total counts across core database tables."""
-        with self.session_factory() as session:
 
-            def _count(model_cls):
-                try:
-                    return (
-                        session.scalar(select(func.count()).select_from(model_cls)) or 0
-                    )
-                except Exception:
-                    return 0
+        def _count(session, model_cls):
+            try:
+                return session.scalar(select(func.count()).select_from(model_cls)) or 0
+            except Exception:
+                return 0
 
-            return {
-                "markets": _count(Market),
-                "bar_logs": _count(BarDataLog),
-                "order_logs": _count(OrderLog),
-                "trade_logs": _count(TradeLog),
-                "models": _count(ModelRegistryLog),
-                "production_models": session.scalar(
+        with self.session_factory() as main_session:
+            markets = _count(main_session, Market)
+            models = _count(main_session, ModelRegistryLog)
+            production_models = (
+                main_session.scalar(
                     select(func.count())
                     .select_from(ModelRegistryLog)
                     .where(ModelRegistryLog.status == "production")
                 )
-                or 0,
-                "equity_log_ticks": _count(BacktestEquityLog),
-                "prediction_logs": _count(BacktestPredictionLog),
-            }
+                or 0
+            )
+            bar_logs_main = _count(main_session, BarDataLog)
+            order_logs_main = _count(main_session, OrderLog)
+            trade_logs_main = _count(main_session, TradeLog)
+            equity_ticks_main = _count(main_session, BacktestEquityLog)
+            prediction_logs_main = _count(main_session, BacktestPredictionLog)
+
+        if self.backtest_session_factory != self.session_factory:
+            with self.backtest_session_factory() as bt_session:
+                bar_logs_bt = _count(bt_session, BarDataLog)
+                order_logs_bt = _count(bt_session, OrderLog)
+                trade_logs_bt = _count(bt_session, TradeLog)
+                equity_ticks_bt = _count(bt_session, BacktestEquityLog)
+                prediction_logs_bt = _count(bt_session, BacktestPredictionLog)
+        else:
+            bar_logs_bt = order_logs_bt = trade_logs_bt = equity_ticks_bt = (
+                prediction_logs_bt
+            ) = 0
+
+        return {
+            "markets": markets,
+            "bar_logs": max(bar_logs_main, bar_logs_bt),
+            "order_logs": order_logs_main + order_logs_bt,
+            "trade_logs": trade_logs_main + trade_logs_bt,
+            "models": models,
+            "production_models": production_models,
+            "equity_log_ticks": equity_ticks_main + equity_ticks_bt,
+            "prediction_logs": prediction_logs_main + prediction_logs_bt,
+        }

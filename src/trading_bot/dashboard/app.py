@@ -31,11 +31,21 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Initialize Database Session Factory
+# Initialize Database Session Factories
 db_url = os.getenv("DATABASE_URL", get_settings().DATABASE_URL)
 engine = create_db_engine(db_url)
 SessionFactory = sessionmaker(bind=engine)
-query_service = CatalogQueryService(SessionFactory)
+
+backtest_db_url = os.getenv(
+    "BACKTEST_DATABASE_URL", get_settings().BACKTEST_DATABASE_URL
+)
+backtest_engine = create_db_engine(backtest_db_url)
+BacktestSessionFactory = sessionmaker(bind=backtest_engine)
+
+query_service = CatalogQueryService(
+    session_factory=SessionFactory,
+    backtest_session_factory=BacktestSessionFactory,
+)
 
 
 # Caching wrappers for service calls
