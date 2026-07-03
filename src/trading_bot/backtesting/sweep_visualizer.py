@@ -28,8 +28,12 @@ class SweepVisualizer:
     def __init__(self, db_url: Optional[str] = None) -> None:
         """
         Initializes the visualizer with a database URL.
+        Defaults to BACKTEST_DATABASE_URL where backtest equity logs are persisted.
         """
-        resolved_db_url = db_url or get_settings().DATABASE_URL
+        st = get_settings()
+        resolved_db_url = db_url or getattr(
+            st, "BACKTEST_DATABASE_URL", st.DATABASE_URL
+        )
         self.engine = create_db_engine(resolved_db_url)
         self.SessionLocal = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False
@@ -56,6 +60,18 @@ class SweepVisualizer:
                     .order_by(BacktestEquityLog.timestamp.asc())
                     .all()
                 )
+                if not logs and not session_created:
+                    fallback_session = self.SessionLocal()
+                    try:
+                        logs = (
+                            fallback_session.query(BacktestEquityLog)
+                            .filter(BacktestEquityLog.run_id == run_id)
+                            .order_by(BacktestEquityLog.timestamp.asc())
+                            .all()
+                        )
+                    finally:
+                        fallback_session.close()
+
                 if logs:
                     data = [
                         {
