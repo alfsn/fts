@@ -12,6 +12,7 @@ from nets.training.orchestrator import (
     train_and_register_candidate,
 )
 
+from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.backtesting.readers import SQLBacktestDataReader
 from trading_bot.config import settings
 from trading_bot.core.database import SessionLocal, init_db
@@ -76,14 +77,39 @@ def run_model_backtest(
             confidence_multiplier=backtest_params.get("confidence_multiplier", 20.0),
         )
 
+        transform = None
+        if getattr(predictor, "pipeline", None) is not None:
+            transform = predictor.pipeline
+        elif backtest_params.get("feature_pipeline"):
+            from trading_bot.core.transforms import BaseTransform
+
+            transform = BaseTransform.from_dict(backtest_params["feature_pipeline"])
+
+        feature_cols = backtest_params.get("feature_cols", None)
+        if (
+            feature_cols is None
+            and hasattr(model_entry, "feature_cols")
+            and model_entry.feature_cols
+        ):
+            feature_cols = model_entry.feature_cols
+        if feature_cols is None:
+            feature_cols = ["open", "high", "low", "close", "volume"]
+
+        lookback_period = backtest_params.get(
+            "lookback_period",
+            (
+                predictor.model_metadata.lookback_period
+                if predictor.model_metadata
+                else (getattr(model_entry, "lookback_period", None) or 20)
+            ),
+        )
+
         strategy = NetsStrategy(
             predictor=predictor,
             output_selector=output_selector,
-            lookback_period=(
-                predictor.model_metadata.lookback_period
-                if predictor.model_metadata
-                else 20
-            ),
+            transform=transform,
+            lookback_period=lookback_period,
+            feature_cols=feature_cols,
             name_suffix=model_entry.model_type,
             allow_in_sample=True,
         )
@@ -110,71 +136,55 @@ def run_model_backtest(
             slippage_pct=backtest_params.get("slippage_bps", 5.0) / 10000.0
         )
         handler = SimulatedExecutionHandler(
-            order_repo=order_repo,
-            pos_repo=pos_repo,
             delay_model=exec_delay,
             slippage_model=slippage,
         )
-        exec_engine = ExecutionEngine(handler=handler)
+        exec_engine = ExecutionEngine(
+            execution_handler=handler,
+            portfolio=portfolio,
+            run_id=run_id,
+        )
 
         prediction_logger = DatabasePredictionLogger(db=db, run_id=run_id)
 
         pipeline = TradingPipeline(
-            strategy_engine=strategy_engine,
-            risk_manager=risk_manager,
-            execution_engine=exec_engine,
+            ingestion=None,
+            strategy=strategy_engine,
+            risk=risk_manager,
+            execution=exec_engine,
             portfolio=portfolio,
             prediction_logger=prediction_logger,
-            run_id=run_id,
         )
 
-        # Execute Historical Replay Loop
+        # Execute Historical Replay Loop via BacktestEngine
         data_reader = SQLBacktestDataReader(
-            db=db,
+            session=db,
             market_id=model_entry.market_id,
-            interval=model_entry.interval,
             start_date=start_dt,
             end_date=end_dt,
         )
 
-        replay_loop = HistoricalReplayLoop(
+        bt_engine = BacktestEngine(
             pipeline=pipeline,
             data_reader=data_reader,
-            warmup_bars=20,
+            db=db,
+            market_id=model_entry.market_id,
         )
-        replay_loop.run()
+        bt_result = bt_engine.run(run_id=run_id, clear_previous_run=True)
 
-        # Compute Summary Metrics
+        total_pnl = bt_result.final_equity - bt_result.initial_equity
         trades = db.query(TradeLog).filter_by(run_id=run_id).all()
-        predictions = db.query(BacktestPredictionLog).filter_by(run_id=run_id).all()
-        end_equity = portfolio.get_total_value({})
-
-        total_trades = len(trades)
-        total_pnl = sum(t.realized_pnl for t in trades) if trades else 0.0
-        winning_trades = [t for t in trades if t.realized_pnl > 0]
-        win_rate = (len(winning_trades) / total_trades) if total_trades > 0 else 0.0
-
-        # Simple Sharpe & Max Drawdown estimations from trade PnLs
-        if trades:
-            pnls = pd.Series([t.realized_pnl for t in trades])
-            std = pnls.std()
-            sharpe = (pnls.mean() / std * (252**0.5)) if std > 0 else 0.0
-            cum_pnl = pnls.cumsum()
-            peak = cum_pnl.cummax()
-            dd = cum_pnl - peak
-            max_dd = dd.min()
-        else:
-            sharpe = 0.0
-            max_dd = 0.0
+        winning_trades = [t for t in trades if t.realized_pnl > 0] if trades else []
+        win_rate = (len(winning_trades) / len(trades)) if trades else 0.0
 
         return {
             "run_id": run_id,
-            "final_equity": end_equity,
+            "final_equity": bt_result.final_equity,
             "total_pnl": total_pnl,
-            "total_trades": total_trades,
+            "total_trades": len(trades) if trades else bt_result.total_trades,
             "win_rate": win_rate,
-            "sharpe_ratio": sharpe,
-            "max_drawdown": max_dd,
+            "sharpe_ratio": bt_result.sharpe_ratio,
+            "max_drawdown": abs(bt_result.max_drawdown_pct),
         }
 
 
@@ -199,7 +209,16 @@ def run_parameter_sweep(
     """
     from nets.spec import SweepSpec
 
-    if isinstance(spec_yaml_path, SweepSpec):
+    try:
+        from plugins.nets.spec import SweepSpec as PluginsSweepSpec
+    except ImportError:
+        PluginsSweepSpec = SweepSpec
+
+    if (
+        isinstance(spec_yaml_path, (SweepSpec, PluginsSweepSpec))
+        or type(spec_yaml_path).__name__ == "SweepSpec"
+        or hasattr(spec_yaml_path, "sweep_name")
+    ):
         spec = spec_yaml_path
     else:
         spec = SweepSpec.from_yaml(spec_yaml_path)
@@ -242,20 +261,25 @@ def run_parameter_sweep(
             model_entry = model_repo.get_model(train_res.model_id)
 
         # 3. Execute Out-of-Sample Backtest
+        backtest_params = spec.execution.model_dump()
+        backtest_params["feature_cols"] = spec.features.feature_cols
+        backtest_params["feature_pipeline"] = spec.features.feature_pipeline
+        backtest_params["lookback_period"] = spec.features.lookback_period
+
         bt_res = run_model_backtest(
             model_entry=model_entry,
             test_start_date=spec.test_dates.start_date,
             test_end_date=spec.test_dates.end_date,
-            backtest_params=spec.execution.model_dump(),
+            backtest_params=backtest_params,
         )
 
         trial_result = SweepTrialResult(
             trial_index=i,
             param_value=val,
-            model_id=train_res.model_id,
+            model_id=str(train_res.model_id),
             run_id=bt_res["run_id"],
-            val_ic=train_res.val_ic,
-            val_loss=train_res.val_loss,
+            val_ic=train_res.val_ic if train_res.val_ic is not None else 0.0,
+            val_loss=train_res.val_loss if train_res.val_loss is not None else 0.0,
             oos_pnl=bt_res["total_pnl"],
             oos_sharpe=bt_res["sharpe_ratio"],
             oos_max_dd=bt_res["max_drawdown"],

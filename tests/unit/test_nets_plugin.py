@@ -701,3 +701,37 @@ def test_run_hparam_search_date_filtering():
     dt_obj = datetime(2025, 5, 30, 19, 30, 0)
     parsed_dt_obj = parse_datetime_param(dt_obj)
     assert parsed_dt_obj == datetime(2025, 5, 30, 19, 30, 0, tzinfo=timezone.utc)
+
+
+def test_run_parameter_sweep_accepts_loaded_spec(tmp_path):
+    from nets.spec import SweepSpec
+    from nets.training.sweep_runner import run_parameter_sweep
+
+    spec_path = "specs/train/BTCUSDT/sweep/lstm_num_layers.yaml"
+    spec = SweepSpec.from_yaml(spec_path)
+
+    # Verify that passing spec object directly correctly resolves spec without throwing TypeError
+    from unittest.mock import MagicMock, patch
+
+    with (
+        patch("nets.training.sweep_runner.train_and_register_candidate") as mock_train,
+        patch("nets.training.sweep_runner.SessionLocal"),
+        patch("nets.training.sweep_runner.ModelRepository"),
+        patch("nets.training.sweep_runner.run_model_backtest") as mock_bt,
+    ):
+
+        mock_train.return_value = MagicMock(
+            model_id="model_123", val_ic=0.1, val_loss=0.5
+        )
+        mock_bt.return_value = {
+            "run_id": "run_123",
+            "total_pnl": 100.0,
+            "sharpe_ratio": 1.5,
+            "max_drawdown": 0.05,
+            "win_rate": 0.6,
+            "total_trades": 10,
+            "final_equity": 1100.0,
+        }
+        result = run_parameter_sweep(spec, output_dir=None)
+        assert result.sweep_name == spec.sweep_name
+        assert len(result.trials) == len(spec.sweep_values)
