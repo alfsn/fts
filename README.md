@@ -1,61 +1,119 @@
-# fts: Automated Trading System (Core)
+# fts: Automated Trading System (Core & Plugins)
 
-An automated, event-driven trading system. **This repository serves as the agnostic core (/fts/) of the system.**
+An event-driven, modular quantitative trading system built in Python. **This repository serves as the core system (`/fts/`) and plugin ecosystem.**
 
-This repository contains the complete architectural skeleton for a modular trading bot, built with a focus on type-safety, extensibility, and clear data contracts.
-
----
-
-## Core Features
-
-* **Data Contracts**: All data flowing through the system is validated by Pydantic schemas (`schemas.py`), ensuring type safety and explicit "contracts" between modules.
-* **Extensible by Design**: Abstract Base Classes (ABCs) are used for all core components (e.g., `BaseMarketDataProvider`, `BaseStrategy`, `BaseExecutionHandler`), allowing different services or strategies to be plugged in without changing the core logic.
-* **Persistent & Observable**: The system is built to log all actions—from signals to orders and fills—into a SQL database using SQLAlchemy ORM models (`models.py`).
-* **Modern Tooling**: The project is configured with `pre-commit`, `black`, `isort`, and `flake8` for high code quality and consistency.
+The system provides an end-to-end pipeline for data ingestion, machine learning / neural network model training, hyperparameter search, candidate model registry, position & risk management, order execution, monitoring, and historical backtesting with visual HTML reporting.
 
 ---
 
-## Modular Architecture
+## Key Architectural Highlights
 
-The system is broken down into six core modules:
-
-1.  **Data Ingestion**: Connects to market APIs (e.g., order books, trades) and external data sources (e.g., news, sentiment).
-2.  **Strategy Engine**: Receives data and generates trading recommendations (`TradeSignal`).
-3.  **Risk & Position Management**: Manages the portfolio, enforces risk limits, and calculates order size using strategies like the Kelly Criterion.
-4.  **Execution Engine**: Takes a sized, risk-checked order and handles the technical execution (e.g., signing transactions, placing orders via API).
-5.  **Monitoring & Alerting**: Provides system-wide logging and sends critical alerts (`Alert`) to external services.
-6.  **Backtesting Engine**: Simulates strategy performance against historical data.
+* **Data Contracts (Pydantic)**: All data flowing through the pipeline (market bars, signals, orders, fills) is strictly validated via Pydantic schemas, enforcing explicit data contracts between modules.
+* **Modular Plugin Architecture (`uv` Workspace)**: Supports decoupled plugins for data providers (`ccxt`, `yfinance`, `argentina`) and ML model strategies (`nets` featuring LSTM, RNN, CNN, Linear Regression, and XGBoost).
+* **Model Registry & Promotion Pipeline**: Trains models into ONNX format, logs performance metrics (validation loss, IC, directional accuracy) to a SQLite Model Registry database, and enables one-command production model promotion.
+* **Persistent & Observable**: System actions, predictions, portfolio positions, and trade logs are persisted via SQLAlchemy ORM into SQLite.
+* **Backtesting & Analytics**: Event-driven historical replay engine with configurable execution delay, slippage models, performance calculation (Sharpe, drawdown, PnL), and HTML report exporter.
 
 ---
 
-## Core Data Flow
+## Modular System Architecture
 
-The Pydantic schemas create a logical data pipeline:
+The core architecture is organized into six primary engine modules located in `src/trading_bot/`:
 
-`IngestionEngineOutput` → **(Strategy)** → `TradeSignal` → **(Risk)** → `OrderRequest` → **(Execution)** → `ExecutionResult`
+1. **Data Ingestion** (`data_ingestion/`): Interface for real-time and historical market data providers, bar resampling, and provider factories.
+2. **Strategy Engine** (`strategy/`): Signal generation engine supporting custom strategies and investable universe filtering.
+3. **Risk & Position Management** (`risk_management/`): Manages cash balances, positions, portfolio states, and dynamic order sizing (Fixed amount, Fixed %, Kelly Criterion).
+4. **Execution Engine** (`execution/`): Handles order routing, latency delay simulation, slippage modeling, and execution handlers (Polymarket CLOB API, Simulated handler).
+5. **Monitoring & Alerting** (`monitoring/`): Configures logging, database prediction tracking, alerter hooks (e.g., Telegram), and terminal dashboard displays.
+6. **Backtesting & Research Engine** (`backtesting/`): Historical replay loop runner, spec configuration parser, metrics generation, and interactive HTML report exporter.
 
-This `ExecutionResult` is then used to update the `PortfolioState`, which feeds back into the Risk module for the next decision.
+### Core Data Flow Pipeline
+
+```
+Data Ingestion (Bars) → Strategy Engine (TradeSignal) → Risk Manager (OrderRequest) → Execution Engine (ExecutionResult) → Portfolio Update
+```
 
 ---
 
-## Technology Stack
+## Plugin Ecosystem (`src/plugins/`)
 
-* **Python 3.12+**
-* **Pydantic**: For all data contracts and settings management.
-* **SQLAlchemy**: For database session management and ORM models.
-* **uv**: For dependency management (see `uv.lock`).
+The repository leverages a `uv` workspace structure with plugins defined under `src/plugins/`:
+
+* **`nets`**: Neural networks plugin containing model architectures (LSTM, RNN, CNN, Linear Regression, XGBoost), dataset builders, inference engines, output selectors, confidence sizers, and Optuna hyperparameter search pipelines.
+* **`ccxt`**: Data provider integration for CCXT exchange APIs.
+* **`yfinance`**: Data provider integration for Yahoo Finance equity and asset history.
+* **`argentina`**: Data provider plugin for Argentine financial market instruments.
 
 ---
 
-## Project Structure & Workspace
+## Quickstart & CLI Usage
 
-The project is organized as a `uv` workspace to support modular development of the core system and its plugins.
+### 1. Installation
 
-*   **Workspace Root**: Managed by the root `pyproject.toml`.
-*   **Core (`fts`)**: Located in `src/trading_bot/`, containing the main trading engine.
-*   **Plugins**: Modular extensions located in `src/plugins/` (e.g., `src/plugins/nets/`).
+Install all workspace packages and dependencies using `uv`:
 
-To install all packages and dependencies:
 ```bash
 uv sync --all-packages
+```
+
+### 2. Ingest Historical Market Data
+
+Ingest historical bars into the database:
+
+```bash
+python -m trading_bot.utils.ingest_historical
+```
+
+### 3. Run Hyperparameter Search & Model Training
+
+Execute an Optuna hyperparameter optimization trial based on a YAML spec:
+
+```bash
+python -m plugins.nets.training.hparam_search --spec specs/train/BTCUSDT/lstm_hparam_search.yaml
+```
+
+Candidate models will be exported as ONNX artifacts into `models/registry/trials/` and registered in the database model registry.
+
+### 4. Promote Candidate Model to Production
+
+Promote the best candidate model ID to production status:
+
+```bash
+python -m trading_bot.utils.promote <model_id>
+```
+
+### 5. Run a Trading Task or Backtest
+
+Run the main event loop or historical backtest simulation using a task YAML config:
+
+```bash
+python -m trading_bot --config nets_task.yaml
+```
+
+Backtest summaries and visual HTML reports are exported to `runs/reports/`.
+
+### 6. Run Test Suite
+
+Run unit and integration test suites:
+
+```bash
+uv run pytest
+```
+
+---
+
+## Project Structure
+
+For a full annotated sitemap of the codebase, see [folder_structure.txt](file:///home/alfred/github/fts/folder_structure.txt).
+
+```
+fts/
+├── src/
+│   ├── plugins/         # Modular plugins (nets, ccxt, yfinance, argentina)
+│   └── trading_bot/     # Core trading system engine
+├── specs/               # YAML task & backtest specifications
+├── models/              # Registered ONNX models and Optuna search trials
+├── notebooks/           # Jupyter research notebooks
+├── runs/                # TensorBoard logs and backtest HTML reports
+└── tests/               # Unit and integration test suite
 ```
