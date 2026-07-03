@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
+from typing import Optional, Union
 
 import optuna
 import yaml
@@ -43,6 +45,21 @@ def generate_model_id(onnx_bytes: bytes) -> str:
     return hashlib.sha256(onnx_bytes).hexdigest()[:12]
 
 
+def parse_datetime_param(val: Optional[Union[str, datetime]]) -> Optional[datetime]:
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            return val.replace(tzinfo=timezone.utc)
+        return val
+    if isinstance(val, str):
+        dt = datetime.fromisoformat(val)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+    return None
+
+
 def parse_search_space(trial: optuna.Trial, space_config: dict) -> dict:
     params = {}
     for param_name, cfg in space_config.items():
@@ -58,7 +75,11 @@ def parse_search_space(trial: optuna.Trial, space_config: dict) -> dict:
     return params
 
 
-def run_hparam_search(config_path: str):
+def run_hparam_search(
+    config_path: str,
+    start_date: Optional[Union[str, datetime]] = None,
+    end_date: Optional[Union[str, datetime]] = None,
+):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -75,9 +96,21 @@ def run_hparam_search(config_path: str):
     # Load data ONCE with short-lived session to prevent session leak
     market_id = config["market_id"]
     interval = config.get("interval", "1h")
+    start_dt = parse_datetime_param(start_date) or parse_datetime_param(
+        config.get("start_date")
+    )
+    end_dt = parse_datetime_param(end_date) or parse_datetime_param(
+        config.get("end_date")
+    )
+
     with SessionLocal() as db:
         market_repo = MarketDataRepository(db)
-        raw_bars = market_repo.get_bars(market_id, interval=interval)
+        raw_bars = market_repo.get_bars(
+            market_id,
+            interval=interval,
+            start_date=start_dt,
+            end_date=end_dt,
+        )
         if not raw_bars:
             raise ValueError(f"No bar data found in database for market {market_id}")
 

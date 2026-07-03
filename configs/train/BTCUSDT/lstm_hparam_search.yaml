@@ -5,6 +5,8 @@ n_trials: 10
 model_type: "lstm"
 market_id: "BTC/USDT"
 interval: "30m"
+start_date: "2025-11-04T19:30:00+00:00"
+end_date: "2026-05-30T19:30:00+00:00"
 
 # Preprocessing & Feature parameters
 lookback_period: 20
