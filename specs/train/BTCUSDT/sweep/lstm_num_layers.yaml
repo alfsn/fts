@@ -3,15 +3,19 @@
 imports:
   - "specs/components/markets/btc_usdt_30m.yaml"
   - "specs/components/features/ohlcv_transforms.yaml"
+  - "specs/components/execution/default_paper_execution.yaml"
 
 sweep_name: "lstm_num_layers_sweep"
 model_type: "lstm"
 
 # Date Split Configuration
-train_start_date: "2025-11-04T19:30:00+00:00"
-train_end_date: "2026-05-30T19:30:00+00:00"
-test_start_date: "2026-06-01T03:30:00+00:00"
-test_end_date: "2026-06-21T23:00:00+00:00"
+train_dates:
+  start_date: "2025-11-04T19:30:00+00:00"
+  end_date: "2026-05-30T19:30:00+00:00"
+
+test_dates:
+  start_date: "2026-06-01T03:30:00+00:00"
+  end_date: "2026-06-21T23:00:00+00:00"
 
 # Target Parameter Grid to Sweep
 sweep_param: "num_layers"
@@ -30,9 +34,3 @@ base_train_params:
   epochs: 10
   optimizer: "adam"
   loss_fn: "mse"
-
-# Backtest Execution Parameters (Held Constant)
-backtest_params:
-  slippage_bps: 5.0
-  fee_bps: 10.0
-  execution_delay_bars: 1

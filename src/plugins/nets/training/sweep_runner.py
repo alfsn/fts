@@ -178,46 +178,40 @@ def run_model_backtest(
         }
 
 
-def run_parameter_sweep(spec_yaml_path: str) -> pd.DataFrame:
+def run_parameter_sweep(spec_yaml_path: Union[str, Path]) -> pd.DataFrame:
     """
     Executes a controlled parameter sweep from a YAML spec file.
     All non-swept parameters are held constant (ceteris paribus).
     """
-    with open(spec_yaml_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+    from nets.spec import SweepSpec
 
-    sweep_name = config["sweep_name"]
-    model_type = config["model_type"]
-    target_param = config["sweep_param"]
-    grid_values = config["sweep_values"]
-    base_model_params = config.get("base_model_params", {})
-    base_train_params = config.get("base_train_params", {})
-    backtest_params = config.get("backtest_params", {})
+    if isinstance(spec_yaml_path, SweepSpec):
+        spec = spec_yaml_path
+    else:
+        spec = SweepSpec.from_yaml(spec_yaml_path)
 
     results = []
 
-    for val in grid_values:
-        logger.info(f"--- Running Sweep Trial: {target_param} = {val} ---")
+    for val in spec.sweep_values:
+        logger.info(f"--- Running Sweep Trial: {spec.sweep_param} = {val} ---")
 
         # 1. Override target parameter while keeping all other hyperparams fixed
-        model_params = base_model_params.copy()
-        model_params[target_param] = val
-
-        feature_pipeline = config.get("feature_pipeline")
+        model_params = spec.base_model_params.copy()
+        model_params[spec.sweep_param] = val
 
         # 2. Train and register candidate model
         train_res = train_and_register_candidate(
-            model_type=model_type,
-            market_id=config["market_id"],
-            interval=config["interval"],
-            lookback_period=config["lookback_period"],
-            feature_cols=config["feature_cols"],
-            start_date=config["train_start_date"],
-            end_date=config["train_end_date"],
+            model_type=spec.model_type,
+            market_id=spec.market.market_id,
+            interval=spec.market.interval,
+            lookback_period=spec.features.lookback_period,
+            feature_cols=spec.features.feature_cols,
+            start_date=spec.train_dates.start_date,
+            end_date=spec.train_dates.end_date,
             model_params=model_params,
-            train_params=base_train_params,
-            feature_pipeline=feature_pipeline,
-            run_id=sweep_name,
+            train_params=spec.base_train_params,
+            feature_pipeline=spec.features.feature_pipeline,
+            run_id=spec.sweep_name,
             status="candidate",
         )
 
@@ -229,15 +223,15 @@ def run_parameter_sweep(spec_yaml_path: str) -> pd.DataFrame:
         # 3. Execute Out-of-Sample Backtest
         bt_res = run_model_backtest(
             model_entry=model_entry,
-            test_start_date=config["test_start_date"],
-            test_end_date=config["test_end_date"],
-            backtest_params=backtest_params,
+            test_start_date=spec.test_dates.start_date,
+            test_end_date=spec.test_dates.end_date,
+            backtest_params=spec.execution.model_dump(),
         )
 
         results.append(
             {
                 "model_id": train_res.model_id,
-                target_param: val,
+                spec.sweep_param: val,
                 "val_ic": train_res.val_ic,
                 "val_loss": train_res.val_loss,
                 "oos_pnl": bt_res["total_pnl"],
@@ -248,5 +242,5 @@ def run_parameter_sweep(spec_yaml_path: str) -> pd.DataFrame:
             }
         )
 
-    df = pd.DataFrame(results).sort_values(by=target_param)
+    df = pd.DataFrame(results).sort_values(by=spec.sweep_param)
     return df
