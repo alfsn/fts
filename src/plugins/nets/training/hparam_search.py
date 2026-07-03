@@ -79,14 +79,10 @@ def run_hparam_search(
     else:
         spec = HParamStudySpec.from_yaml(config_path)
 
-    from trading_bot.core.database import create_db_engine
-
-    # Dynamic SQLite engine and SessionLocal bound at run-time
-    engine = create_db_engine(settings.DATABASE_URL)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    from trading_bot.core.database import SessionLocal, init_db
 
     # Initialize DB (creates model_registry table if not exists)
-    init_db(extra_models=["trading_bot.core.models"], bind_engine=engine)
+    init_db(extra_models=["trading_bot.core.models"])
 
     # Load data ONCE with short-lived session to prevent session leak
     market_id = spec.market.market_id

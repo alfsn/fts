@@ -5,6 +5,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import NullPool, StaticPool
 
 # Import the settings object from your config file
 # This assumes your config file defines a 'settings' instance
@@ -15,13 +16,18 @@ from ..config import settings
 def create_db_engine(database_url: str | None = None, **kwargs: Any) -> Engine:
     """
     Creates a SQLAlchemy engine configured for robust SQLite concurrency
-    (WAL mode, 60s timeout, check_same_thread=False).
+    (WAL mode, NullPool to avoid stale pooled read transactions, 60s timeout).
     """
     url = database_url or settings.DATABASE_URL
     connect_args = kwargs.pop("connect_args", {})
     if "sqlite" in url:
         connect_args.setdefault("timeout", 60)
         connect_args.setdefault("check_same_thread", False)
+        if "poolclass" not in kwargs:
+            if ":memory:" in url:
+                kwargs["poolclass"] = StaticPool
+            else:
+                kwargs["poolclass"] = NullPool
 
     return create_engine(
         url,
