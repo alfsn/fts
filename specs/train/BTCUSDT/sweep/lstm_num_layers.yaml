@@ -1,0 +1,62 @@
+# Controlled Parameter Sweep Spec: LSTM Model Complexity (num_layers)
+# Principle: All non-swept parameters are FIXED scalar values (Ceteris Paribus).
+sweep_name: "lstm_num_layers_sweep"
+model_type: "lstm"
+market_id: "BTC/USDT"
+interval: "30m"
+lookback_period: 20
+
+# Date Split Configuration
+train_start_date: "2025-11-04T19:30:00+00:00"
+train_end_date: "2026-05-30T19:30:00+00:00"
+test_start_date: "2026-06-01T03:30:00+00:00"
+test_end_date: "2026-06-21T23:00:00+00:00"
+
+# Target Parameter Grid to Sweep
+sweep_param: "num_layers"
+sweep_values: [1, 2, 3, 4]
+
+# Fixed Non-Swept Model Hyperparameters
+base_model_params:
+  hidden_dim: 32
+  dropout: 0.1
+  bidirectional: false
+
+# Fixed Non-Swept Training Parameters
+base_train_params:
+  learning_rate: 0.001
+  batch_size: 32
+  epochs: 10
+  optimizer: "adam"
+  loss_fn: "mse"
+
+# Preprocessing & Feature parameters
+feature_cols: ["open", "high", "low", "close", "volume"]
+feature_pipeline:
+  class_path: "trading_bot.core.transforms.FeaturePipeline"
+  params:
+    transforms:
+      - class_path: "trading_bot.core.transforms.LogReturnTransform"
+        params:
+          col_idx: 3
+      - class_path: "trading_bot.core.transforms.RatioTransform"
+        params:
+          num_idx: 1
+          den_idx: 3
+      - class_path: "trading_bot.core.transforms.RatioTransform"
+        params:
+          num_idx: 2
+          den_idx: 3
+      - class_path: "trading_bot.core.transforms.RatioTransform"
+        params:
+          num_idx: 0
+          den_idx: 3
+      - class_path: "trading_bot.core.transforms.LogReturnTransform"
+        params:
+          col_idx: 4
+
+# Backtest Execution Parameters (Held Constant)
+backtest_params:
+  slippage_bps: 5.0
+  fee_bps: 10.0
+  execution_delay_bars: 1
