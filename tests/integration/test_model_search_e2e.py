@@ -62,14 +62,20 @@ def temp_db_and_config(tmp_path):
 
     # 3. Create a small search config
     config_dict = {
-        "study_name": "test_search",
-        "direction": "minimize",
-        "n_trials": 2,  # Keep it small for fast tests
-        "model_type": "lstm",
-        "market_id": "BTC_USD",
-        "interval": "1h",
-        "lookback_period": 10,
-        "feature_cols": ["close"],
+        "study": {
+            "study_name": "test_search",
+            "direction": "minimize",
+            "n_trials": 2,
+            "model_type": "lstm",
+        },
+        "market": {
+            "market_id": "BTC_USD",
+            "interval": "1h",
+        },
+        "features": {
+            "lookback_period": 10,
+            "feature_cols": ["close"],
+        },
         "search_space": {
             "learning_rate": {"type": "float", "low": 0.001, "high": 0.005},
             "hidden_dim": {"type": "int", "low": 8, "high": 16},
@@ -147,12 +153,13 @@ def test_all_config_files_integration(temp_db_and_config, tmp_path):
             config_dict = yaml.safe_load(f)
 
         # Override configurations to run extremely fast in tests
-        config_dict["n_trials"] = 1
-        config_dict["study_name"] = f"test_study_{model_type}"
-        config_dict["market_id"] = "BTC_USD"
-        config_dict["interval"] = "1h"
-        config_dict.pop("start_date", None)
-        config_dict.pop("end_date", None)
+        config_dict["study"] = {
+            "study_name": f"test_study_{model_type}",
+            "n_trials": 1,
+            "model_type": model_type,
+        }
+        config_dict["market"] = {"market_id": "BTC_USD", "interval": "1h"}
+        config_dict["dates"] = {"start_date": None, "end_date": None}
 
         # neural network specific scaling-down for testing speed
         if "search_space" in config_dict:
