@@ -1,15 +1,16 @@
-# Canonical Backtest Specification for LSTM BTC/USDT Strategy
+# Backtest Specification for Linear Regression BTC/USDT (Close Only)
 imports:
   - "specs/components/markets/btc_usdt_30m.yaml"
   - "specs/components/dates/backtest_2026_june.yaml"
   - "specs/components/execution/default_paper_execution.yaml"
   - "specs/components/classifiers/dynamic_threshold.yaml"
+  - "specs/components/features/close_only.yaml"
 
-model_type: "lstm"
+model_type: "linear_regression"
 horizon: 1
 
 warmup_bars: 100
 lookback_limit: 1000
-run_id: "backtest_lstm"
+run_id: "presentation_linear_regression_close"
 
 output_dir: "../runs/reports"

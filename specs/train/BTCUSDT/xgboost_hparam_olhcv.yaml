@@ -1,0 +1,12 @@
+# XGBoost Hyperparameter Search Configuration File
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/features/ohlcv_transforms.yaml"
+
+study:
+  study_name: "presentation_xgboost_all_features"
+  direction: "minimize"
+  n_trials: 1
+  model_type: "xgboost"
+
+search_space: {}

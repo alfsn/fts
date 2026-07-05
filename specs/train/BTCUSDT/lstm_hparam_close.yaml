@@ -1,13 +1,14 @@
-# CNN Hyperparameter Search Configuration File
+# LSTM Hyperparameter Search Configuration File
 imports:
   - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/dates/train_2025_2026.yaml"
   - "specs/components/features/close_only.yaml"
 
 study:
-  study_name: "cnn_btc_optimization"
+  study_name: "presentation_lstm_close_only"
   direction: "minimize"
   n_trials: 10
-  model_type: "cnn"
+  model_type: "lstm"
 
 # Search Space Definitions
 search_space:
@@ -16,10 +17,10 @@ search_space:
     low: 0.0001
     high: 0.01
     log: true
-  dense_units:
+  hidden_dim:
     type: "int"
-    low: 32
-    high: 128
+    low: 16
+    high: 64
   epochs:
     type: "int"
     low: 10
@@ -28,10 +29,17 @@ search_space:
     type: "int"
     low: 32
     high: 32
+  num_layers:
+    type: "int"
+    low: 1
+    high: 1
   dropout:
     type: "float"
     low: 0.1
     high: 0.1
+  bidirectional:
+    type: "categorical"
+    choices: [false]
   optimizer:
     type: "categorical"
     choices: ["adam"]

@@ -1,0 +1,48 @@
+# LSTM Hyperparameter Search Configuration File
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/dates/train_2025_2026.yaml"
+  - "specs/components/features/ohlcv_transforms.yaml"
+
+study:
+  study_name: "presentation_lstm_all_features"
+  direction: "minimize"
+  n_trials: 10
+  model_type: "lstm"
+
+# Search Space Definitions
+search_space:
+  learning_rate:
+    type: "float"
+    low: 0.0001
+    high: 0.01
+    log: true
+  hidden_dim:
+    type: "int"
+    low: 16
+    high: 64
+  epochs:
+    type: "int"
+    low: 10
+    high: 10
+  batch_size:
+    type: "int"
+    low: 32
+    high: 32
+  num_layers:
+    type: "int"
+    low: 1
+    high: 1
+  dropout:
+    type: "float"
+    low: 0.1
+    high: 0.1
+  bidirectional:
+    type: "categorical"
+    choices: [false]
+  optimizer:
+    type: "categorical"
+    choices: ["adam"]
+  loss_fn:
+    type: "categorical"
+    choices: ["mse"]

@@ -141,12 +141,16 @@ def test_all_config_files_integration(temp_db_and_config, tmp_path):
         "specs",
     )
 
-    model_types = ["lstm", "rnn", "cnn", "linear_regression", "xgboost"]
+    model_files = {
+        "lstm": "lstm_hparam_ohlcv.yaml",
+        "rnn": "rnn_hparam_ohlcv.yaml",
+        "cnn": "cnn_hparam_ohlcv.yaml",
+        "linear_regression": "lreg_hparam_ohlcv.yaml",
+        "xgboost": "xgboost_hparam_olhcv.yaml",
+    }
 
-    for model_type in model_types:
-        config_path = os.path.join(
-            specs_dir, "train", "BTCUSDT", f"{model_type}_hparam_search.yaml"
-        )
+    for model_type, filename in model_files.items():
+        config_path = os.path.join(specs_dir, "train", "BTCUSDT", filename)
         assert os.path.exists(config_path), f"Config file not found: {config_path}"
 
         with open(config_path, "r") as f:

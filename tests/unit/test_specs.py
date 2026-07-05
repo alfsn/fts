@@ -148,7 +148,7 @@ def test_spec_file_not_found():
 
 def test_repo_specs_loading():
     # Verify canonical backtest spec load
-    backtest_path = PROJECT_ROOT / "specs/backtests/BTCUSDT/lstm_backtest.yaml"
+    backtest_path = PROJECT_ROOT / "specs/backtests/BTCUSDT/lstm_close_backtest.yaml"
     bt_spec = BacktestSpec.from_yaml(backtest_path)
     assert bt_spec.market.market_id == "BTC/USDT"
     assert bt_spec.market.interval == "30m"
@@ -156,7 +156,7 @@ def test_repo_specs_loading():
     assert bt_spec.execution.execution_delay_k == 1
 
     # Verify canonical training spec load
-    train_path = PROJECT_ROOT / "specs/train/BTCUSDT/lstm_hparam_search.yaml"
+    train_path = PROJECT_ROOT / "specs/train/BTCUSDT/lstm_hparam_ohlcv.yaml"
     tr_spec = HParamStudySpec.from_yaml(train_path)
     assert tr_spec.market.market_id == "BTC/USDT"
     assert tr_spec.market.interval == "30m"
