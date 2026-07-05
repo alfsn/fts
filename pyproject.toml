@@ -12,6 +12,7 @@ dependencies = [
     "pre-commit>=4.3.0",
     "pandas",
     "plotly",
+    "streamlit",
     "ipywidgets",
     "anywidget",
     "nbformat",

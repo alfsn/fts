@@ -23,6 +23,7 @@ def e2e_db_session():
     Swaps the default database to tests/test_persistence.db during the E2E test,
     ensuring other unit/integration tests are not impacted.
     """
+    original_db_url = settings.DATABASE_URL
     # 1. Update settings to point to tests/test_persistence.db
     settings.DATABASE_URL = "sqlite+pysqlite:///./tests/test_persistence.db"
 
@@ -39,8 +40,8 @@ def e2e_db_session():
     finally:
         db.close()
 
-        # 4. Restore configuration to point back to the default dev.db
-        settings.DATABASE_URL = "sqlite+pysqlite:///./dev.db"
+        # 4. Restore original configuration
+        settings.DATABASE_URL = original_db_url
         dev_engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
         SessionLocal.configure(bind=dev_engine)
 

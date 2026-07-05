@@ -387,3 +387,104 @@ class Alert(BaseModel):
         default_factory=datetime.utcnow,
         description="The time the alert was generated.",
     )
+
+
+# --- Module 6: Data Catalog & Backtest Visibility Schemas ---
+
+
+class ModelCatalogItem(BaseModel):
+    """
+    Lightweight summary contract for model registry listing in data catalog.
+    """
+
+    model_id: str = Field(..., description="Unique model identifier.")
+    run_id: Optional[str] = Field(None, description="Linked training run ID.")
+    model_type: str = Field(..., description="Algorithm/architecture type.")
+    market_id: str = Field(..., description="Market identifier.")
+    interval: str = Field(..., description="Bar time resolution.")
+    horizon: int = Field(..., description="Prediction horizon step size.")
+    dataset_id: Optional[str] = Field(None, description="Source dataset ID.")
+    status: str = Field(
+        "candidate", description="Lifecycle status (candidate, production, archived)."
+    )
+    onnx_path: str = Field(..., description="Path to ONNX serialized artifact.")
+    metrics: Dict[str, float] = Field(
+        default_factory=dict, description="Evaluation metric summary."
+    )
+    created_at: Optional[datetime] = Field(None, description="Creation timestamp.")
+
+
+class ModelDetailDTO(BaseModel):
+    """
+    Detailed contract for single model deep-dive and inspection.
+    """
+
+    model_id: str = Field(..., description="Unique model identifier.")
+    run_id: Optional[str] = Field(None, description="Linked training run ID.")
+    model_type: str = Field(..., description="Algorithm/architecture type.")
+    market_id: str = Field(..., description="Market identifier.")
+    interval: str = Field(..., description="Bar time resolution.")
+    horizon: int = Field(..., description="Prediction horizon step size.")
+    dataset_id: Optional[str] = Field(None, description="Source dataset ID.")
+    status: str = Field("candidate", description="Lifecycle status.")
+    onnx_path: str = Field(..., description="Path to ONNX file.")
+    hyperparameters: Dict = Field(
+        default_factory=dict, description="Training hyperparameters."
+    )
+    metrics: Dict = Field(
+        default_factory=dict, description="Comprehensive evaluation metrics."
+    )
+    created_at: Optional[datetime] = Field(None, description="Creation timestamp.")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp.")
+    onnx_exists: bool = Field(
+        False, description="Whether ONNX artifact file exists on disk."
+    )
+
+
+class BacktestRunCatalogItem(BaseModel):
+    """
+    Lightweight summary contract for backtest run catalog listing.
+    """
+
+    run_id: str = Field(..., description="Unique backtest simulation run ID.")
+    strategy_name: str = Field("unknown", description="Strategy algorithm name.")
+    market_id: str = Field(
+        "all", description="Market identifier or multi-market scope."
+    )
+    start_time: Optional[datetime] = Field(
+        None, description="Simulation start timestamp."
+    )
+    end_time: Optional[datetime] = Field(None, description="Simulation end timestamp.")
+    total_return: float = Field(0.0, description="Total cumulative percentage return.")
+    sharpe_ratio: float = Field(0.0, description="Annualized Sharpe ratio.")
+    max_drawdown: float = Field(0.0, description="Maximum peak-to-trough drawdown.")
+    win_rate: float = Field(0.0, description="Percentage of profitable trades.")
+    total_trades: int = Field(0, description="Total filled trade executions count.")
+
+
+class BacktestDetailDTO(BaseModel):
+    """
+    Detailed contract for backtest run analysis including time-series equity and trades.
+    """
+
+    run_id: str = Field(..., description="Unique backtest simulation run ID.")
+    strategy_name: str = Field("unknown", description="Strategy algorithm name.")
+    market_id: str = Field("all", description="Market identifier.")
+    start_time: Optional[datetime] = Field(
+        None, description="Simulation start timestamp."
+    )
+    end_time: Optional[datetime] = Field(None, description="Simulation end timestamp.")
+    total_return: float = Field(0.0, description="Total percentage return.")
+    sharpe_ratio: float = Field(0.0, description="Annualized Sharpe ratio.")
+    max_drawdown: float = Field(0.0, description="Maximum peak-to-trough drawdown.")
+    win_rate: float = Field(0.0, description="Percentage of winning trades.")
+    total_trades: int = Field(0, description="Total filled trade count.")
+    equity_curve: List[Dict] = Field(
+        default_factory=list, description="Time-series tick equity logs."
+    )
+    trades: List[Dict] = Field(
+        default_factory=list, description="Filled trade execution records."
+    )
+    predictions: List[Dict] = Field(
+        default_factory=list, description="ML prediction decision log entries."
+    )
