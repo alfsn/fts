@@ -1,0 +1,33 @@
+# Controlled Parameter Sweep Spec: XGBoost Tree Depth (max_depth)
+# Principle: All non-swept parameters are FIXED scalar values (Ceteris Paribus).
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/features/ohlcv_transforms.yaml"
+  - "specs/components/execution/default_paper_execution.yaml"
+
+sweep_name: "xgboost_max_depth_sweep"
+model_type: "xgboost"
+
+# Date Split Configuration
+train_dates:
+  start_date: "2025-11-04T19:30:00+00:00"
+  end_date: "2026-05-30T19:30:00+00:00"
+
+test_dates:
+  start_date: "2026-06-01T03:30:00+00:00"
+  end_date: "2026-06-21T23:00:00+00:00"
+
+# Target Parameter Grid to Sweep
+sweep_param: "max_depth"
+sweep_values: [2, 3, 5, 8]
+
+# Fixed Non-Swept Model Hyperparameters
+base_model_params:
+  n_estimators: 100
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+
+# Fixed Non-Swept Training Parameters
+base_train_params:
+  early_stopping_rounds: 10

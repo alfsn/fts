@@ -24,7 +24,7 @@ from nets.training import (
 )
 
 from trading_bot.config import settings
-from trading_bot.core.database import init_db
+from trading_bot.core.database import create_db_session, init_db
 from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import MarketDataRepository, ModelRepository
 
@@ -79,12 +79,10 @@ def run_hparam_search(
     else:
         spec = HParamStudySpec.from_yaml(config_path)
 
-    # Dynamic SQLite engine and SessionLocal bound at run-time
-    engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    from trading_bot.core.database import SessionLocal, init_db
 
     # Initialize DB (creates model_registry table if not exists)
-    init_db(extra_models=["trading_bot.core.models"], bind_engine=engine)
+    init_db(extra_models=["trading_bot.core.models"])
 
     # Load data ONCE with short-lived session to prevent session leak
     market_id = spec.market.market_id
@@ -207,7 +205,7 @@ def run_hparam_search(
         }
 
         # Log details to SQLite Model Registry inside a context-managed session per trial
-        with SessionLocal() as trial_db:
+        with create_db_session(settings.DATABASE_URL) as trial_db:
             model_repo = ModelRepository(trial_db)
             try:
                 model_repo.register_model(

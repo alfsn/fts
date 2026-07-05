@@ -1,5 +1,7 @@
 # src/trading_bot/backtesting/spec.py
 
+from typing import Optional
+
 from pydantic import Field
 
 from trading_bot.core.spec_base import BaseComposableSpec
@@ -7,6 +9,7 @@ from trading_bot.core.spec_models import (
     ClassifierSpec,
     DateRangeSpec,
     ExecutionRiskSpec,
+    FeatureSetSpec,
     MarketSpec,
 )
 
@@ -22,6 +25,7 @@ class BacktestSpec(BaseComposableSpec):
     dates: DateRangeSpec = Field(default_factory=DateRangeSpec)
     execution: ExecutionRiskSpec = Field(default_factory=ExecutionRiskSpec)
     classifier: ClassifierSpec = Field(default_factory=ClassifierSpec)
+    features: FeatureSetSpec = Field(default_factory=FeatureSetSpec)
 
     # Model Selection & Simulation Specifics
     model_type: str = Field(default="lstm", description="ML model architecture name")
@@ -32,8 +36,9 @@ class BacktestSpec(BaseComposableSpec):
     lookback_limit: int = Field(
         default=1000, ge=10, description="Maximum historical bars retained in memory"
     )
-    run_id: str = Field(
-        default="backtest_run", description="Unique identifier for database logs"
+    run_id: Optional[str] = Field(
+        default=None,
+        description="Unique identifier for database logs",
     )
 
     # Output & Reporting

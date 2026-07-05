@@ -162,3 +162,11 @@ def test_repo_specs_loading():
     assert tr_spec.market.interval == "30m"
     assert tr_spec.study.model_type == "lstm"
     assert len(tr_spec.features.feature_cols) == 5
+
+
+def test_backtest_spec_run_id_field():
+    spec1 = BacktestSpec()
+    assert spec1.run_id is None
+
+    spec_override = BacktestSpec(run_id="custom_id_123")
+    assert spec_override.run_id == "custom_id_123"

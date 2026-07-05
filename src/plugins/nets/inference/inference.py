@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Union
+from typing import Dict, Sequence, Union
 
 import numpy as np
 import onnxruntime as ort
@@ -53,6 +53,49 @@ class ONNXPredictor:
             raise RuntimeError(
                 f"Failed to load ONNX model from {model_path}: {e}"
             ) from e
+
+    def validate_feature_dim(self, feature_cols: Sequence[str]) -> None:
+        """
+        Validates that the provided feature_cols dimension matches the ONNX model's expected input channels/features.
+        Raises ValueError if a dimension mismatch is detected.
+        """
+        if not self.input_metadata:
+            return
+
+        first_input_name = list(self.input_metadata.keys())[0]
+        expected_shape = self.input_metadata[first_input_name].shape
+        num_features = len(feature_cols)
+
+        # 3D PyTorch shape: (batch_size, n_features, lookback_period)
+        if (
+            len(expected_shape) == 3
+            and isinstance(expected_shape[1], int)
+            and expected_shape[1] > 0
+        ):
+            expected_n_features = expected_shape[1]
+            if expected_n_features != num_features:
+                raise ValueError(
+                    f"Feature Dimension Mismatch for model '{self.model_path}': "
+                    f"ONNX model expects {expected_n_features} features (input shape {expected_shape}), "
+                    f"but strategy is configured with {num_features} features ({list(feature_cols)})."
+                )
+
+        # 2D sklearn/XGBoost shape: (batch_size, lookback_period * n_features)
+        elif (
+            len(expected_shape) == 2
+            and isinstance(expected_shape[1], int)
+            and expected_shape[1] > 0
+        ):
+            if self.model_metadata and self.model_metadata.lookback_period > 0:
+                lookback = self.model_metadata.lookback_period
+                if expected_shape[1] % lookback == 0:
+                    expected_n_features = expected_shape[1] // lookback
+                    if expected_n_features != num_features:
+                        raise ValueError(
+                            f"Feature Dimension Mismatch for model '{self.model_path}': "
+                            f"ONNX model expects {expected_n_features} features per step, "
+                            f"but strategy is configured with {num_features} features ({list(feature_cols)})."
+                        )
 
     def predict(self, inputs: Union[np.ndarray, Dict[str, np.ndarray]]) -> np.ndarray:
         """

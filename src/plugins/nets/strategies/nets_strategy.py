@@ -58,6 +58,10 @@ class NetsStrategy(BaseStrategy):
             else:
                 self.feature_cols = ["close"]
 
+        # Validate feature dimensions against ONNX predictor input schema
+        if hasattr(self.predictor, "validate_feature_dim"):
+            self.predictor.validate_feature_dim(self.feature_cols)
+
         self.allow_in_sample = allow_in_sample
         self._name = f"nets_strategy_{name_suffix}"
 

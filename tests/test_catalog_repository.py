@@ -1,6 +1,6 @@
 # tests/test_catalog_repository.py
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -122,7 +122,7 @@ def test_model_promotion_demotes_prior_production(db_session_factory):
 
 def test_backtest_catalog_repository_metrics(db_session_factory):
     repo = BacktestCatalogRepository(db_session_factory)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     with db_session_factory() as session:
         # Populate backtest equity curve: 100 -> 110 -> 105 -> 120
@@ -209,7 +209,7 @@ def test_catalog_query_service_summary(db_session_factory):
         m = Market(
             market_id="TSLA",
             name="Tesla Inc.",
-            end_date=datetime.utcnow() + timedelta(days=365),
+            end_date=datetime.now(timezone.utc) + timedelta(days=365),
         )
         session.add(m)
         session.commit()
@@ -217,3 +217,72 @@ def test_catalog_query_service_summary(db_session_factory):
     summary = service.get_database_summary()
     assert summary["markets"] == 1
     assert summary["models"] == 0
+
+
+def test_catalog_query_service_dual_factories():
+    main_engine = create_engine("sqlite:///:memory:")
+    bt_engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(main_engine)
+    Base.metadata.create_all(bt_engine)
+
+    main_factory = sessionmaker(bind=main_engine)
+    bt_factory = sessionmaker(bind=bt_engine)
+
+    now = datetime.now(timezone.utc)
+
+    # Main DB: model registry log
+    with main_factory() as session:
+        m = ModelRegistryLog(
+            model_id="model_001",
+            run_id="bt_run_1",
+            model_type="LSTM",
+            market_id="BTC/USDT",
+            interval="1m",
+            horizon=5,
+            onnx_path="/tmp/model.onnx",
+            hyperparameters={"hidden_dim": 64},
+            metrics={},
+            status="candidate",
+        )
+        session.add(m)
+        session.commit()
+
+    # Backtest DB: backtest equity log
+    with bt_factory() as session:
+        e1 = BacktestEquityLog(
+            run_id="bt_run_1",
+            timestamp=now,
+            cash=1000.0,
+            position=0.0,
+            close=100.0,
+            equity=1000.0,
+        )
+        e2 = BacktestEquityLog(
+            run_id="bt_run_1",
+            timestamp=now + timedelta(minutes=1),
+            cash=1050.0,
+            position=0.0,
+            close=105.0,
+            equity=1050.0,
+        )
+        session.add_all([e1, e2])
+        session.commit()
+
+    service = CatalogQueryService(
+        session_factory=main_factory,
+        backtest_session_factory=bt_factory,
+    )
+
+    runs = service.backtest_repo.list_runs()
+    assert len(runs) == 1
+    assert runs[0].run_id == "bt_run_1"
+    assert runs[0].model_id == "model_001"
+    assert runs[0].hyperparameters == {"hidden_dim": 64}
+
+    detail = service.backtest_repo.get_run_details("bt_run_1")
+    assert detail is not None
+    assert len(detail.equity_curve) == 2
+
+    summary = service.get_database_summary()
+    assert summary["models"] == 1
+    assert summary["equity_log_ticks"] == 2

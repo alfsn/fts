@@ -220,3 +220,66 @@ def test_register_duplicate_model_id_idempotent(test_db):
 
     assert m2.model_id == model_id
     assert m2.onnx_path == "test_path_1.onnx"  # Preserved original entry
+
+
+def test_model_retrieval_by_feature_cols(test_db):
+    repo = ModelRepository(test_db)
+
+    # Register candidate model with close-only features
+    repo.register_model(
+        model_id="model_close_123",
+        model_type="lstm",
+        market_id="BTC/USDT",
+        interval="30m",
+        horizon=1,
+        onnx_path="models/close.onnx",
+        hyperparameters={"feature_cols": ["close"]},
+        metrics={"loss": 0.1},
+        status="candidate",
+    )
+
+    # Register candidate model with OHLCV features
+    repo.register_model(
+        model_id="model_ohlcv_456",
+        model_type="lstm",
+        market_id="BTC/USDT",
+        interval="30m",
+        horizon=1,
+        onnx_path="models/ohlcv.onnx",
+        hyperparameters={"feature_cols": ["open", "high", "low", "close", "volume"]},
+        metrics={"loss": 0.05},
+        status="candidate",
+    )
+    test_db.commit()
+
+    # Query for candidate matching OHLCV features
+    ohlcv_model = repo.get_candidate_model(
+        model_type="lstm",
+        market_id="BTC/USDT",
+        interval="30m",
+        horizon=1,
+        feature_cols=["open", "high", "low", "close", "volume"],
+    )
+    assert ohlcv_model is not None
+    assert ohlcv_model.model_id == "model_ohlcv_456"
+
+    # Query for candidate matching close features
+    close_model = repo.get_candidate_model(
+        model_type="lstm",
+        market_id="BTC/USDT",
+        interval="30m",
+        horizon=1,
+        feature_cols=["close"],
+    )
+    assert close_model is not None
+    assert close_model.model_id == "model_close_123"
+
+    # Query for non-existent feature set returns None
+    missing_model = repo.get_candidate_model(
+        model_type="lstm",
+        market_id="BTC/USDT",
+        interval="30m",
+        horizon=1,
+        feature_cols=["open", "close"],
+    )
+    assert missing_model is None

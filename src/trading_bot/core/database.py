@@ -1,30 +1,61 @@
 # src/trading_bot/core/database.py
 
-from typing import Generator
+from typing import Any, Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import NullPool, StaticPool
 
 # Import the settings object from your config file
 # This assumes your config file defines a 'settings' instance
 # of your Pydantic BaseSettings class.
 from ..config import settings
 
-# Create the SQLAlchemy engine using the URL from settings
-engine = create_engine(
-    settings.DATABASE_URL,
-    # pool_pre_ping=True ensures the connection is
-    # valid before being used from the pool.
-    pool_pre_ping=True,
-)
 
-# Create a configured "Session" class
-# This is the factory that will create new session objects
+def create_db_engine(database_url: str | None = None, **kwargs: Any) -> Engine:
+    """
+    Creates a SQLAlchemy engine configured for robust SQLite concurrency
+    (WAL mode, NullPool to avoid stale pooled read transactions, 60s timeout).
+    """
+    url = database_url or settings.DATABASE_URL
+    connect_args = kwargs.pop("connect_args", {})
+    if "sqlite" in url:
+        connect_args.setdefault("timeout", 60)
+        connect_args.setdefault("check_same_thread", False)
+        if "poolclass" not in kwargs:
+            if ":memory:" in url:
+                kwargs["poolclass"] = StaticPool
+            else:
+                kwargs["poolclass"] = NullPool
+
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        connect_args=connect_args,
+        **kwargs,
+    )
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
+    if type(dbapi_connection).__module__.startswith("sqlite3"):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA busy_timeout=60000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
+        cursor.close()
+
+
+# Create the default SQLAlchemy engine and SessionLocal factory
+engine = create_db_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 # Create a Base class for our ORM models to inherit from
-# This replaces the old declarative_base() function
 class Base(DeclarativeBase):
     """
     The declarative base class for all SQLAlchemy ORM models.
@@ -65,7 +96,7 @@ def create_db_session(database_url: str) -> Session:
     """
     Creates a new database session bound to the specified database URL.
     """
-    dyn_engine = create_engine(database_url, pool_pre_ping=True)
+    dyn_engine = create_db_engine(database_url)
     SessionClass = sessionmaker(autocommit=False, autoflush=False, bind=dyn_engine)
     return SessionClass()
 

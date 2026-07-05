@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from trading_bot.config import get_settings
 from trading_bot.core.catalog_repository import CatalogQueryService
+from trading_bot.core.database import create_db_engine
 from trading_bot.core.schemas import BacktestDetailDTO, ModelDetailDTO
 from trading_bot.dashboard.renderers import (
     render_backtest_comparison,
@@ -24,19 +25,27 @@ from trading_bot.dashboard.renderers import (
 
 # Page Configuration
 st.set_page_config(
-    page_title="Quant Data Catalog & Backtest Visibility",
+    page_title="Quant Trading System Dashboard",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Initialize Database Session Factory
+# Initialize Database Session Factories
 db_url = os.getenv("DATABASE_URL", get_settings().DATABASE_URL)
-engine = create_engine(
-    db_url, connect_args={"check_same_thread": False} if "sqlite" in db_url else {}
-)
+engine = create_db_engine(db_url)
 SessionFactory = sessionmaker(bind=engine)
-query_service = CatalogQueryService(SessionFactory)
+
+backtest_db_url = os.getenv(
+    "BACKTEST_DATABASE_URL", get_settings().BACKTEST_DATABASE_URL
+)
+backtest_engine = create_db_engine(backtest_db_url)
+BacktestSessionFactory = sessionmaker(bind=backtest_engine)
+
+query_service = CatalogQueryService(
+    session_factory=SessionFactory,
+    backtest_session_factory=BacktestSessionFactory,
+)
 
 
 # Caching wrappers for service calls
@@ -137,7 +146,7 @@ with tab_models:
         )
     with col_f2:
         model_type_filter = st.text_input(
-            "Filter by Model Type (e.g. LightGBM, XGBoost)"
+            "Filter by Model Type (e.g. LightGBM, XGBoost, LSTM)"
         )
     with col_f3:
         market_filter = st.text_input("Filter by Market ID")
@@ -151,78 +160,157 @@ with tab_models:
     )
 
     if not models:
-        st.warning("No models found matching the selected filters.")
+        st.warning("No models found matching the primary selected filters.")
     else:
-        # Table view
-        data_dicts = []
+        # Dynamic Hyperparameter & Metric Filters
+        with st.expander("🔍 Dynamic Hyperparameter & Metric Filters", expanded=True):
+            # Discover numeric hyperparameter & metric keys across models
+            num_hparams = {}
+            for m in models:
+                combined = {**(m.hyperparameters or {}), **(m.metrics or {})}
+                for k, v in combined.items():
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        num_hparams.setdefault(k, []).append(float(v))
+
+            selected_filters = {}
+            if num_hparams:
+                st.markdown("**Filter by Hyperparameters / Metrics:**")
+                h_cols = st.columns(min(3, len(num_hparams)))
+                col_idx = 0
+                for h_name, values in num_hparams.items():
+                    min_val = float(min(values))
+                    max_val = float(max(values))
+                    with h_cols[col_idx % len(h_cols)]:
+                        if min_val < max_val:
+                            step = (
+                                (max_val - min_val) / 50.0
+                                if (max_val - min_val) > 1
+                                else 0.01
+                            )
+                            val_range = st.slider(
+                                f"{h_name}",
+                                min_value=min_val,
+                                max_value=max_val,
+                                value=(min_val, max_val),
+                                key=f"hp_filter_{h_name}",
+                            )
+                            selected_filters[h_name] = val_range
+                        else:
+                            st.caption(f"**{h_name}**: `{min_val}`")
+                    col_idx += 1
+
+            search_query = st.text_input(
+                "Search in Hyperparameters JSON (key or value text)",
+                key="hp_text_search",
+            ).lower()
+
+        # Apply Dynamic Filters
+        filtered_models = []
         for m in models:
-            data_dicts.append(
-                {
-                    "Model ID": m.model_id,
-                    "Type": m.model_type,
-                    "Market": m.market_id,
-                    "Interval": m.interval,
-                    "Horizon": m.horizon,
-                    "Status": m.status,
-                    "ONNX Path": m.onnx_path,
-                    "Created At": (
-                        m.created_at.strftime("%Y-%m-%d %H:%M") if m.created_at else ""
-                    ),
-                }
+            combined = {**(m.hyperparameters or {}), **(m.metrics or {})}
+            # Check numeric range filters
+            pass_num = True
+            for k, (min_v, max_v) in selected_filters.items():
+                if k in combined:
+                    v = float(combined[k])
+                    if not (min_v <= v <= max_v):
+                        pass_num = False
+                        break
+            if not pass_num:
+                continue
+
+            # Check text search
+            if search_query:
+                hp_str = str(m.hyperparameters).lower() + str(m.metrics).lower()
+                if search_query not in hp_str:
+                    continue
+
+            filtered_models.append(m)
+
+        if not filtered_models:
+            st.warning("No models match the metadata / hyperparameter filters.")
+        else:
+            # Table view
+            data_dicts = []
+            for m in filtered_models:
+                hp = m.hyperparameters or {}
+                num_params = hp.get("num_params", hp.get("params", "N/A"))
+                val_ic = m.metrics.get("val_ic", "N/A")
+                if isinstance(val_ic, float):
+                    val_ic = f"{val_ic:.4f}"
+
+                data_dicts.append(
+                    {
+                        "Model ID": m.model_id,
+                        "Type": m.model_type,
+                        "Market": m.market_id,
+                        "Interval": m.interval,
+                        "Horizon": m.horizon,
+                        "Status": m.status,
+                        "Params Count": num_params,
+                        "Val IC": val_ic,
+                        "ONNX Path": m.onnx_path,
+                        "Created At": (
+                            m.created_at.strftime("%Y-%m-%d %H:%M")
+                            if m.created_at
+                            else ""
+                        ),
+                    }
+                )
+            df_models = pd.DataFrame(data_dicts)
+            st.dataframe(df_models, use_container_width=True)
+
+            st.divider()
+            st.subheader("Model Deep-Dive & Promotion Controls")
+
+            selected_model_id = st.selectbox(
+                "Select Model to Inspect / Promote",
+                [m.model_id for m in filtered_models],
             )
-        df_models = pd.DataFrame(data_dicts)
-        st.dataframe(df_models, use_container_width=True)
+            if selected_model_id:
+                detail = get_cached_model_details(selected_model_id)
+                if detail:
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Status", detail.status.upper())
+                    c2.metric("Model Type", detail.model_type)
+                    c3.metric(
+                        "Market / Horizon", f"{detail.market_id} (h={detail.horizon})"
+                    )
+                    c4.metric(
+                        "ONNX Artifact",
+                        "✅ Available" if detail.onnx_exists else "⚠️ Missing",
+                    )
 
-        st.divider()
-        st.subheader("Model Deep-Dive & Promotion Controls")
-
-        selected_model_id = st.selectbox(
-            "Select Model to Inspect / Promote", [m.model_id for m in models]
-        )
-        if selected_model_id:
-            detail = get_cached_model_details(selected_model_id)
-            if detail:
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Status", detail.status.upper())
-                c2.metric("Model Type", detail.model_type)
-                c3.metric(
-                    "Market / Horizon", f"{detail.market_id} (h={detail.horizon})"
-                )
-                c4.metric(
-                    "ONNX Artifact",
-                    "✅ Available" if detail.onnx_exists else "⚠️ Missing",
-                )
-
-                # Promotion Action
-                if detail.status != "production":
-                    if st.button(f"🚀 Promote '{detail.model_id}' to PRODUCTION"):
-                        success = query_service.model_repo.update_model_status(
-                            detail.model_id, "production"
-                        )
-                        if success:
-                            st.success(
-                                f"Successfully promoted model '{detail.model_id}' to PRODUCTION! Any prior production model for signature demoted to 'candidate'."
+                    # Promotion Action
+                    if detail.status != "production":
+                        if st.button(f"🚀 Promote '{detail.model_id}' to PRODUCTION"):
+                            success = query_service.model_repo.update_model_status(
+                                detail.model_id, "production"
+                            )
+                            if success:
+                                st.success(
+                                    f"Successfully promoted model '{detail.model_id}' to PRODUCTION! Any prior production model for signature demoted to 'candidate'."
+                                )
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error("Failed to update model status.")
+                    else:
+                        if st.button(f"📦 Archive Model '{detail.model_id}'"):
+                            query_service.model_repo.update_model_status(
+                                detail.model_id, "archived"
                             )
                             st.cache_data.clear()
                             st.rerun()
-                        else:
-                            st.error("Failed to update model status.")
-                else:
-                    if st.button(f"📦 Archive Model '{detail.model_id}'"):
-                        query_service.model_repo.update_model_status(
-                            detail.model_id, "archived"
-                        )
-                        st.cache_data.clear()
-                        st.rerun()
 
-                st.subheader("Hyperparameters & Evaluation Metrics")
-                col_hp, col_met = st.columns(2)
-                with col_hp:
-                    st.write("**Hyperparameters**")
-                    st.json(detail.hyperparameters)
-                with col_met:
-                    st.write("**Evaluation Metrics**")
-                    st.json(detail.metrics)
+                    st.subheader("Hyperparameters & Evaluation Metrics")
+                    col_hp, col_met = st.columns(2)
+                    with col_hp:
+                        st.write("**Hyperparameters**")
+                        st.json(detail.hyperparameters)
+                    with col_met:
+                        st.write("**Evaluation Metrics**")
+                        st.json(detail.metrics)
 
 
 # --- TAB 3: Backtest Run Explorer ---
@@ -243,94 +331,165 @@ with tab_backtests:
     if not runs:
         st.warning("No backtest runs found matching the filter criteria.")
     else:
-        # Run Summary Table
-        run_table_data = []
+        # Dynamic Model Metadata & Hyperparameter Filters for Backtests
+        with st.expander(
+            "🔍 Dynamic Model Metadata & Parameter Count Filters", expanded=True
+        ):
+            # Discover numeric hyperparameter keys linked to backtest runs
+            bk_num_hparams = {}
+            for r in runs:
+                hp = r.hyperparameters or {}
+                for k, v in hp.items():
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        bk_num_hparams.setdefault(k, []).append(float(v))
+
+            bk_selected_filters = {}
+            if bk_num_hparams:
+                st.markdown("**Filter Backtests by Linked Model Hyperparameters:**")
+                bk_h_cols = st.columns(min(3, len(bk_num_hparams)))
+                bk_col_idx = 0
+                for h_name, values in bk_num_hparams.items():
+                    min_val = float(min(values))
+                    max_val = float(max(values))
+                    with bk_h_cols[bk_col_idx % len(bk_h_cols)]:
+                        if min_val < max_val:
+                            val_range = st.slider(
+                                f"Model {h_name}",
+                                min_value=min_val,
+                                max_value=max_val,
+                                value=(min_val, max_val),
+                                key=f"bk_hp_filter_{h_name}",
+                            )
+                            bk_selected_filters[h_name] = val_range
+                        else:
+                            st.caption(f"**Model {h_name}**: `{min_val}`")
+                    bk_col_idx += 1
+
+            bk_search_query = st.text_input(
+                "Filter Backtests by Linked Model ID or Hyperparameters",
+                key="bk_hp_text_search",
+            ).lower()
+
+        # Apply Dynamic Filters to Runs
+        filtered_runs = []
         for r in runs:
-            run_table_data.append(
-                {
-                    "Run ID": r.run_id,
-                    "Strategy": r.strategy_name,
-                    "Market": r.market_id,
-                    "Total Return (%)": r.total_return,
-                    "Sharpe Ratio": r.sharpe_ratio,
-                    "Max Drawdown (%)": r.max_drawdown,
-                    "Win Rate (%)": r.win_rate,
-                    "Total Trades": r.total_trades,
-                    "Start Time": (
-                        r.start_time.strftime("%Y-%m-%d %H:%M") if r.start_time else ""
-                    ),
-                    "End Time": (
-                        r.end_time.strftime("%Y-%m-%d %H:%M") if r.end_time else ""
-                    ),
-                }
+            hp = r.hyperparameters or {}
+            pass_num = True
+            for k, (min_v, max_v) in bk_selected_filters.items():
+                if k in hp:
+                    v = float(hp[k])
+                    if not (min_v <= v <= max_v):
+                        pass_num = False
+                        break
+            if not pass_num:
+                continue
+
+            if bk_search_query:
+                search_target = f"{r.run_id} {r.model_id or ''} {str(hp)}".lower()
+                if bk_search_query not in search_target:
+                    continue
+
+            filtered_runs.append(r)
+
+        if not filtered_runs:
+            st.warning("No backtest runs match the hyperparameter / metadata filters.")
+        else:
+            # Run Summary Table
+            run_table_data = []
+            for r in filtered_runs:
+                hp = r.hyperparameters or {}
+                num_params = hp.get("num_params", hp.get("params", "N/A"))
+
+                run_table_data.append(
+                    {
+                        "Run ID": r.run_id,
+                        "Linked Model ID": r.model_id or "N/A",
+                        "Model Params": num_params,
+                        "Strategy": r.strategy_name,
+                        "Market": r.market_id,
+                        "Total Return (%)": r.total_return,
+                        "Sharpe Ratio": r.sharpe_ratio,
+                        "Max Drawdown (%)": r.max_drawdown,
+                        "Win Rate (%)": r.win_rate,
+                        "Total Trades": r.total_trades,
+                        "Start Time": (
+                            r.start_time.strftime("%Y-%m-%d %H:%M")
+                            if r.start_time
+                            else ""
+                        ),
+                        "End Time": (
+                            r.end_time.strftime("%Y-%m-%d %H:%M") if r.end_time else ""
+                        ),
+                    }
+                )
+            df_runs = pd.DataFrame(run_table_data)
+            st.dataframe(df_runs, use_container_width=True)
+
+            st.divider()
+
+            # Detailed Run Visualizer
+            st.subheader("Single Run Deep-Dive Visualizer")
+            selected_run_id = st.selectbox(
+                "Select Run ID for Time-Series Analysis",
+                [r.run_id for r in filtered_runs],
             )
-        df_runs = pd.DataFrame(run_table_data)
-        st.dataframe(df_runs, use_container_width=True)
 
-        st.divider()
-
-        # Detailed Run Visualizer
-        st.subheader("Single Run Deep-Dive Visualizer")
-        selected_run_id = st.selectbox(
-            "Select Run ID for Time-Series Analysis", [r.run_id for r in runs]
-        )
-
-        if selected_run_id:
-            run_detail = get_cached_run_details(selected_run_id)
-            if run_detail:
-                # Key performance metric cards
-                m1, m2, m3, m4, m5 = st.columns(5)
-                m1.metric("Total Return", f"{run_detail.total_return:+.2f}%")
-                m2.metric("Sharpe Ratio", f"{run_detail.sharpe_ratio:.2f}")
-                m3.metric(
-                    "Max Drawdown",
-                    f"{run_detail.max_drawdown:.2f}%",
-                    delta_color="inverse",
-                )
-                m4.metric("Win Rate", f"{run_detail.win_rate:.1f}%")
-                m5.metric("Total Trades", run_detail.total_trades)
-
-                norm_toggle = st.checkbox(
-                    "Normalize Equity Curve to Percentage Return (%)", value=True
-                )
-                fig_equity = render_equity_curve(run_detail, normalize=norm_toggle)
-                st.plotly_chart(fig_equity, use_container_width=True)
-
-                col_overlay, col_pred = st.columns(2)
-                with col_overlay:
-                    fig_trades = render_trade_overlay(
-                        run_detail.equity_curve, run_detail.trades
+            if selected_run_id:
+                run_detail = get_cached_run_details(selected_run_id)
+                if run_detail:
+                    # Key performance metric cards
+                    m1, m2, m3, m4, m5 = st.columns(5)
+                    m1.metric("Total Return", f"{run_detail.total_return:+.2f}%")
+                    m2.metric("Sharpe Ratio", f"{run_detail.sharpe_ratio:.2f}")
+                    m3.metric(
+                        "Max Drawdown",
+                        f"{run_detail.max_drawdown:.2f}%",
+                        delta_color="inverse",
                     )
-                    st.plotly_chart(fig_trades, use_container_width=True)
-                with col_pred:
-                    fig_pred = render_prediction_scatter(run_detail.predictions)
-                    st.plotly_chart(fig_pred, use_container_width=True)
+                    m4.metric("Win Rate", f"{run_detail.win_rate:.1f}%")
+                    m5.metric("Total Trades", run_detail.total_trades)
 
-        st.divider()
+                    norm_toggle = st.checkbox(
+                        "Normalize Equity Curve to Percentage Return (%)", value=True
+                    )
+                    fig_equity = render_equity_curve(run_detail, normalize=norm_toggle)
+                    st.plotly_chart(fig_equity, use_container_width=True)
 
-        # Multi-Run Side-by-Side Comparison Tool
-        st.subheader("Multi-Run Side-by-Side Comparison Tool")
-        multi_selected_runs = st.multiselect(
-            "Select Backtest Runs to Compare",
-            [r.run_id for r in runs],
-            default=[r.run_id for r in runs[: min(3, len(runs))]],
-        )
+                    col_overlay, col_pred = st.columns(2)
+                    with col_overlay:
+                        fig_trades = render_trade_overlay(
+                            run_detail.equity_curve, run_detail.trades
+                        )
+                        st.plotly_chart(fig_trades, use_container_width=True)
+                    with col_pred:
+                        fig_pred = render_prediction_scatter(run_detail.predictions)
+                        st.plotly_chart(fig_pred, use_container_width=True)
 
-        if multi_selected_runs:
-            compare_details = [
-                get_cached_run_details(r_id) for r_id in multi_selected_runs
-            ]
-            compare_details = [d for d in compare_details if d is not None]
+            st.divider()
 
-            if compare_details:
-                align_mode = st.radio(
-                    "Comparison Timeline Alignment",
-                    ["Calendar Timestamp", "T=0 Step Offset (Index Aligned)"],
-                    horizontal=True,
-                )
-                align_by_idx = align_mode != "Calendar Timestamp"
+            # Multi-Run Side-by-Side Comparison Tool
+            st.subheader("Multi-Run Side-by-Side Comparison Tool")
+            multi_selected_runs = st.multiselect(
+                "Select Backtest Runs to Compare",
+                [r.run_id for r in filtered_runs],
+                default=[r.run_id for r in filtered_runs[: min(3, len(filtered_runs))]],
+            )
 
-                fig_comp = render_backtest_comparison(
-                    compare_details, align_by_index=align_by_idx
-                )
-                st.plotly_chart(fig_comp, use_container_width=True)
+            if multi_selected_runs:
+                compare_details = [
+                    get_cached_run_details(r_id) for r_id in multi_selected_runs
+                ]
+                compare_details = [d for d in compare_details if d is not None]
+
+                if compare_details:
+                    align_mode = st.radio(
+                        "Comparison Timeline Alignment",
+                        ["Calendar Timestamp", "T=0 Step Offset (Index Aligned)"],
+                        horizontal=True,
+                    )
+                    align_by_idx = align_mode != "Calendar Timestamp"
+
+                    fig_comp = render_backtest_comparison(
+                        compare_details, align_by_index=align_by_idx
+                    )
+                    st.plotly_chart(fig_comp, use_container_width=True)
