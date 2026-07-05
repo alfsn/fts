@@ -1,0 +1,4 @@
+# Reusable Component Spec: Close Price Only Feature Set
+features:
+  lookback_period: 20
+  feature_cols: ["close"]

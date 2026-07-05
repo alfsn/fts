@@ -1,0 +1,26 @@
+# Reusable Component Spec: Full OHLCV Feature Transforms Pipeline
+features:
+  lookback_period: 20
+  feature_cols: ["open", "high", "low", "close", "volume"]
+  feature_pipeline:
+    class_path: "trading_bot.core.transforms.FeaturePipeline"
+    params:
+      transforms:
+        - class_path: "trading_bot.core.transforms.LogReturnTransform"
+          params:
+            col_idx: 3
+        - class_path: "trading_bot.core.transforms.RatioTransform"
+          params:
+            num_idx: 1
+            den_idx: 3
+        - class_path: "trading_bot.core.transforms.RatioTransform"
+          params:
+            num_idx: 2
+            den_idx: 3
+        - class_path: "trading_bot.core.transforms.RatioTransform"
+          params:
+            num_idx: 0
+            den_idx: 3
+        - class_path: "trading_bot.core.transforms.LogReturnTransform"
+          params:
+            col_idx: 4

@@ -1,11 +1,11 @@
-# Controlled Parameter Sweep Spec: LSTM Model Complexity (num_layers)
+# Controlled Parameter Sweep Spec: LSTM Model Dimension (hidden_dim)
 # Principle: All non-swept parameters are FIXED scalar values (Ceteris Paribus).
 imports:
   - "specs/components/markets/btc_usdt_30m.yaml"
   - "specs/components/features/ohlcv_transforms.yaml"
   - "specs/components/execution/default_paper_execution.yaml"
 
-sweep_name: "lstm_num_layers_sweep"
+sweep_name: "lstm_hidden_dim_sweep"
 model_type: "lstm"
 
 # Date Split Configuration
@@ -18,12 +18,12 @@ test_dates:
   end_date: "2026-06-21T23:00:00+00:00"
 
 # Target Parameter Grid to Sweep
-sweep_param: "num_layers"
-sweep_values: [1, 2, 3, 4]
+sweep_param: "hidden_dim"
+sweep_values: [16, 32, 64]
 
 # Fixed Non-Swept Model Hyperparameters
 base_model_params:
-  hidden_dim: 32
+  num_layers: 2
   dropout: 0.1
   bidirectional: false
 

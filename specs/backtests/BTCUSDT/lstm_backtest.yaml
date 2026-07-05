@@ -1,27 +1,15 @@
 # Canonical Backtest Specification for LSTM BTC/USDT Strategy
-market_id: "BTC/USDT"
+imports:
+  - "specs/components/markets/btc_usdt_30m.yaml"
+  - "specs/components/dates/backtest_2026_june.yaml"
+  - "specs/components/execution/default_paper_execution.yaml"
+  - "specs/components/classifiers/dynamic_threshold.yaml"
+
 model_type: "lstm"
-interval: "30m"
 horizon: 1
 
-# Simulation window and replay settings
-start_date: "2026-06-01T00:00:00+00:00"
-end_date: "2026-06-21T00:00:00+00:00"
 warmup_bars: 100
 lookback_limit: 1000
 run_id: "backtest_lstm"
 
-# Execution & Risk Management
-execution_delay_k: 1
-slippage_pct: 0.001
-initial_balance: 10000.0
-position_size_pct: 0.10
-
-# Dynamic Threshold Classifier Settings
-classifier_k: 0.03
-confidence_multiplier: 20.0
-period: 10
-allow_in_sample: false
-
-# Reporting
 output_dir: "../runs/reports"

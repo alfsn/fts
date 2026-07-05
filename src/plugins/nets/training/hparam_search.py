@@ -70,11 +70,14 @@ def run_hparam_search(
     start_date: Optional[Union[str, datetime]] = None,
     end_date: Optional[Union[str, datetime]] = None,
 ):
+    from nets.spec import HParamStudySpec
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
+    if isinstance(config_path, HParamStudySpec):
+        spec = config_path
+    else:
+        spec = HParamStudySpec.from_yaml(config_path)
 
     # Dynamic SQLite engine and SessionLocal bound at run-time
     engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
@@ -84,14 +87,10 @@ def run_hparam_search(
     init_db(extra_models=["trading_bot.core.models"], bind_engine=engine)
 
     # Load data ONCE with short-lived session to prevent session leak
-    market_id = config["market_id"]
-    interval = config.get("interval", "1h")
-    start_dt = parse_datetime_param(start_date) or parse_datetime_param(
-        config.get("start_date")
-    )
-    end_dt = parse_datetime_param(end_date) or parse_datetime_param(
-        config.get("end_date")
-    )
+    market_id = spec.market.market_id
+    interval = spec.market.interval
+    start_dt = parse_datetime_param(start_date) or spec.dates.start_date
+    end_dt = parse_datetime_param(end_date) or spec.dates.end_date
 
     with SessionLocal() as db:
         market_repo = MarketDataRepository(db)
@@ -137,14 +136,14 @@ def run_hparam_search(
         db.commit()
         dataset_id = dataset_obj.dataset_id
 
-    model_type = config["model_type"]
+    model_type = spec.study.model_type
     if model_type not in TRAINER_REGISTRY:
         raise ValueError(f"Model type {model_type} not found in TRAINER_REGISTRY.")
 
     trainer_cls, config_cls = TRAINER_REGISTRY[model_type]
 
     def objective(trial: optuna.Trial) -> float:
-        trial_params = parse_search_space(trial, config.get("search_space") or {})
+        trial_params = parse_search_space(trial, spec.search_space)
         run_id = f"trial_{trial.number}_{uuid.uuid4().hex[:8]}"
 
         # Separate NNTrainingConfig vs architecture config_cls
@@ -152,9 +151,9 @@ def run_hparam_search(
             k: v for k, v in trial_params.items() if k in NNTrainingConfig.model_fields
         }
         train_params["tensorboard_log_dir"] = os.path.join(
-            settings.RUNS_DIR, "optuna", config["study_name"], run_id
+            settings.RUNS_DIR, "optuna", spec.study.study_name, run_id
         )
-        train_params["feature_cols"] = config["feature_cols"]
+        train_params["feature_cols"] = spec.features.feature_cols
         train_params["validation_split"] = 0.2
         training_config = NNTrainingConfig(**train_params)
 
@@ -168,13 +167,13 @@ def run_hparam_search(
         sig = inspect.signature(trainer_cls.__init__)
         if "model_config" in sig.parameters:
             trainer = trainer_cls(
-                lookback_period=config["lookback_period"],
+                lookback_period=spec.features.lookback_period,
                 model_config=model_config,
                 training_config=training_config,
             )
         else:
             trainer = trainer_cls(
-                lookback_period=config["lookback_period"],
+                lookback_period=spec.features.lookback_period,
                 config=model_config,
             )
 
@@ -236,12 +235,12 @@ def run_hparam_search(
     optuna_storage = settings.DATABASE_URL.replace("sqlite+pysqlite://", "sqlite://")
 
     study = optuna.create_study(
-        study_name=config["study_name"],
-        direction=config["direction"],
+        study_name=spec.study.study_name,
+        direction=spec.study.direction,
         storage=optuna_storage,  # Coherent settings database
         load_if_exists=True,
     )
-    study.optimize(objective, n_trials=config["n_trials"])
+    study.optimize(objective, n_trials=spec.study.n_trials)
     print(f"Best trial: {study.best_trial.number} with loss {study.best_value}")
 
 

@@ -1,0 +1,4 @@
+# Reusable Component Spec: Backtest Window June 2026
+dates:
+  start_date: "2026-06-01T00:00:00+00:00"
+  end_date: "2026-06-21T00:00:00+00:00"
