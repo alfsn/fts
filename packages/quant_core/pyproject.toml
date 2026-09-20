@@ -1,0 +1,19 @@
+[project]
+name = "quant-core"
+version = "0.1.0"
+description = "Pure Domain Logic and Math for Quant Workspace"
+dependencies = [
+    "pydantic>=2.5.0",
+    "pandas>=2.1.0",
+    "numpy>=1.26.0",
+    "scipy>=1.11.0"
+]
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"quant_core" = "src/quant_core"}
+packages = ["quant_core"]

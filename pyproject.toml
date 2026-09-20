@@ -32,11 +32,13 @@ dev = [
 
 [tool.uv.workspace]
 members = [
-    "src/trading_bot",
-    "src/plugins/nets",
-    "src/plugins/argentina",
-    "src/plugins/yfinance",
-    "src/plugins/ccxt",
+    "apps/fts/src/trading_bot",
+    "apps/fts/src/plugins/nets",
+    "apps/fts/src/plugins/argentina",
+    "apps/fts/src/plugins/yfinance",
+    "apps/fts/src/plugins/ccxt",
+    "apps/portfolio_analyser",
+    "packages/*"
 ]
 
 [tool.black]
