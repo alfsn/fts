@@ -220,7 +220,10 @@ def run_hparam_search(
                     interval=interval,
                     horizon=training_config.horizon,
                     onnx_path=onnx_filename,
-                    hyperparameters=trial_params,
+                    hyperparameters={
+                        **trial_params,
+                        "feature_cols": spec.features.feature_cols,
+                    },
                     metrics=metrics,
                     run_id=run_id,
                     status="candidate",
