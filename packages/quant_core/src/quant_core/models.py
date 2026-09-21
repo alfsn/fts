@@ -1,0 +1,100 @@
+from datetime import datetime
+from typing import List, Literal, Optional, Union
+
+from pydantic import BaseModel, Field
+from typing_extensions import Annotated
+
+from .enums import (
+    AssetType,
+    Geography,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    TransactionType,
+)
+
+# --- 1. Instrument Taxonomy (Composition) ---
+
+
+class TradFiDetails(BaseModel):
+    type: Literal["tradfi"] = "tradfi"
+    asset_type: AssetType
+    geography: Geography
+    industry: str
+    currency: str
+
+
+class PredictionMarketDetails(BaseModel):
+    type: Literal["prediction"] = "prediction"
+    end_date: datetime
+    resolution_source: str
+
+
+InstrumentDetails = Annotated[
+    Union[TradFiDetails, PredictionMarketDetails], Field(discriminator="type")
+]
+
+
+class Instrument(BaseModel):
+    instrument_id: str
+    name: str
+    details: InstrumentDetails
+
+
+# --- 2. Live & Historical Holdings ---
+
+
+class Position(BaseModel):
+    instrument_id: str
+    outcome: Optional[str] = None  # Specific to prediction markets
+    quantity: float
+    cost_basis: float
+    current_price: Optional[float] = None
+
+
+class CashBalance(BaseModel):
+    currency: str
+    total: float
+    available: float
+
+
+class OrderRequest(BaseModel):
+    instrument_id: str
+    side: OrderSide
+    size: float
+    price: float
+    order_type: OrderType = Field(OrderType.LIMIT)
+    outcome: Optional[str] = None
+
+
+class Portfolio(BaseModel):
+    timestamp: datetime
+    positions: List[Position]
+    cash_balances: List[CashBalance]
+    open_orders: List[OrderRequest] = Field(default_factory=list)
+
+
+# --- 3. Ledger & Operational Logs ---
+
+
+class Transaction(BaseModel):
+    """Immutable ledger record (Fills, Dividends, Cash Transfers)"""
+
+    transaction_id: str
+    instrument_id: str
+    related_instrument_id: Optional[str] = None  # Tracks dividend source
+    transaction_type: TransactionType
+    quantity: float
+    price: float
+    timestamp: datetime
+
+
+class ExecutionResult(BaseModel):
+    """Live operational lifecycle of an order"""
+
+    order_id: str
+    status: OrderStatus
+    filled_size: float
+    avg_price: float
+    timestamp: datetime
+    order_type: OrderType = Field(OrderType.LIMIT)
