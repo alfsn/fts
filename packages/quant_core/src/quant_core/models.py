@@ -46,10 +46,10 @@ class Instrument(BaseModel):
 
 class Position(BaseModel):
     instrument_id: str
-    outcome: Optional[str] = None  # Specific to prediction markets
+    outcome: Optional[str] = None
     quantity: float
-    cost_basis: float
-    current_price: Optional[float] = None
+    cost_basis: float = Field(..., ge=0)
+    current_price: Optional[float] = Field(None, ge=0)
 
 
 class CashBalance(BaseModel):
@@ -61,14 +61,14 @@ class CashBalance(BaseModel):
 class OrderRequest(BaseModel):
     instrument_id: str
     side: OrderSide
-    size: float
-    price: float
+    quantity: float = Field(..., gt=0)
+    price: float = Field(..., gt=0)
     order_type: OrderType = Field(OrderType.LIMIT)
     outcome: Optional[str] = None
 
 
 class Portfolio(BaseModel):
-    timestamp: datetime
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
     positions: List[Position]
     cash_balances: List[CashBalance]
     open_orders: List[OrderRequest] = Field(default_factory=list)
@@ -78,23 +78,19 @@ class Portfolio(BaseModel):
 
 
 class Transaction(BaseModel):
-    """Immutable ledger record (Fills, Dividends, Cash Transfers)"""
-
     transaction_id: str
     instrument_id: str
-    related_instrument_id: Optional[str] = None  # Tracks dividend source
+    related_instrument_id: Optional[str] = None
     transaction_type: TransactionType
     quantity: float
-    price: float
+    price: float = Field(..., ge=0)
     timestamp: datetime
 
 
 class ExecutionResult(BaseModel):
-    """Live operational lifecycle of an order"""
-
     order_id: str
     status: OrderStatus
-    filled_size: float
-    avg_price: float
+    filled_quantity: float = Field(..., ge=0)
+    avg_price: float = Field(..., ge=0)
     timestamp: datetime
     order_type: OrderType = Field(OrderType.LIMIT)

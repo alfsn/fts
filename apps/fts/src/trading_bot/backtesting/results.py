@@ -7,9 +7,9 @@ from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
+from quant_core.enums import OrderStatus
 from sqlalchemy.orm import Session
 
-from ..core.enums import OrderStatus
 from ..core.models import OrderLog as OrderLogModel
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class BacktestResult:
     def __init__(
         self,
         run_id: str,
-        market_id: str,
+        instrument_id: str,
         strategy_name: str,
         db_session: Session,
     ) -> None:
@@ -35,12 +35,12 @@ class BacktestResult:
         Initializes the backtest results and computes metrics.
 
         :param run_id: Unique identifier for this backtest execution run.
-        :param market_id: Market identifier (e.g., 'BTC/USDT').
+        :param instrument_id: Market identifier (e.g., 'BTC/USDT').
         :param strategy_name: Name of the strategy evaluated.
         :param db_session: Database session to query actual order execution metrics.
         """
         self.run_id = run_id
-        self.market_id = market_id
+        self.instrument_id = instrument_id
         self.strategy_name = strategy_name
 
         self.initial_equity: float = 0.0
@@ -165,7 +165,7 @@ class BacktestResult:
         """
         return {
             "run_id": self.run_id,
-            "market_id": self.market_id,
+            "instrument_id": self.instrument_id,
             "strategy_name": self.strategy_name,
             "initial_equity": self.initial_equity,
             "final_equity": self.final_equity,

@@ -3,12 +3,12 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from quant_core.enums import BarType
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from trading_bot.backtesting.visualizer import BacktestVisualizer
 from trading_bot.core.database import Base, SessionLocal
 from trading_bot.core.database import engine as dev_engine
-from trading_bot.core.enums import BarType
 from trading_bot.core.models import (
     BacktestEquityLog,
     BacktestPredictionLog,
@@ -31,7 +31,7 @@ def db_session():
         db = SessionLocal()
 
         market = Market(
-            market_id="BTC/USDT",
+            instrument_id="BTC/USDT",
             name="Bitcoin / Tether",
             end_date=datetime(2025, 12, 31, tzinfo=timezone.utc),
             resolution_source="Binance",
@@ -41,7 +41,7 @@ def db_session():
         base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
         for i in range(5):
             bar = BarDataLog(
-                market_id="BTC/USDT",
+                instrument_id="BTC/USDT",
                 timestamp=base_time + timedelta(minutes=i * 5),
                 open=40000.0 + i * 10,
                 high=40050.0 + i * 10,
@@ -55,7 +55,7 @@ def db_session():
             db.add(bar)
 
             pred = BacktestPredictionLog(
-                market_id="BTC/USDT",
+                instrument_id="BTC/USDT",
                 timestamp=base_time + timedelta(minutes=i * 5),
                 strategy_name="cnn",
                 prediction_output="[0.1, 0.2, 0.7]",
@@ -87,7 +87,7 @@ def test_backtest_visualizer_load_data_with_none_run_id(db_session: Session):
     viz.SessionLocal = lambda: db_session
 
     # When run_id is None, load_data should still load bar logs and join predictions/equity
-    df = viz.load_data(market_id="BTC/USDT", strategy_name="cnn", run_id=None)
+    df = viz.load_data(instrument_id="BTC/USDT", strategy_name="cnn", run_id=None)
     assert not df.empty
     assert len(df) == 5
     assert "close" in df.columns
@@ -98,7 +98,7 @@ def test_backtest_visualizer_load_data_with_specific_run_id(db_session: Session)
     viz = BacktestVisualizer(db_url="sqlite:///:memory:")
     viz.SessionLocal = lambda: db_session
 
-    df = viz.load_data(market_id="BTC/USDT", strategy_name="cnn", run_id="run_123")
+    df = viz.load_data(instrument_id="BTC/USDT", strategy_name="cnn", run_id="run_123")
     assert not df.empty
     assert len(df) == 5
     assert "actual_equity" in df.columns
@@ -108,5 +108,5 @@ def test_backtest_visualizer_get_available_runs(db_session: Session):
     viz = BacktestVisualizer(db_url="sqlite:///:memory:")
     viz.SessionLocal = lambda: db_session
 
-    runs = viz.get_available_runs(market_id="BTC/USDT", strategy_name="None")
+    runs = viz.get_available_runs(instrument_id="BTC/USDT", strategy_name="None")
     assert runs == ["run_123"]

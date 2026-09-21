@@ -1,16 +1,15 @@
-# tests/unit/test_backtest_engine.py
-
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
+from quant_core.enums import AssetType, Geography, OrderStatus
+from quant_core.models import Instrument, TradFiDetails
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.backtesting.abc import BaseBacktestDataReader
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.backtesting.results import BacktestResult
 from trading_bot.core.database import Base
-from trading_bot.core.enums import OrderStatus
 from trading_bot.core.models import (
     BacktestEquityLog,
     BacktestPredictionLog,
@@ -22,9 +21,11 @@ from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.schemas import (
     BarData,
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
 )
+
+# tests/unit/test_backtest_engine.py
 
 
 @pytest.fixture(scope="function")
@@ -48,8 +49,8 @@ class DummyDataReader(BaseBacktestDataReader):
     Simulated data reader yielding pre-defined ticks.
     """
 
-    def __init__(self, market_id: str, ticks: list) -> None:
-        self.market_id = market_id
+    def __init__(self, instrument_id: str, ticks: list) -> None:
+        self.instrument_id = instrument_id
         self.ticks = ticks
 
     def read_data(self):
@@ -58,7 +59,7 @@ class DummyDataReader(BaseBacktestDataReader):
 
 
 def create_mock_tick(
-    timestamp: datetime, market_id: str, close_price: float
+    timestamp: datetime, instrument_id: str, close_price: float
 ) -> IngestionEngineOutput:
     """
     Helper to build IngestionEngineOutput packets.
@@ -74,14 +75,18 @@ def create_mock_tick(
         ticks_count=100,
         dollar_volume=close_price * 10.0,
     )
-    details = MarketDetails(
-        market_id=market_id,
+    details = Instrument(
+        instrument_id=instrument_id,
         name="Test Market",
-        end_date=timestamp,
-        resolution_source="test",
+        details=TradFiDetails(
+            asset_type=AssetType.STOCK,
+            geography=Geography.US,
+            industry="Tech",
+            currency="USD",
+        ),
     )
     market_data = MarketData(
-        market_id=market_id,
+        instrument_id=instrument_id,
         details=details,
         recent_bars=[bar],
         order_book=None,
@@ -89,9 +94,9 @@ def create_mock_tick(
     )
     return IngestionEngineOutput(
         timestamp=timestamp,
-        market_data={market_id: market_data},
+        market_data={instrument_id: market_data},
         external_data=[],
-        bars={market_id: [bar]},
+        bars={instrument_id: [bar]},
     )
 
 
@@ -100,31 +105,31 @@ def test_backtest_result_metrics_calculation(sql_db_session: Session):
     Verifies that BacktestResult computes cumulative return, drawdown, and Sharpe ratio correctly.
     """
     run_id = "test_run_123"
-    market_id = "BTC/USDT"
+    instrument_id = "BTC/USDT"
     strategy_name = "test_strat"
 
     # Seed some filled trades to the database to check trade count calculation
     order1 = OrderLog(
         order_id="ord_1",
         run_id=run_id,
-        market_id=market_id,
+        instrument_id=instrument_id,
         strategy_name=strategy_name,
         side="BUY",
         status=OrderStatus.FILLED,
         requested_price=50000.0,
-        requested_size=0.1,
-        filled_size=0.1,
+        requested_quantity=0.1,
+        filled_quantity=0.1,
     )
     order2 = OrderLog(
         order_id="ord_2",
         run_id=run_id,
-        market_id=market_id,
+        instrument_id=instrument_id,
         strategy_name=strategy_name,
         side="SELL",
         status=OrderStatus.FILLED,
         requested_price=55000.0,
-        requested_size=0.1,
-        filled_size=0.1,
+        requested_quantity=0.1,
+        filled_quantity=0.1,
     )
     sql_db_session.add_all([order1, order2])
     sql_db_session.commit()
@@ -169,7 +174,7 @@ def test_backtest_result_metrics_calculation(sql_db_session: Session):
 
     result = BacktestResult(
         run_id=run_id,
-        market_id=market_id,
+        instrument_id=instrument_id,
         strategy_name=strategy_name,
         db_session=sql_db_session,
     )
@@ -177,7 +182,7 @@ def test_backtest_result_metrics_calculation(sql_db_session: Session):
     summary = result.to_dict()
 
     assert summary["run_id"] == run_id
-    assert summary["market_id"] == market_id
+    assert summary["instrument_id"] == instrument_id
     assert summary["strategy_name"] == strategy_name
     assert summary["initial_equity"] == 10000.0
     assert summary["final_equity"] == 10500.0
@@ -198,13 +203,13 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
     and returns a clean BacktestResult.
     """
     run_id = "test_run_engine"
-    market_id = "BTC/USDT"
+    instrument_id = "BTC/USDT"
     strategy_name = "test_strat"
 
     # Seed mock database logs to test clear_previous_run functionality
     old_log = BacktestPredictionLog(
         run_id=run_id,
-        market_id=market_id,
+        instrument_id=instrument_id,
         strategy_name=strategy_name,
         timestamp=datetime.now(timezone.utc),
         predicted_signal="buy",
@@ -257,17 +262,17 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
     # Define historical ticks
     base_time = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
     ticks = [
-        create_mock_tick(base_time, market_id, 50000.0),
-        create_mock_tick(base_time + timedelta(days=1), market_id, 51000.0),
+        create_mock_tick(base_time, instrument_id, 50000.0),
+        create_mock_tick(base_time + timedelta(days=1), instrument_id, 51000.0),
     ]
 
-    data_reader = DummyDataReader(market_id=market_id, ticks=ticks)
+    data_reader = DummyDataReader(instrument_id=instrument_id, ticks=ticks)
 
     engine = BacktestEngine(
         pipeline=pipeline,
         data_reader=data_reader,
         db=sql_db_session,
-        market_id=market_id,
+        instrument_id=instrument_id,
     )
 
     # We will simulate portfolio state updates when execute_single_tick is run
@@ -276,10 +281,10 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
         # Tick 2: Cash remains 5000.0, price rises to 51000.0
         if ingestion_output.timestamp == base_time:
             mock_portfolio._cash_balance = 5000.0
-            mock_portfolio._positions[market_id] = MagicMock(size=0.1)
+            mock_portfolio._positions[instrument_id] = MagicMock(quantity=0.1)
         elif ingestion_output.timestamp == base_time + timedelta(days=1):
             mock_portfolio._cash_balance = 5000.0
-            mock_portfolio._positions[market_id] = MagicMock(size=0.1)
+            mock_portfolio._positions[instrument_id] = MagicMock(quantity=0.1)
 
     pipeline.execute_single_tick.side_effect = simulate_pipeline_execution
 

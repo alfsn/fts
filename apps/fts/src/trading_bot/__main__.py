@@ -118,7 +118,7 @@ def main() -> None:
         ingestion_engine = DataIngestionEngine(
             market_provider=market_provider,
             external_providers=external_providers,
-            market_ids=task_config.market_ids,
+            market_ids=task_config.instrument_ids,
         )
 
         strategy_engine = StrategyEngine(strategies=strategies)

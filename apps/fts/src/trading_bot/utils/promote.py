@@ -29,7 +29,7 @@ def main():
     print(f"  Model ID:    {model.model_id}")
     print(f"  Type:        {model.model_type}")
     print(
-        f"  Market:      {model.market_id} ({model.interval}, horizon {model.horizon})"
+        f"  Market:      {model.instrument_id} ({model.interval}, horizon {model.horizon})"
     )
     print(f"  Metrics:     {model.metrics}")
     print(f"  ONNX Path:   {model.onnx_path}")

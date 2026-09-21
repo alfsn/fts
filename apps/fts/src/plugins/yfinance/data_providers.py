@@ -1,20 +1,22 @@
-# src/plugins/yfinance/data_providers.py
-
 import logging
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
 import pandas as pd
 import yfinance as yf
-from trading_bot.core.enums import BarType
+from quant_core.enums import AssetType, BarType, Geography
+from quant_core.models import TradFiDetails
 from trading_bot.core.schemas import (
     BarData,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     Trade,
 )
 from trading_bot.data_ingestion.abc import BaseMarketDataProvider
+
+# src/plugins/yfinance/data_providers.py
+
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
         self.period = period
         self.interval = interval
 
-    def list_tradable_markets(self) -> Sequence[MarketDetails]:
+    def list_tradable_markets(self) -> Sequence[Instrument]:
         """
         Lists some default example tickers.
         Yahoo Finance doesn't have a list of all tickers.
@@ -50,48 +52,54 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
         default_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "SPY"]
         return [self.get_market_details(ticker) for ticker in default_tickers]
 
-    def get_market_details(self, market_id: str) -> MarketDetails:
+    def get_market_details(self, instrument_id: str) -> Instrument:
         """
         Returns static information for the stock ticker.
         """
-        return MarketDetails(
-            market_id=market_id,
-            name=f"{market_id} Stock",
-            end_date=datetime.max.replace(tzinfo=timezone.utc),
-            resolution_source="yfinance",
+        return Instrument(
+            instrument_id=instrument_id,
+            name=f"{instrument_id} Stock",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         )
 
-    def get_order_book(self, market_id: str) -> OrderBook:
+    def get_order_book(self, instrument_id: str) -> OrderBook:
         """
         Yahoo Finance REST API does not support L2 order books.
         Returns a dummy empty order book.
         """
-        logger.warning(f"get_order_book not supported by Yahoo Finance for {market_id}")
+        logger.warning(
+            f"get_order_book not supported by Yahoo Finance for {instrument_id}"
+        )
         return OrderBook(
             bids=[],
             asks=[],
             timestamp=datetime.now(timezone.utc),
         )
 
-    def get_trade_history(self, market_id: str) -> Sequence[Trade]:
+    def get_trade_history(self, instrument_id: str) -> Sequence[Trade]:
         """
         Yahoo Finance REST API does not support real-time tick trade logs.
         """
         logger.warning(
-            f"get_trade_history not supported by Yahoo Finance for {market_id}"
+            f"get_trade_history not supported by Yahoo Finance for {instrument_id}"
         )
         return []
 
-    def get_bars(self, market_id: str, count: int = 100) -> Sequence[BarData]:
+    def get_bars(self, instrument_id: str, count: int = 100) -> Sequence[BarData]:
         """
         Downloads the latest bars from yfinance and parses them into BarData.
         """
         # Download data using yfinance
         df = yf.download(
-            market_id, period=self.period, interval=self.interval, progress=False
+            instrument_id, period=self.period, interval=self.interval, progress=False
         )
         if df.empty:
-            logger.warning(f"No data returned from yfinance for market {market_id}")
+            logger.warning(f"No data returned from yfinance for market {instrument_id}")
             return []
 
         # Flatten MultiIndex columns if present (common in newer yfinance versions)

@@ -1,3 +1,6 @@
+from quant_core.enums import AssetType, Geography
+from quant_core.models import TradFiDetails
+
 """
 Abstract Base Classes for the Data Ingestion Engine (Module 1).
 
@@ -12,8 +15,8 @@ from typing import Any, Sequence
 from ..core.schemas import (
     BarData,
     ExternalData,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     Trade,
 )
@@ -40,77 +43,77 @@ class BaseMarketDataProvider(ABC):
         )
 
     @abstractmethod
-    def list_tradable_markets(self) -> Sequence[MarketDetails]:
+    def list_tradable_markets(self) -> Sequence[Instrument]:
         """
         Fetches a list of all available or tradable markets
         from the exchange.
 
-        :return: A sequence of MarketDetails objects.
+        :return: A sequence of Instrument objects.
         """
         pass
 
     @abstractmethod
-    def get_market_details(self, market_id: str) -> MarketDetails:
+    def get_market_details(self, instrument_id: str) -> Instrument:
         """
         Fetches the static details for a single market (e.g.,
         question, resolution source, end date).
 
-        :param market_id: The unique identifier for the market.
-        :return: A MarketDetails object.
+        :param instrument_id: The unique identifier for the market.
+        :return: A Instrument object.
         """
         pass
 
     @abstractmethod
-    def get_order_book(self, market_id: str) -> OrderBook:
+    def get_order_book(self, instrument_id: str) -> OrderBook:
         """
         Fetches the current order book for a specific market.
 
-        :param market_id: The unique identifier for the market.
+        :param instrument_id: The unique identifier for the market.
         :return: An OrderBook object.
         """
         pass
 
     @abstractmethod
-    def get_trade_history(self, market_id: str) -> Sequence[Trade]:
+    def get_trade_history(self, instrument_id: str) -> Sequence[Trade]:
         """
         Fetches the recent trade history for a specific market.
 
-        :param market_id: The unique identifier for the market.
+        :param instrument_id: The unique identifier for the market.
         :return: A sequence of Trade objects, typically sorted by time.
         """
         pass
 
     @abstractmethod
-    def get_bars(self, market_id: str, count: int = 100) -> Sequence[BarData]:
+    def get_bars(self, instrument_id: str, count: int = 100) -> Sequence[BarData]:
         """
         Fetches the recent aggregated bars for a specific market.
 
-        :param market_id: The unique identifier for the market.
+        :param instrument_id: The unique identifier for the market.
         :param count: The number of recent bars to fetch.
         :return: A sequence of BarData objects.
         """
         pass
 
-    def get_market_data(self, market_id: str) -> MarketData:
+    def get_market_data(self, instrument_id: str) -> MarketData:
         """
         Fetches a comprehensive snapshot of a single market.
 
         This method may internally call get_order_book, get_trade_history,
         and other methods to construct the final MarketData object.
 
-        :param market_id: The unique identifier for the market.
+        :param instrument_id: The unique identifier for the market.
         :return: A MarketData object.
         """
-        details = self.get_market_details(market_id)
-        bars = list(self.get_bars(market_id))
+        details = self.get_market_details(instrument_id)
+        bars = list(self.get_bars(instrument_id))
 
         try:
-            ob = self.get_order_book(market_id)
+            ob = self.get_order_book(instrument_id)
         except Exception:
             ob = None
 
         try:
-            trades = list(self.get_trade_history(market_id))
+            trades = list(self.get_trade_history(instrument_id))
         except Exception:
             trades = None
 
@@ -120,7 +123,7 @@ class BaseMarketDataProvider(ABC):
         has_trades = trades is not None and len(trades) > 0
 
         return MarketData(
-            market_id=market_id,
+            instrument_id=instrument_id,
             details=details,
             recent_bars=bars,
             order_book=ob if has_ob else None,

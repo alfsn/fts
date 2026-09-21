@@ -31,12 +31,12 @@ class PolymarketHandler(BaseExecutionHandler):
         order_id = f"poly-{uuid.uuid4().hex[:8]}"
         logger.info(
             f"[PolymarketHandler] Mock order submitted. "
-            f"ID: {order_id}, side: {order.side.value}, size: {order.size:.4f} shares."
+            f"ID: {order_id}, side: {order.side.value}, size: {order.quantity:.4f} shares."
         )
         return ExecutionResult(
             order_id=order_id,
             status=OrderStatus.FILLED,
-            filled_size=order.size,
+            filled_quantity=order.quantity,
             avg_price=order.price,
             timestamp=datetime.now(timezone.utc),
             order_type=order.order_type,
@@ -50,7 +50,7 @@ class PolymarketHandler(BaseExecutionHandler):
         return ExecutionResult(
             order_id=order_id,
             status=OrderStatus.CANCELLED,
-            filled_size=0.0,
+            filled_quantity=0.0,
             avg_price=0.0,
             timestamp=datetime.now(timezone.utc),
         )
@@ -63,7 +63,7 @@ class PolymarketHandler(BaseExecutionHandler):
         return ExecutionResult(
             order_id=order_id,
             status=OrderStatus.FILLED,
-            filled_size=1.0,
+            filled_quantity=1.0,
             avg_price=1.0,
             timestamp=datetime.now(timezone.utc),
         )

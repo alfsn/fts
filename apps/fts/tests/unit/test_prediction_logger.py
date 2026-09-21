@@ -2,10 +2,10 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from quant_core.enums import SignalType
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.core.database import Base
-from trading_bot.core.enums import SignalType
 from trading_bot.core.models import BacktestPredictionLog, ModelPredictionLog
 from trading_bot.core.schemas import TradeSignal
 from trading_bot.monitoring.prediction_logger import DatabasePredictionLogger
@@ -31,7 +31,7 @@ def test_database_prediction_logger(db_session):
 
     # And: A sample TradeSignal with serialized prediction_output
     signal = TradeSignal(
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         strategy_name="nets_strategy_rnn",
         signal_type=SignalType.BUY,
         confidence=0.85,
@@ -46,7 +46,7 @@ def test_database_prediction_logger(db_session):
     log = db_session.query(ModelPredictionLog).first()
     assert log is not None
     assert log.run_id == "test_run"
-    assert log.market_id == "BTC/USDT"
+    assert log.instrument_id == "BTC/USDT"
     assert log.strategy_name == "nets_strategy_rnn"
     assert log.predicted_signal == "buy"
     assert log.confidence == 0.85
@@ -69,7 +69,7 @@ def test_timezone_normalization_prevents_duplicates(db_session):
     ts_local = ts_utc.astimezone(timezone(timedelta(hours=-3)))  # UTC-3
 
     signal1 = TradeSignal(
-        market_id="ETH/USDT",
+        instrument_id="ETH/USDT",
         strategy_name="nets_strategy_cnn",
         signal_type=SignalType.BUY,
         confidence=0.80,
@@ -78,7 +78,7 @@ def test_timezone_normalization_prevents_duplicates(db_session):
     )
 
     signal2 = TradeSignal(
-        market_id="ETH/USDT",
+        instrument_id="ETH/USDT",
         strategy_name="nets_strategy_cnn",
         signal_type=SignalType.SELL,  # updating to sell
         confidence=0.90,
@@ -108,7 +108,7 @@ def test_unique_constraint_enforces_run_isolation(db_session):
 
     ts = datetime(2026, 6, 16, 10, 0, tzinfo=timezone.utc)
     signal = TradeSignal(
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         strategy_name="nets_strategy_rnn",
         signal_type=SignalType.BUY,
         confidence=0.85,
@@ -136,7 +136,7 @@ def test_backtest_prediction_logger(db_session):
     )
 
     signal = TradeSignal(
-        market_id="GGAL",
+        instrument_id="GGAL",
         strategy_name="nets_strategy_cnn",
         signal_type=SignalType.SELL,
         confidence=0.75,
@@ -151,7 +151,7 @@ def test_backtest_prediction_logger(db_session):
     log = db_session.query(BacktestPredictionLog).first()
     assert log is not None
     assert log.run_id == "hash_bt_123"
-    assert log.market_id == "GGAL"
+    assert log.instrument_id == "GGAL"
     assert log.strategy_name == "nets_strategy_cnn"
     assert log.predicted_signal == "sell"
     assert log.confidence == 0.75
@@ -166,7 +166,7 @@ def test_batch_prediction_logging(db_session):
 
     signals = [
         TradeSignal(
-            market_id="BTC/USDT",
+            instrument_id="BTC/USDT",
             strategy_name="nets_strategy_rnn",
             signal_type=SignalType.BUY,
             confidence=0.85,
@@ -174,7 +174,7 @@ def test_batch_prediction_logging(db_session):
             prediction_output="[0.10, 0.05, 0.85]",
         ),
         TradeSignal(
-            market_id="ETH/USDT",
+            instrument_id="ETH/USDT",
             strategy_name="nets_strategy_cnn",
             signal_type=SignalType.SELL,
             confidence=0.90,
@@ -183,7 +183,7 @@ def test_batch_prediction_logging(db_session):
         ),
         # This one has no prediction_output, so it should be skipped
         TradeSignal(
-            market_id="SOL/USDT",
+            instrument_id="SOL/USDT",
             strategy_name="dummy_strategy",
             signal_type=SignalType.BUY,
             confidence=1.0,
@@ -198,4 +198,4 @@ def test_batch_prediction_logging(db_session):
     # Then: Two prediction logs should be saved in the database
     logs = db_session.query(ModelPredictionLog).all()
     assert len(logs) == 2
-    assert {l.market_id for l in logs} == {"BTC/USDT", "ETH/USDT"}
+    assert {l.instrument_id for l in logs} == {"BTC/USDT", "ETH/USDT"}

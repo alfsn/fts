@@ -5,12 +5,12 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
+from quant_core.enums import BarType
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from trading_bot.backtesting.exporter import HTMLBacktestExporter
 from trading_bot.core.database import Base, SessionLocal
 from trading_bot.core.database import engine as dev_engine
-from trading_bot.core.enums import BarType
 from trading_bot.core.models import BacktestPredictionLog, BarDataLog, Market
 
 
@@ -24,7 +24,7 @@ def db_session():
         db = SessionLocal()
 
         market = Market(
-            market_id="BTC/USDT",
+            instrument_id="BTC/USDT",
             name="Bitcoin / Tether",
             end_date=datetime(2025, 12, 31, tzinfo=timezone.utc),
             resolution_source="Binance",
@@ -35,7 +35,7 @@ def db_session():
         base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
         for i in range(5):
             bar = BarDataLog(
-                market_id="BTC/USDT",
+                instrument_id="BTC/USDT",
                 timestamp=base_time + timedelta(minutes=i * 5),
                 open=40000.0 + i * 10,
                 high=40050.0 + i * 10,
@@ -50,7 +50,7 @@ def db_session():
 
             # Create 5 prediction logs
             pred = BacktestPredictionLog(
-                market_id="BTC/USDT",
+                instrument_id="BTC/USDT",
                 timestamp=base_time + timedelta(minutes=i * 5),
                 strategy_name="cnn",
                 prediction_output="[0.1, 0.2, 0.7]",
@@ -75,7 +75,7 @@ def test_html_exporter(db_session: Session, tmp_path):
     output_file = tmp_path / "report.html"
 
     result_path = exporter.export(
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         strategy_name="cnn",
         run_id="test_run_123",
         output_path=str(output_file),
@@ -99,7 +99,7 @@ def test_html_exporter_directory_output(db_session: Session, tmp_path):
 
     output_dir = tmp_path / "test_reports"
     result_path = exporter.export(
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         strategy_name="cnn",
         run_id="test_run_123",
         output_path=str(output_dir),
@@ -117,7 +117,7 @@ def test_html_exporter_empty_dataframe_raises(db_session: Session):
     with pytest.raises(ValueError, match="No backtest prediction data found"):
         # Querying market that has no logs raises
         exporter.export(
-            market_id="NONEXISTENT_MARKET",
+            instrument_id="NONEXISTENT_MARKET",
             strategy_name="cnn",
             run_id="test_run_123",
         )

@@ -5,16 +5,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from ccxt_plugin.data_providers import CCXTMarketDataProvider
-from trading_bot.core.enums import BarType, OrderSide
+from quant_core.enums import BarType, OrderSide
 
 
 def test_ccxt_market_details():
     provider = CCXTMarketDataProvider(exchange_id="binance")
     details = provider.get_market_details("BTC/USDT")
 
-    assert details.market_id == "BTC/USDT"
+    assert details.instrument_id == "BTC/USDT"
     assert "BINANCE" in details.name
-    assert details.resolution_source == "binance"
 
 
 @patch("ccxt_plugin.data_providers.ccxt.binance")
@@ -57,7 +56,7 @@ def test_ccxt_get_order_book(mock_binance):
     assert len(ob.bids) == 2
     assert len(ob.asks) == 2
     assert ob.bids[0].price == 50000.0
-    assert ob.bids[0].size == 1.5
+    assert ob.bids[0].quantity == 1.5
     assert ob.asks[0].price == 50050.0
 
 

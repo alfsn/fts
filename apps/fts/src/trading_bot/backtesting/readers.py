@@ -1,16 +1,17 @@
-# src/trading_bot/backtesting/readers.py
-
 import csv
 from datetime import datetime
 from typing import Iterator, Optional
 
+from quant_core.enums import AssetType, BarType, Geography
+from quant_core.models import TradFiDetails
 from sqlalchemy.orm import Session
 
-from ..core.enums import BarType
 from ..core.models import BarDataLog as BarDataLogModel
 from ..core.models import Market as MarketModel
-from ..core.schemas import BarData, IngestionEngineOutput, MarketData, MarketDetails
+from ..core.schemas import BarData, IngestionEngineOutput, Instrument, MarketData
 from .abc import BaseBacktestDataReader
+
+# src/trading_bot/backtesting/readers.py
 
 
 class CSVBacktestDataReader(BaseBacktestDataReader):
@@ -20,17 +21,17 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
     """
 
     def __init__(
-        self, file_path: str, market_id: str, lookback_limit: int = 1000
+        self, file_path: str, instrument_id: str, lookback_limit: int = 1000
     ) -> None:
         """
         Initializes the CSV data reader.
 
         :param file_path: Path to the target CSV file.
-        :param market_id: The specific market identifier for the stream.
+        :param instrument_id: The specific market identifier for the stream.
         :param lookback_limit: Maximum number of recent bars to retain in lookback window.
         """
         self.file_path = file_path
-        self.market_id = market_id
+        self.instrument_id = instrument_id
         self.lookback_limit = lookback_limit
 
     def read_data(self) -> Iterator[IngestionEngineOutput]:
@@ -73,15 +74,19 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
                     recent_bars.pop(0)
 
                 # Package metadata details
-                details = MarketDetails(
-                    market_id=self.market_id,
-                    name=f"{self.market_id} Historical Replay",
-                    end_date=timestamp,
-                    resolution_source="csv_replay",
+                details = Instrument(
+                    instrument_id=self.instrument_id,
+                    name=f"{self.instrument_id} Historical Replay",
+                    details=TradFiDetails(
+                        asset_type=AssetType.STOCK,
+                        geography=Geography.US,
+                        industry="Tech",
+                        currency="USD",
+                    ),
                 )
 
                 market_data = MarketData(
-                    market_id=self.market_id,
+                    instrument_id=self.instrument_id,
                     details=details,
                     recent_bars=list(recent_bars),
                     order_book=None,
@@ -90,9 +95,9 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
 
                 yield IngestionEngineOutput(
                     timestamp=timestamp,
-                    market_data={self.market_id: market_data},
+                    market_data={self.instrument_id: market_data},
                     external_data=[],
-                    bars={self.market_id: list(recent_bars)},
+                    bars={self.instrument_id: list(recent_bars)},
                 )
 
 
@@ -105,7 +110,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
     def __init__(
         self,
         session: Session,
-        market_id: str,
+        instrument_id: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         warmup_bars: int = 100,
@@ -115,14 +120,14 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
         Initializes the SQL data reader.
 
         :param session: The SQLAlchemy Session to query the database.
-        :param market_id: The specific market identifier for the stream.
+        :param instrument_id: The specific market identifier for the stream.
         :param start_date: Optional start datetime (inclusive).
         :param end_date: Optional end datetime (inclusive).
         :param warmup_bars: Number of prior historical bars to query for strategy warm-up.
         :param lookback_limit: Maximum number of recent bars to retain in lookback window.
         """
         self.session = session
-        self.market_id = market_id
+        self.instrument_id = instrument_id
         self.start_date = start_date
         self.end_date = end_date
         self.warmup_bars = warmup_bars
@@ -138,7 +143,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
         # Resolve market details from DB if available
         market = (
             self.session.query(MarketModel)
-            .filter(MarketModel.market_id == self.market_id)
+            .filter(MarketModel.instrument_id == self.instrument_id)
             .first()
         )
         if market:
@@ -147,18 +152,26 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
             if end_date and end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=timezone.utc)
 
-            details = MarketDetails(
-                market_id=self.market_id,
+            details = Instrument(
+                instrument_id=self.instrument_id,
                 name=market.name,
-                end_date=end_date,
-                resolution_source=market.resolution_source or "sqlite_replay",
+                details=TradFiDetails(
+                    asset_type=AssetType.STOCK,
+                    geography=Geography.US,
+                    industry="Tech",
+                    currency="USD",
+                ),
             )
         else:
-            details = MarketDetails(
-                market_id=self.market_id,
-                name=f"{self.market_id} Historical Replay",
-                end_date=datetime.now(timezone.utc),
-                resolution_source="sqlite_replay",
+            details = Instrument(
+                instrument_id=self.instrument_id,
+                name=f"{self.instrument_id} Historical Replay",
+                details=TradFiDetails(
+                    asset_type=AssetType.STOCK,
+                    geography=Geography.US,
+                    industry="Tech",
+                    currency="USD",
+                ),
             )
 
         # 1. Warm-up lookback pre-population
@@ -167,7 +180,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
             prior_bar_logs = (
                 self.session.query(BarDataLogModel)
                 .filter(
-                    BarDataLogModel.market_id == self.market_id,
+                    BarDataLogModel.instrument_id == self.instrument_id,
                     BarDataLogModel.timestamp < self.start_date,
                 )
                 .order_by(BarDataLogModel.timestamp.desc())
@@ -196,7 +209,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
                 )
 
         query = self.session.query(BarDataLogModel).filter(
-            BarDataLogModel.market_id == self.market_id
+            BarDataLogModel.instrument_id == self.instrument_id
         )
 
         if self.start_date:
@@ -229,7 +242,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
                 recent_bars.pop(0)
 
             market_data = MarketData(
-                market_id=self.market_id,
+                instrument_id=self.instrument_id,
                 details=details,
                 recent_bars=list(recent_bars),
                 order_book=None,
@@ -238,7 +251,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
 
             yield IngestionEngineOutput(
                 timestamp=timestamp,
-                market_data={self.market_id: market_data},
+                market_data={self.instrument_id: market_data},
                 external_data=[],
-                bars={self.market_id: list(recent_bars)},
+                bars={self.instrument_id: list(recent_bars)},
             )

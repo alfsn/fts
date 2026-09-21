@@ -12,12 +12,13 @@ def test_ccl_provider_calculation():
 
     # Mock Local (GGAL ARS)
     local_ob = OrderBook(
-        bids=[PriceLevel(price=250000.0, size=1.0)],
-        asks=[PriceLevel(price=250100.0, size=1.0)],
+        bids=[PriceLevel(price=250000.0, quantity=1.0)],
+        asks=[PriceLevel(price=250100.0, quantity=1.0)],
     )
     # Mock ADR (GGAL USD)
     adr_ob = OrderBook(
-        bids=[PriceLevel(price=50.0, size=1.0)], asks=[PriceLevel(price=50.1, size=1.0)]
+        bids=[PriceLevel(price=50.0, quantity=1.0)],
+        asks=[PriceLevel(price=50.1, quantity=1.0)],
     )
 
     market_provider.get_order_book.side_effect = lambda m_id: (

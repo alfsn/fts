@@ -43,9 +43,9 @@ class DataIngestionEngine:
         """
         self.market_provider = market_provider
         self.external_providers = external_providers
-        self.market_ids = market_ids
+        self.instrument_ids = market_ids
         logger.info(
-            f"DataIngestionEngine initialized with {len(self.market_ids)} markets "
+            f"DataIngestionEngine initialized with {len(self.instrument_ids)} markets "
             f"and {len(self.external_providers)} external providers."
         )
 
@@ -95,17 +95,17 @@ class DataIngestionEngine:
             return {}
 
         market_data_map: Dict[str, MarketData] = {}
-        for market_id in self.market_ids:
+        for instrument_id in self.instrument_ids:
             try:
-                market_data = self.market_provider.get_market_data(market_id)
+                market_data = self.market_provider.get_market_data(instrument_id)
                 if market_data:
-                    market_data_map[market_id] = market_data
+                    market_data_map[instrument_id] = market_data
                 else:
-                    logger.warning(f"No market data returned for {market_id}")
+                    logger.warning(f"No market data returned for {instrument_id}")
             except Exception as e:
                 # Log the error but continue the loop
                 logger.error(
-                    f"Failed to fetch market data for {market_id}: {e}",
+                    f"Failed to fetch market data for {instrument_id}: {e}",
                     exc_info=True,  # Includes stack trace in log
                 )
         return market_data_map

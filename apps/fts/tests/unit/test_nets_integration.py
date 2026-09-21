@@ -1,19 +1,21 @@
-# tests/unit/test_nets_integration.py
-
 from datetime import datetime
 from unittest.mock import MagicMock
 
 import numpy as np
+from quant_core.enums import AssetType, BarType, Geography, SignalType
+from quant_core.models import TradFiDetails
 from trading_bot.config import ComponentConfig, PluginLoader
-from trading_bot.core.enums import BarType, SignalType
 from trading_bot.core.schemas import (
     BarData,
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     SizingInput,
 )
+
+# tests/unit/test_nets_integration.py
+
 
 ...
 
@@ -61,14 +63,18 @@ def test_plugin_component_loading():
         for i in range(10)
     ]
     market_data = MarketData(
-        market_id="GGAL",
+        instrument_id="GGAL",
         order_book=OrderBook(bids=[], asks=[]),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="GGAL",
+        details=Instrument(
+            instrument_id="GGAL",
             name="GGAL",
-            end_date=datetime.now(),
-            resolution_source="BYMA",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
         recent_bars=bars,
     )
@@ -81,7 +87,7 @@ def test_plugin_component_loading():
 
     signals = strategy.evaluate(tick_data)
     assert len(signals) == 1
-    assert signals[0].market_id == "GGAL"
+    assert signals[0].instrument_id == "GGAL"
 
 
 def test_confidence_sizer_integration():
@@ -92,12 +98,12 @@ def test_confidence_sizer_integration():
     sizer = PluginLoader.instantiate(sizer_config)
 
     # Mock input
-    market_id = "GGAL"
+    instrument_id = "GGAL"
     signal = PluginLoader.instantiate(
         ComponentConfig(
             class_path="trading_bot.core.schemas.TradeSignal",
             params={
-                "market_id": market_id,
+                "instrument_id": instrument_id,
                 "strategy_name": "test",
                 "signal_type": SignalType.BUY,
                 "confidence": 0.8,
@@ -119,23 +125,26 @@ def test_confidence_sizer_integration():
         )
     ]
     market_data = MarketData(
-        market_id=market_id,
+        instrument_id=instrument_id,
         order_book=OrderBook(bids=[], asks=[]),
         recent_trades=[],
-        details=MarketDetails(
-            market_id=market_id,
+        details=Instrument(
+            instrument_id=instrument_id,
             name="GGAL",
-            end_date=datetime.now(),
-            resolution_source="BYMA",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
         recent_bars=bars,
     )
 
-    from trading_bot.core.schemas import PortfolioState
+    from quant_core.models import CashBalance, Portfolio
 
-    portfolio_state = PortfolioState(
-        total_balance_quote=10000.0,
-        available_balance_quote=5000.0,
+    portfolio_state = Portfolio(
+        cash_balances=[CashBalance(currency="USD", total=10000.0, available=5000.0)],
         positions=[],
         open_orders=[],
     )
@@ -148,4 +157,4 @@ def test_confidence_sizer_integration():
     # 1000 * 0.8 = 800 USD
     # 800 / 100 (price) = 8 shares
     assert output.amount_quote == 800.0
-    assert output.size_shares == 8.0
+    assert output.quantity_shares == 8.0

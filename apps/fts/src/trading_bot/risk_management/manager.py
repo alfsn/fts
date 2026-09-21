@@ -3,11 +3,12 @@
 import logging
 from typing import Dict, Optional
 
-from ..core.enums import OrderSide, SignalType
+from quant_core.enums import OrderSide, SignalType
+
 from ..core.schemas import (
     MarketData,
     OrderRequest,
-    PortfolioState,
+    Portfolio,
     SizingInput,
     SizingOutput,
     TradeSignal,
@@ -47,7 +48,7 @@ class RiskManager:
                                     open positions.
         """
         self.portfolio = portfolio
-        self.sizer = sizer
+        self.quantityr = sizer
         self.max_allocation_per_market = max_allocation_per_market
         self.max_total_positions = max_total_positions
         logger.info(
@@ -73,11 +74,11 @@ class RiskManager:
 
         # 2. Get current portfolio and market state
         portfolio_state = self.portfolio.get_state(market_data_map)
-        market_data = market_data_map.get(signal.market_id)
+        market_data = market_data_map.get(signal.instrument_id)
 
         if not market_data:
             logger.warning(
-                f"No market data for {signal.market_id}. " "Cannot process signal."
+                f"No market data for {signal.instrument_id}. " "Cannot process signal."
             )
             return None
 
@@ -91,7 +92,7 @@ class RiskManager:
             market_data=market_data,
             portfolio_state=portfolio_state,
         )
-        sizing_output = self.sizer.calculate_size(sizing_input)
+        sizing_output = self.quantityr.calculate_size(sizing_input)
 
         # 5. Run Risk Checks
         if not self._passes_risk_checks(
@@ -103,21 +104,21 @@ class RiskManager:
         # We use the price calculated by the sizer (amount / shares)
         # as the limit price for the order.
         order_amount_quote = sizing_output.amount_quote
-        order_shares = sizing_output.size_shares
+        order_shares = sizing_output.quantity_shares
         limit_price = order_amount_quote / order_shares
         order_side = (
             OrderSide.BUY if signal.signal_type == SignalType.BUY else OrderSide.SELL
         )
 
         final_order = OrderRequest(
-            market_id=signal.market_id,
+            instrument_id=signal.instrument_id,
             side=order_side,
-            size=order_shares,
+            quantity=order_shares,
             price=limit_price,
         )
 
         logger.info(
-            f"RiskManager approved order for {signal.market_id}: "
+            f"RiskManager approved order for {signal.instrument_id}: "
             f"{order_side.value} {order_shares:.2f} shares "
             f"@ ${limit_price:.4f}"
         )
@@ -126,7 +127,7 @@ class RiskManager:
     def _flatten_position(
         self,
         signal: TradeSignal,
-        portfolio_state: PortfolioState,
+        portfolio_state: Portfolio,
         market_data: MarketData,
     ) -> Optional[OrderRequest]:
         """
@@ -135,45 +136,49 @@ class RiskManager:
         """
         # Find position for this market
         position = next(
-            (p for p in portfolio_state.positions if p.market_id == signal.market_id),
+            (
+                p
+                for p in portfolio_state.positions
+                if p.instrument_id == signal.instrument_id
+            ),
             None,
         )
 
-        if not position or abs(position.size) < 1e-9:
-            logger.info(f"No active position to flatten for {signal.market_id}")
+        if not position or abs(position.quantity) < 1e-9:
+            logger.info(f"No active position to flatten for {signal.instrument_id}")
             return None
 
         # If size > 0 (Long), we need to SELL. If size < 0 (Short), we need to BUY.
-        side = OrderSide.SELL if position.size > 0 else OrderSide.BUY
-        size_to_exit = abs(position.size)
+        side = OrderSide.SELL if position.quantity > 0 else OrderSide.BUY
+        size_to_exit = abs(position.quantity)
 
         # For v0 exit, we use the best available price to cross the spread
-        price = position.entry_price
+        price = position.cost_basis
         if market_data.order_book is not None:
             if side == OrderSide.SELL:
                 price = (
                     market_data.order_book.bids[0].price
                     if market_data.order_book.bids
-                    else position.entry_price
+                    else position.cost_basis
                 )
             else:
                 price = (
                     market_data.order_book.asks[0].price
                     if market_data.order_book.asks
-                    else position.entry_price
+                    else position.cost_basis
                 )
         elif market_data.recent_bars:
             price = market_data.recent_bars[-1].close
 
         logger.info(
-            f"RiskManager generating FLAT order for {signal.market_id}: "
+            f"RiskManager generating FLAT order for {signal.instrument_id}: "
             f"{side.value} {size_to_exit:.4f} shares to exit."
         )
 
         return OrderRequest(
-            market_id=signal.market_id,
+            instrument_id=signal.instrument_id,
             side=side,
-            size=size_to_exit,
+            quantity=size_to_exit,
             price=price,
         )
 
@@ -181,31 +186,31 @@ class RiskManager:
         self,
         sizing_output: SizingOutput,
         signal: TradeSignal,
-        portfolio_state: PortfolioState,
+        portfolio_state: Portfolio,
         market_data_map: Dict[str, MarketData],
     ) -> bool:
         """
         A helper method to run a chain of risk validation checks.
         """
         order_amount_quote = sizing_output.amount_quote
-        order_shares = sizing_output.size_shares
+        order_shares = sizing_output.quantity_shares
 
         # Check 1: Sizer returned non-zero size
         if order_amount_quote <= 1e-6 or order_shares <= 1e-6:
             logger.info(
-                f"Sizer returned zero size for {signal.market_id}. " "No order."
+                f"Sizer returned zero size for {signal.instrument_id}. " "No order."
             )
             return False
 
         # Check 2: Available Balance (for BUYs)
         if (
             signal.signal_type == SignalType.BUY
-            and order_amount_quote > portfolio_state.available_balance_quote
+            and order_amount_quote > portfolio_state.cash_balances[0].available
         ):
             logger.warning(
-                f"Order for {signal.market_id} rejected. "
+                f"Order for {signal.instrument_id} rejected. "
                 f"Cost ${order_amount_quote:.2f} exceeds available "
-                f"balance ${portfolio_state.available_balance_quote:.2f}."
+                f"balance ${portfolio_state.cash_balances[0].available:.2f}."
             )
             return False
 
@@ -216,7 +221,7 @@ class RiskManager:
         # Check 3: Max Total Positions (if opening a new position)
         is_new_position = True
         for pos in portfolio_state.positions:
-            if pos.market_id == signal.market_id:
+            if pos.instrument_id == signal.instrument_id:
                 is_new_position = False
                 break
 
@@ -225,13 +230,13 @@ class RiskManager:
             and len(portfolio_state.positions) >= self.max_total_positions
         ):
             logger.warning(
-                f"Order for {signal.market_id} rejected. "
+                f"Order for {signal.instrument_id} rejected. "
                 f"Would exceed max positions ({self.max_total_positions})."
             )
             return False
 
         # Check 4: Max Allocation per Market
-        total_equity = portfolio_state.total_balance_quote
+        total_equity = portfolio_state.cash_balances[0].total
         if total_equity <= 0:
             logger.error("Total equity is zero or negative. Cannot trade.")
             return False
@@ -240,16 +245,16 @@ class RiskManager:
         current_market_value = 0.0
         pnl_map = self.portfolio.calculate_unrealized_pnl(market_data_map)
         for pos in portfolio_state.positions:
-            if pos.market_id == signal.market_id:
-                pnl = pnl_map.get(pos.market_id, 0.0)
-                current_market_value += (pos.size * pos.entry_price) + pnl
+            if pos.instrument_id == signal.instrument_id:
+                pnl = pnl_map.get(pos.instrument_id, 0.0)
+                current_market_value += (pos.quantity * pos.cost_basis) + pnl
 
         new_total_allocation = current_market_value + order_amount_quote
         allocation_pct = new_total_allocation / total_equity
 
         if allocation_pct > self.max_allocation_per_market:
             logger.warning(
-                f"Order for {signal.market_id} rejected. "
+                f"Order for {signal.instrument_id} rejected. "
                 f"New allocation ({allocation_pct*100:.1f}%) would "
                 f"exceed max ({self.max_allocation_per_market*100:.1f}%)."
             )

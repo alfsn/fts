@@ -5,7 +5,7 @@ from datetime import timezone
 from typing import List, Sequence
 
 import pandas as pd
-from trading_bot.core.enums import BarType
+from quant_core.enums import BarType
 from trading_bot.core.schemas import BarData
 
 logger = logging.getLogger(__name__)

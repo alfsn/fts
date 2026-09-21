@@ -9,11 +9,11 @@ import pandas as pd
 import plotly.graph_objects as go
 from IPython.display import clear_output, display
 from plotly.subplots import make_subplots
+from quant_core.enums import OrderSide, SignalType
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.config import get_settings
 from trading_bot.core.database import create_db_engine
-from trading_bot.core.enums import OrderSide, SignalType
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class BacktestVisualizer:
 
     def load_data(
         self,
-        market_id: str,
+        instrument_id: str,
         strategy_name: Optional[str] = None,
         run_id: Optional[str] = None,
     ) -> pd.DataFrame:
@@ -59,7 +59,7 @@ class BacktestVisualizer:
             bars_query = f"""
                 SELECT timestamp, open, high, low, close, volume, dollar_volume
                 FROM bar_data_logs
-                WHERE market_id = '{market_id}'
+                WHERE instrument_id = '{instrument_id}'
                 ORDER BY timestamp ASC
             """
             df_bars = pd.read_sql(bars_query, session.bind)
@@ -72,7 +72,7 @@ class BacktestVisualizer:
                     logger.warning(f"Failed to query primary DB for bars: {e}")
 
             if df_bars.empty:
-                logger.warning(f"No bar data found for market: {market_id}")
+                logger.warning(f"No bar data found for market: {instrument_id}")
                 return pd.DataFrame()
 
             df_bars["timestamp"] = pd.to_datetime(df_bars["timestamp"], utc=True)
@@ -86,7 +86,7 @@ class BacktestVisualizer:
             preds_query = f"""
                 SELECT timestamp, strategy_name, prediction_output, predicted_signal, confidence, actual_future_return
                 FROM prediction_logs
-                WHERE market_id = '{market_id}' {pred_filter}
+                WHERE instrument_id = '{instrument_id}' {pred_filter}
                 ORDER BY timestamp ASC
             """
             df_preds = pd.read_sql(preds_query, session.bind)
@@ -105,9 +105,9 @@ class BacktestVisualizer:
             # 3. Query filled orders as trades
             trade_filter = f" AND run_id = '{run_id}'" if run_id else ""
             trades_query = f"""
-                SELECT updated_at as timestamp, side, filled_size as size, avg_fill_price as price
+                SELECT updated_at as timestamp, side, filled_quantity as quantity, avg_fill_price as price
                 FROM order_logs
-                WHERE market_id = '{market_id}' AND status = 'FILLED' {trade_filter}
+                WHERE instrument_id = '{instrument_id}' AND status = 'FILLED' {trade_filter}
                 ORDER BY timestamp ASC
             """
             df_trades = pd.read_sql(trades_query, session.bind)
@@ -171,7 +171,7 @@ class BacktestVisualizer:
             session.close()
 
     def get_available_runs(
-        self, market_id: str, strategy_name: Optional[str] = None
+        self, instrument_id: str, strategy_name: Optional[str] = None
     ) -> List[str]:
         """
         Retrieves all available run_ids for a given market and strategy,
@@ -188,7 +188,7 @@ class BacktestVisualizer:
             query = f"""
                 SELECT run_id, MIN(timestamp) as min_ts
                 FROM prediction_logs
-                WHERE market_id = '{market_id}' {strategy_filter}
+                WHERE instrument_id = '{instrument_id}' {strategy_filter}
                 GROUP BY run_id
                 ORDER BY min_ts DESC
             """
@@ -208,38 +208,39 @@ class BacktestVisualizer:
         session = self.SessionLocal()
         try:
             query = """
-                SELECT DISTINCT market_id, strategy_name
+                SELECT DISTINCT instrument_id, strategy_name
                 FROM prediction_logs
             """
             df = pd.read_sql(query, session.bind)
             if df.empty:
                 # Fallback to general markets or bar logs
                 df_m = pd.read_sql(
-                    "SELECT DISTINCT market_id FROM bar_data_logs", session.bind
+                    "SELECT DISTINCT instrument_id FROM bar_data_logs", session.bind
                 )
                 if df_m.empty:
                     try:
                         primary_engine = create_db_engine(get_settings().DATABASE_URL)
                         df_m = pd.read_sql(
-                            "SELECT DISTINCT market_id FROM bar_data_logs",
+                            "SELECT DISTINCT instrument_id FROM bar_data_logs",
                             primary_engine,
                         )
                         if df_m.empty:
                             df_m = pd.read_sql(
-                                "SELECT DISTINCT market_id FROM markets", primary_engine
+                                "SELECT DISTINCT instrument_id FROM markets",
+                                primary_engine,
                             )
                     except Exception:
                         pass
                 if df_m.empty:
                     df_m = pd.read_sql(
-                        "SELECT DISTINCT market_id FROM markets", session.bind
+                        "SELECT DISTINCT instrument_id FROM markets", session.bind
                     )
-                markets = df_m["market_id"].tolist() if not df_m.empty else []
+                markets = df_m["instrument_id"].tolist() if not df_m.empty else []
                 return {m: ["None"] for m in markets}
 
             result = {}
-            for m in df["market_id"].unique():
-                result[m] = df[df["market_id"] == m]["strategy_name"].tolist()
+            for m in df["instrument_id"].unique():
+                result[m] = df[df["instrument_id"] == m]["strategy_name"].tolist()
             return result
         except Exception:
             return {}
@@ -297,7 +298,7 @@ class BacktestVisualizer:
 
         return df
 
-    def render_charts(self, df: pd.DataFrame, market_id: str) -> go.Figure:
+    def render_charts(self, df: pd.DataFrame, instrument_id: str) -> go.Figure:
         """
         Generates a Plotly subplot showing:
         1. Candlestick chart with trade overlays.
@@ -311,7 +312,7 @@ class BacktestVisualizer:
             shared_xaxes=True,
             vertical_spacing=0.08,
             subplot_titles=(
-                f"{market_id} Price Action & Executed Trades",
+                f"{instrument_id} Price Action & Executed Trades",
                 "Performance: Cumulative Strategy Returns vs Buy & Hold",
             ),
             row_heights=[0.6, 0.4],

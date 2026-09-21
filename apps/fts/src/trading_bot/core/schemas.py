@@ -12,6 +12,14 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
+from quant_core.models import (
+    CashBalance,
+    ExecutionResult,
+    Instrument,
+    OrderRequest,
+    Portfolio,
+    Position,
+)
 
 # Refactored: MarketOutcome removed
 from .enums import AlertSeverity, BarType, OrderSide, OrderStatus, OrderType, SignalType
@@ -33,7 +41,7 @@ class PriceLevel(BaseModel):
     price: float = Field(
         ..., description="The price of the orders at this level.", gt=0
     )
-    size: float = Field(
+    quantity: float = Field(
         ...,
         description="The total volume (number of shares) of orders at price level.",
         ge=0,
@@ -66,7 +74,7 @@ class Trade(BaseModel):
     price: float = Field(
         ..., description="The price at which the trade was executed.", gt=0
     )
-    size: float = Field(
+    quantity: float = Field(
         ..., description="The volume (number of shares) of the trade.", gt=0
     )
     timestamp: datetime = Field(
@@ -85,26 +93,7 @@ class Trade(BaseModel):
     )
 
 
-class MarketDetails(BaseModel):
-    """
-    Contains static, descriptive information about a market (e.g., its
-    question, resolution criteria, and end date).
-    """
-
-    market_id: str = Field(..., description="The unique identifier for the market.")
-    name: str = Field(
-        ...,
-        description="""The human-readable name or question of the market
-        (e.g., 'Will X happen by Y?' or 'AAPL Stock').""",
-    )
-    end_date: datetime = Field(
-        ..., description="The timestamp when the market is scheduled to resolve."
-    )
-    resolution_source: str = Field(
-        ...,
-        description="""The official source that will be used to
-        determine the market's outcome.""",
-    )
+MarketDetails = Instrument
 
 
 class BarData(BaseModel):
@@ -136,7 +125,7 @@ class MarketData(BaseModel):
     primary object produced by a BaseMarketDataProvider.
     """
 
-    market_id: str = Field(
+    instrument_id: str = Field(
         ..., description="The unique identifier for the market this data pertains to."
     )
     order_book: Optional[OrderBook] = Field(
@@ -146,7 +135,7 @@ class MarketData(BaseModel):
         None,
         description="A list of recently executed trades for this market, if available.",
     )
-    details: MarketDetails = Field(..., description="The static details of the market.")
+    details: Instrument = Field(..., description="The static details of the market.")
     recent_bars: List[BarData] = Field(
         default_factory=list,
         description="A list of recent aggregated bars for this market.",
@@ -185,7 +174,7 @@ class IngestionEngineOutput(BaseModel):
         ..., description="The time this data packet was generated."
     )
     market_data: Dict[str, MarketData] = Field(
-        ..., description="A dictionary mapping market_id to its latest MarketData."
+        ..., description="A dictionary mapping instrument_id to its latest MarketData."
     )
     external_data: List[ExternalData] = Field(
         ...,
@@ -193,7 +182,7 @@ class IngestionEngineOutput(BaseModel):
     )
     bars: Dict[str, List[BarData]] = Field(
         default_factory=dict,
-        description="A dictionary mapping market_id to its latest aggregated bars.",
+        description="A dictionary mapping instrument_id to its latest aggregated bars.",
     )
 
 
@@ -204,7 +193,7 @@ class TradeSignal(BaseModel):
     Risk Manager for sizing and approval.
     """
 
-    market_id: str = Field(
+    instrument_id: str = Field(
         ..., description="The unique identifier of the market to trade in."
     )
     strategy_name: str = Field(
@@ -240,50 +229,6 @@ class TradeSignal(BaseModel):
 # --- Module 3: Risk & Position Management Schemas ---
 
 
-class Position(BaseModel):
-    """
-    Represents a single held position (an asset) in the portfolio.
-    """
-
-    market_id: str = Field(..., description="The market this position is in.")
-    outcome: Optional[str] = Field(
-        None,
-        description="""
-        The prediction market outcome, if applicable (e.g. 'yes' or 'no').
-        """,
-    )
-    size: float = Field(
-        ...,
-        description="The number of shares held. Positive for long, negative for short.",
-    )
-    entry_price: float = Field(
-        ..., description="The average price at which the position was entered.", ge=0
-    )
-    run_id: Optional[str] = Field(
-        None, description="The backtest or session run ID associated with the position."
-    )
-
-
-class PortfolioState(BaseModel):
-    """
-    A snapshot of the portfolio's current state, used for risk calculations.
-    """
-
-    total_balance_quote: float = Field(
-        ..., description="Total account value in the quote currency (e.g., USD)."
-    )
-    available_balance_quote: float = Field(
-        ..., description="Quote currency not tied up in orders or positions."
-    )
-
-    positions: List[Position] = Field(
-        ..., description="List of all currently held positions."
-    )
-    open_orders: List["OrderRequest"] = Field(
-        ..., description="List of all orders active on the exchange."
-    )
-
-
 class SizingInput(BaseModel):
     """
     The data packet required by a BaseSizingStrategy to calculate an order size.
@@ -294,7 +239,7 @@ class SizingInput(BaseModel):
     market_data: MarketData = Field(
         ..., description="The current market data for the signaled market."
     )
-    portfolio_state: PortfolioState = Field(
+    portfolio_state: Portfolio = Field(
         ..., description="The current state of the portfolio."
     )
 
@@ -310,72 +255,12 @@ class SizingOutput(BaseModel):
         description="The amount of quote currency to allocate. 0 means no trade.",
         ge=0,
     )
-    size_shares: float = Field(
+    quantity_shares: float = Field(
         ..., description="The number of shares to trade. 0 means no trade.", ge=0
     )
 
 
 # --- Module 4: Execution Engine Schemas ---
-
-
-class OrderRequest(BaseModel):
-    """
-    The primary output of the Risk Manager. This is a concrete,
-    sized, and risk-checked order that is sent to the
-    Execution Engine to be placed on the exchange.
-    """
-
-    market_id: str = Field(..., description="The market to place the order in.")
-    side: OrderSide = Field(..., description="The side of the order (BUY or SELL).")
-    outcome: Optional[str] = Field(
-        None,
-        description="""
-        The specific outcome to trade,
-        if this is a prediction market (e.g. 'yes' or 'no').
-        """,
-    )
-    size: float = Field(..., description="The exact number of shares to trade.", gt=0)
-    price: float = Field(
-        ...,
-        description="""The limit price for the order.
-        The order should not be filled at a worse price.""",
-        gt=0,
-    )
-    order_type: OrderType = Field(
-        OrderType.LIMIT,
-        description="The type of order (LIMIT, MARKET, STOP).",
-    )
-
-
-class ExecutionResult(BaseModel):
-    """
-    The primary output of the Execution Engine. This object provides
-    feedback on the status of a placed (or failed) order.
-    """
-
-    order_id: str = Field(
-        ...,
-        description="""The unique identifier for the order
-        (can be assigned by us or the exchange).""",
-    )
-    status: OrderStatus = Field(
-        ..., description="The current status of the order (e.g., OPEN, FILLED, FAILED)."
-    )
-    filled_size: float = Field(
-        ...,
-        description="The total number of shares that have been filled for this order.",
-        ge=0,
-    )
-    avg_price: float = Field(
-        ..., description="The average price at which the shares were filled.", ge=0
-    )
-    timestamp: datetime = Field(
-        ..., description="The timestamp of this execution status update."
-    )
-    order_type: OrderType = Field(
-        OrderType.LIMIT,
-        description="The type of order (LIMIT, MARKET, STOP).",
-    )
 
 
 # --- Module 5: Monitoring Schemas (Add to schemas.py) ---
@@ -406,7 +291,7 @@ class ModelCatalogItem(BaseModel):
     model_id: str = Field(..., description="Unique model identifier.")
     run_id: Optional[str] = Field(None, description="Linked training run ID.")
     model_type: str = Field(..., description="Algorithm/architecture type.")
-    market_id: str = Field(..., description="Market identifier.")
+    instrument_id: str = Field(..., description="Market identifier.")
     interval: str = Field(..., description="Bar time resolution.")
     horizon: int = Field(..., description="Prediction horizon step size.")
     dataset_id: Optional[str] = Field(None, description="Source dataset ID.")
@@ -431,7 +316,7 @@ class ModelDetailDTO(BaseModel):
     model_id: str = Field(..., description="Unique model identifier.")
     run_id: Optional[str] = Field(None, description="Linked training run ID.")
     model_type: str = Field(..., description="Algorithm/architecture type.")
-    market_id: str = Field(..., description="Market identifier.")
+    instrument_id: str = Field(..., description="Market identifier.")
     interval: str = Field(..., description="Bar time resolution.")
     horizon: int = Field(..., description="Prediction horizon step size.")
     dataset_id: Optional[str] = Field(None, description="Source dataset ID.")
@@ -457,7 +342,7 @@ class BacktestRunCatalogItem(BaseModel):
 
     run_id: str = Field(..., description="Unique backtest simulation run ID.")
     strategy_name: str = Field("unknown", description="Strategy algorithm name.")
-    market_id: str = Field(
+    instrument_id: str = Field(
         "all", description="Market identifier or multi-market scope."
     )
     model_id: Optional[str] = Field(None, description="Linked model ID.")
@@ -482,7 +367,7 @@ class BacktestDetailDTO(BaseModel):
 
     run_id: str = Field(..., description="Unique backtest simulation run ID.")
     strategy_name: str = Field("unknown", description="Strategy algorithm name.")
-    market_id: str = Field("all", description="Market identifier.")
+    instrument_id: str = Field("all", description="Market identifier.")
     start_time: Optional[datetime] = Field(
         None, description="Simulation start timestamp."
     )

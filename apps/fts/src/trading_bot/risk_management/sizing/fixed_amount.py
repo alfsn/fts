@@ -42,18 +42,18 @@ class FixedAmountSizer(BaseSizingStrategy):
         :return: A SizingOutput object.
         """
         if input_data.signal.signal_type == SignalType.HOLD:
-            return SizingOutput(amount_quote=0, size_shares=0)
+            return SizingOutput(amount_quote=0, quantity_shares=0)
 
         price = self._get_execution_price(input_data)
 
         if price <= 1e-6:  # Avoid division by zero
             logger.warning(
-                f"Invalid price ({price}) for {input_data.signal.market_id}. "
+                f"Invalid price ({price}) for {input_data.signal.instrument_id}. "
                 "Returning zero size."
             )
-            return SizingOutput(amount_quote=0, size_shares=0)
+            return SizingOutput(amount_quote=0, quantity_shares=0)
 
         size_shares = self.default_amount_quote / price
         return SizingOutput(
-            amount_quote=self.default_amount_quote, size_shares=size_shares
+            amount_quote=self.default_amount_quote, quantity_shares=size_shares
         )

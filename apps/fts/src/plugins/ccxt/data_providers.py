@@ -1,20 +1,22 @@
-# src/plugins/ccxt/data_providers.py
-
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Sequence
 
 import ccxt
-from trading_bot.core.enums import BarType, OrderSide
+from quant_core.enums import AssetType, BarType, Geography, OrderSide
+from quant_core.models import TradFiDetails
 from trading_bot.core.schemas import (
     BarData,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     PriceLevel,
     Trade,
 )
 from trading_bot.data_ingestion.abc import BaseMarketDataProvider
+
+# src/plugins/ccxt/data_providers.py
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +61,7 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             self.config["enableRateLimit"] = True
         self.exchange = exchange_class(self.config)
 
-    def list_tradable_markets(self) -> Sequence[MarketDetails]:
+    def list_tradable_markets(self) -> Sequence[Instrument]:
         """
         Fetches all active markets from the exchange.
         """
@@ -70,11 +72,15 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
                 # Filter active markets if the exchange provides that flag
                 if info.get("active", True):
                     results.append(
-                        MarketDetails(
-                            market_id=symbol,
+                        Instrument(
+                            instrument_id=symbol,
                             name=f"{self.exchange_id.upper()} {symbol}",
-                            end_date=datetime.max.replace(tzinfo=timezone.utc),
-                            resolution_source=self.exchange_id,
+                            details=TradFiDetails(
+                                asset_type=AssetType.CRYPTO,
+                                geography=Geography.GLOBAL,
+                                industry="Crypto",
+                                currency="USD",
+                            ),
                         )
                     )
             return results
@@ -82,34 +88,38 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             logger.error(f"Failed to load markets for exchange {self.exchange_id}: {e}")
             return []
 
-    def get_market_details(self, market_id: str) -> MarketDetails:
+    def get_market_details(self, instrument_id: str) -> Instrument:
         """
         Returns static information for a single symbol.
         """
-        return MarketDetails(
-            market_id=market_id,
-            name=f"{self.exchange_id.upper()} {market_id}",
-            end_date=datetime.max.replace(tzinfo=timezone.utc),
-            resolution_source=self.exchange_id,
+        return Instrument(
+            instrument_id=instrument_id,
+            name=f"{self.exchange_id.upper()} {instrument_id}",
+            details=TradFiDetails(
+                asset_type=AssetType.CRYPTO,
+                geography=Geography.GLOBAL,
+                industry="Crypto",
+                currency="USD",
+            ),
         )
 
-    def get_order_book(self, market_id: str) -> OrderBook:
+    def get_order_book(self, instrument_id: str) -> OrderBook:
         """
         Fetches the current L2 order book from the exchange.
         """
         try:
-            raw_ob = self.exchange.fetch_order_book(market_id)
+            raw_ob = self.exchange.fetch_order_book(instrument_id)
             timestamp = datetime.fromtimestamp(
                 (raw_ob.get("timestamp") or self.exchange.milliseconds()) / 1000.0,
                 tz=timezone.utc,
             )
 
             bids = [
-                PriceLevel(price=float(bid[0]), size=float(bid[1]))
+                PriceLevel(price=float(bid[0]), quantity=float(bid[1]))
                 for bid in raw_ob.get("bids", [])
             ]
             asks = [
-                PriceLevel(price=float(ask[0]), size=float(ask[1]))
+                PriceLevel(price=float(ask[0]), quantity=float(ask[1]))
                 for ask in raw_ob.get("asks", [])
             ]
 
@@ -119,19 +129,19 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             )
         except Exception as e:
             logger.error(
-                f"Failed to fetch order book for {market_id} from {self.exchange_id}: {e}"
+                f"Failed to fetch order book for {instrument_id} from {self.exchange_id}: {e}"
             )
             return OrderBook(
                 bids=[],
                 asks=[],
             )
 
-    def get_trade_history(self, market_id: str) -> Sequence[Trade]:
+    def get_trade_history(self, instrument_id: str) -> Sequence[Trade]:
         """
         Fetches recent public trades for a symbol.
         """
         try:
-            raw_trades = self.exchange.fetch_trades(market_id)
+            raw_trades = self.exchange.fetch_trades(instrument_id)
             trades = []
             for t in raw_trades:
                 ts = datetime.fromtimestamp(t["timestamp"] / 1000.0, tz=timezone.utc)
@@ -142,20 +152,20 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
                     Trade(
                         timestamp=ts,
                         price=float(t["price"]),
-                        size=float(t["amount"]),
+                        quantity=float(t["amount"]),
                         side=side,
                     )
                 )
             return trades
         except Exception as e:
             logger.error(
-                f"Failed to fetch trade history for {market_id} from {self.exchange_id}: {e}"
+                f"Failed to fetch trade history for {instrument_id} from {self.exchange_id}: {e}"
             )
             return []
 
     def get_bars(
         self,
-        market_id: str,
+        instrument_id: str,
         count: int = 100,
         until: Optional[datetime] = None,
         since: Optional[datetime] = None,
@@ -163,7 +173,7 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
         """
         Downloads historical candlesticks (OHLCV) from the exchange in batches.
 
-        :param market_id: Symbol identifier (e.g. 'BTC/USDT').
+        :param instrument_id: Symbol identifier (e.g. 'BTC/USDT').
         :param count: Total number of bars requested.
         :param until: Optional cutoff datetime (inclusive end).
         :param since: Optional starting datetime (inclusive start).
@@ -200,7 +210,7 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             if count <= 1000 and since_ms is None and until_ms is None:
                 ohlcv_data = [
                     self.exchange.fetch_ohlcv(
-                        market_id, timeframe=self.timeframe, limit=count
+                        instrument_id, timeframe=self.timeframe, limit=count
                     )
                 ]
             else:
@@ -216,10 +226,10 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
                         fetch_kwargs["since"] = current_since
 
                     logger.info(
-                        f"Fetching CCXT batch: symbol={market_id}, since={current_since}, limit={batch_limit}"
+                        f"Fetching CCXT batch: symbol={instrument_id}, since={current_since}, limit={batch_limit}"
                     )
                     batch = self.exchange.fetch_ohlcv(
-                        market_id, timeframe=self.timeframe, **fetch_kwargs
+                        instrument_id, timeframe=self.timeframe, **fetch_kwargs
                     )
 
                     if not batch:
@@ -287,6 +297,6 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             return bars
         except Exception as e:
             logger.error(
-                f"Failed to fetch bars for {market_id} from {self.exchange_id}: {e}"
+                f"Failed to fetch bars for {instrument_id} from {self.exchange_id}: {e}"
             )
             return []

@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from quant_core.enums import OrderSide
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ..core.enums import OrderSide
 from ..core.models import OrderLog as OrderLogModel
 from ..core.schemas import (
     ExecutionResult,
@@ -88,8 +88,8 @@ class ExecutionEngine:
         :return: An ExecutionResult object with the final status
         """
         logger.info(
-            f"[{strategy_name}] Executing order for {order.market_id}: "
-            f"{order.side.value} {order.size:.4f} shares @ ${order.price:.4f}"
+            f"[{strategy_name}] Executing order for {order.instrument_id}: "
+            f"{order.side.value} {order.quantity:.4f} shares @ ${order.price:.4f}"
         )
 
         result: Optional[ExecutionResult] = None
@@ -98,13 +98,13 @@ class ExecutionEngine:
         try:
             result = self.handler.execute_order(order)
             logger.info(
-                f"Handler returned result for {order.market_id}: "
+                f"Handler returned result for {order.instrument_id}: "
                 f"ID: {result.order_id}, Status: {result.status}"
             )
 
         except Exception as e:
             logger.error(
-                f"Execution API call failed for {order.market_id}: {e}",
+                f"Execution API call failed for {order.instrument_id}: {e}",
                 exc_info=True,
             )
             # Create a failed result but DON'T proceed with portfolio updates
@@ -314,10 +314,10 @@ class ExecutionEngine:
         if not log:
             log = OrderLogModel(
                 order_id=result.order_id,
-                market_id=order.market_id,
+                instrument_id=order.instrument_id,
                 strategy_name=strategy_name,
                 side=order.side,
-                requested_size=order.size,
+                requested_quantity=order.quantity,
                 requested_price=order.price,
                 run_id=self.run_id,
             )
@@ -330,7 +330,7 @@ class ExecutionEngine:
     ):
         """Updates an existing order log entry."""
         log.status = result.status
-        log.filled_size = result.filled_size
+        log.filled_quantity = result.filled_quantity
         log.avg_fill_price = result.avg_price
         log.updated_at = datetime.now(timezone.utc)
         if self.run_id:
@@ -359,7 +359,7 @@ class ExecutionEngine:
         return ExecutionResult(
             order_id=synthetic_id,
             status=OrderStatus.FAILED,
-            filled_size=0,
+            filled_quantity=0,
             avg_price=0,
             timestamp=datetime.now(timezone.utc),
         )
@@ -371,7 +371,7 @@ class ExecutionEngine:
         return ExecutionResult(
             order_id=order_id,
             status=status,
-            filled_size=0,
+            filled_quantity=0,
             avg_price=0,
             timestamp=datetime.now(timezone.utc),
         )
@@ -419,13 +419,13 @@ class ExecutionEngine:
         try:
             log = OrderLogModel(
                 order_id=order_id,
-                market_id="UNKNOWN_MARKET",  # Would need to fetch from exchange
+                instrument_id="UNKNOWN_MARKET",  # Would need to fetch from exchange
                 strategy_name="reconciled",
                 side=OrderSide.BUY,  # Would need to fetch from exchange
-                requested_size=result.filled_size,
+                requested_quantity=result.filled_quantity,
                 requested_price=result.avg_price,
                 status=result.status,
-                filled_size=result.filled_size,
+                filled_quantity=result.filled_quantity,
                 avg_fill_price=result.avg_price,
             )
             db.add(log)
@@ -450,8 +450,8 @@ class ExecutionEngine:
         logger.critical(
             f"PORTFOLIO DESYNC DETECTED for order {order_id}. "
             f"Manual reconciliation required. Order details: "
-            f"market={order.market_id}, side={order.side.value}, "
-            f"size={order.size}, status={result.status.value}"
+            f"market={order.instrument_id}, side={order.side.value}, "
+            f"quantity={order.quantity}, status={result.status.value}"
         )
 
         # In production, you would:

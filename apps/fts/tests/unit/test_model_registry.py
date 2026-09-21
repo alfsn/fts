@@ -28,7 +28,7 @@ def test_model_registration_and_retrieval(test_db):
     # 1. Create a TimeSeriesDataset entry
     dataset_hash = "abc123xyz7890000000000000000000000000000000000000000000000000000"
     dataset = repo.get_or_create_dataset(
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         interval="1h",
         start_time=datetime(2026, 6, 27, 0, 0, tzinfo=timezone.utc),
         end_time=datetime(2026, 6, 27, 12, 0, tzinfo=timezone.utc),
@@ -48,7 +48,7 @@ def test_model_registration_and_retrieval(test_db):
     repo.register_model(
         model_id=model_id,
         model_type="lstm",
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         interval="1h",
         horizon=1,
         onnx_path="models/registry/trials/test.onnx",
@@ -65,7 +65,7 @@ def test_model_registration_and_retrieval(test_db):
     assert model is not None
     assert model.model_id == model_id
     assert model.model_type == "lstm"
-    assert model.market_id == "BTC_USD"
+    assert model.instrument_id == "BTC_USD"
     assert model.interval == "1h"
     assert model.horizon == 1
     assert model.onnx_path == "models/registry/trials/test.onnx"
@@ -73,7 +73,7 @@ def test_model_registration_and_retrieval(test_db):
     assert model.metrics == metrics
     assert model.status == "candidate"
     assert model.dataset_id == "ds_abc123xyz789"
-    assert model.dataset.market_id == "BTC_USD"
+    assert model.dataset.instrument_id == "BTC_USD"
     assert model.dataset.hash == dataset_hash
 
 
@@ -101,7 +101,7 @@ def test_model_promotion_flow(test_db, tmp_path):
     repo.register_model(
         model_id=model_id_1,
         model_type="lstm",
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         interval="1h",
         horizon=1,
         onnx_path=str(onnx_path_1),
@@ -112,7 +112,7 @@ def test_model_promotion_flow(test_db, tmp_path):
     repo.register_model(
         model_id=model_id_2,
         model_type="lstm",
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         interval="1h",
         horizon=1,
         onnx_path=str(onnx_path_2),
@@ -124,7 +124,7 @@ def test_model_promotion_flow(test_db, tmp_path):
 
     # Verify no production model exists initially
     prod_model = repo.get_production_model(
-        model_type="lstm", market_id="BTC_USD", interval="1h", horizon=1
+        model_type="lstm", instrument_id="BTC_USD", interval="1h", horizon=1
     )
     assert prod_model is None
 
@@ -134,7 +134,7 @@ def test_model_promotion_flow(test_db, tmp_path):
 
     # Verify model_1 is now production, status updated, path promoted
     prod_model = repo.get_production_model(
-        model_type="lstm", market_id="BTC_USD", interval="1h", horizon=1
+        model_type="lstm", instrument_id="BTC_USD", interval="1h", horizon=1
     )
     assert prod_model is not None
     assert prod_model.model_id == model_id_1
@@ -159,7 +159,7 @@ def test_partial_unique_index_constraint(test_db):
     m1 = ModelRegistryLog(
         model_id="model_1",
         model_type="lstm",
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         interval="1h",
         horizon=1,
         onnx_path="test.onnx",
@@ -170,7 +170,7 @@ def test_partial_unique_index_constraint(test_db):
     m2 = ModelRegistryLog(
         model_id="model_2",
         model_type="lstm",
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         interval="1h",
         horizon=1,
         onnx_path="test2.onnx",
@@ -193,7 +193,7 @@ def test_register_duplicate_model_id_idempotent(test_db):
     m1 = repo.register_model(
         model_id=model_id,
         model_type="linear_regression",
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         interval="30m",
         horizon=1,
         onnx_path="test_path_1.onnx",
@@ -207,7 +207,7 @@ def test_register_duplicate_model_id_idempotent(test_db):
     m2 = repo.register_model(
         model_id=model_id,
         model_type="linear_regression",
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         interval="30m",
         horizon=1,
         onnx_path="test_path_2.onnx",
@@ -228,7 +228,7 @@ def test_model_retrieval_by_feature_cols(test_db):
     repo.register_model(
         model_id="model_close_123",
         model_type="lstm",
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         interval="30m",
         horizon=1,
         onnx_path="models/close.onnx",
@@ -241,7 +241,7 @@ def test_model_retrieval_by_feature_cols(test_db):
     repo.register_model(
         model_id="model_ohlcv_456",
         model_type="lstm",
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         interval="30m",
         horizon=1,
         onnx_path="models/ohlcv.onnx",
@@ -254,7 +254,7 @@ def test_model_retrieval_by_feature_cols(test_db):
     # Query for candidate matching OHLCV features
     ohlcv_model = repo.get_candidate_model(
         model_type="lstm",
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         interval="30m",
         horizon=1,
         feature_cols=["open", "high", "low", "close", "volume"],
@@ -265,7 +265,7 @@ def test_model_retrieval_by_feature_cols(test_db):
     # Query for candidate matching close features
     close_model = repo.get_candidate_model(
         model_type="lstm",
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         interval="30m",
         horizon=1,
         feature_cols=["close"],
@@ -276,7 +276,7 @@ def test_model_retrieval_by_feature_cols(test_db):
     # Query for non-existent feature set returns None
     missing_model = repo.get_candidate_model(
         model_type="lstm",
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         interval="30m",
         horizon=1,
         feature_cols=["open", "close"],

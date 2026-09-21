@@ -64,9 +64,9 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
         Queues the order for future execution based on the delay model.
         """
         order_id = f"sim-{uuid.uuid4().hex[:8]}"
-        market_id = order.market_id
+        instrument_id = order.instrument_id
 
-        current_tick = self._market_tick_counts.get(market_id, 0)
+        current_tick = self._market_tick_counts.get(instrument_id, 0)
         target_tick = self.delay_model.calculate_execution_tick(current_tick)
 
         self._pending_orders[order_id] = {
@@ -82,7 +82,7 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
         return ExecutionResult(
             order_id=order_id,
             status=OrderStatus.OPEN,
-            filled_size=0.0,
+            filled_quantity=0.0,
             avg_price=0.0,
             timestamp=datetime.now(timezone.utc),
             order_type=order.order_type,
@@ -97,7 +97,7 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
             result = ExecutionResult(
                 order_id=order_id,
                 status=OrderStatus.CANCELLED,
-                filled_size=0.0,
+                filled_quantity=0.0,
                 avg_price=0.0,
                 timestamp=datetime.now(timezone.utc),
             )
@@ -121,7 +121,7 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
             return ExecutionResult(
                 order_id=order_id,
                 status=OrderStatus.OPEN,
-                filled_size=0.0,
+                filled_quantity=0.0,
                 avg_price=0.0,
                 timestamp=datetime.now(timezone.utc),
             )
@@ -138,12 +138,12 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
         Advances the state of markets and executes any due orders.
         """
         # 1. Update tick counters and latest bars
-        for market_id, market_data in ingestion_output.market_data.items():
+        for instrument_id, market_data in ingestion_output.market_data.items():
             if market_data.recent_bars:
                 latest_bar = market_data.recent_bars[-1]
-                self._latest_bars[market_id] = latest_bar
-                self._market_tick_counts[market_id] = (
-                    self._market_tick_counts.get(market_id, 0) + 1
+                self._latest_bars[instrument_id] = latest_bar
+                self._market_tick_counts[instrument_id] = (
+                    self._market_tick_counts.get(instrument_id, 0) + 1
                 )
 
         # 2. Check pending orders and fill those that have reached their target tick
@@ -151,14 +151,14 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
             pending = self._pending_orders[order_id]
             order = pending["order"]
             target_tick = pending["execution_tick_index"]
-            market_id = order.market_id
+            instrument_id = order.instrument_id
 
-            current_tick = self._market_tick_counts.get(market_id, 0)
+            current_tick = self._market_tick_counts.get(instrument_id, 0)
             if current_tick >= target_tick:
-                latest_bar = self._latest_bars.get(market_id)
+                latest_bar = self._latest_bars.get(instrument_id)
                 if not latest_bar:
                     logger.warning(
-                        f"Cannot fill order {order_id} - no bar data available for market {market_id}"
+                        f"Cannot fill order {order_id} - no bar data available for market {instrument_id}"
                     )
                     continue
 
@@ -175,7 +175,7 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
                 result = ExecutionResult(
                     order_id=order_id,
                     status=OrderStatus.FILLED,
-                    filled_size=order.size,
+                    filled_quantity=order.quantity,
                     avg_price=executed_price,
                     timestamp=latest_bar.timestamp,
                     order_type=order.order_type,
@@ -184,16 +184,16 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
                 self._pending_orders.pop(order_id)
 
                 # Keep local simulated balances updated
-                cost = order.size * executed_price
+                cost = order.quantity * executed_price
                 if order.side == OrderSide.BUY:
                     self._balances["USD"] = self._balances.get("USD", 0.0) - cost
-                    self._balances[market_id] = (
-                        self._balances.get(market_id, 0.0) + order.size
+                    self._balances[instrument_id] = (
+                        self._balances.get(instrument_id, 0.0) + order.quantity
                     )
                 else:
                     self._balances["USD"] = self._balances.get("USD", 0.0) + cost
-                    self._balances[market_id] = (
-                        self._balances.get(market_id, 0.0) - order.size
+                    self._balances[instrument_id] = (
+                        self._balances.get(instrument_id, 0.0) - order.quantity
                     )
 
                 logger.info(

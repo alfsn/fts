@@ -4,11 +4,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import yaml
 from nets.training.hparam_search import run_hparam_search
+from quant_core.enums import AssetType, BarType, Geography
+from quant_core.models import Instrument, TradFiDetails
 from trading_bot.config import settings
 from trading_bot.core.database import Base, create_db_session, init_db
-from trading_bot.core.enums import BarType
 from trading_bot.core.repository import MarketDataRepository, ModelRepository
-from trading_bot.core.schemas import BarData, MarketDetails
+from trading_bot.core.schemas import BarData
 
 
 @pytest.fixture
@@ -22,6 +23,9 @@ def temp_db_and_config(tmp_path):
     from sqlalchemy import create_engine
 
     engine = create_engine(settings.DATABASE_URL)
+    from trading_bot.core.database import SessionLocal
+
+    SessionLocal.configure(bind=engine)
     init_db(extra_models=["trading_bot.core.models"], bind_engine=engine)
 
     # 2. Add mock bar data so training can run
@@ -30,11 +34,15 @@ def temp_db_and_config(tmp_path):
 
     # Ensure market exists
     market_repo.ensure_market(
-        MarketDetails(
-            market_id="BTC_USD",
+        Instrument(
+            instrument_id="BTC_USD",
             name="Bitcoin/USD Test",
-            end_date=datetime.now(timezone.utc) + timedelta(days=10),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         )
     )
 
@@ -68,7 +76,7 @@ def temp_db_and_config(tmp_path):
             "model_type": "lstm",
         },
         "market": {
-            "market_id": "BTC_USD",
+            "instrument_id": "BTC_USD",
             "interval": "1h",
         },
         "features": {
@@ -113,7 +121,7 @@ def test_hparam_search_and_promotion_integration(temp_db_and_config, tmp_path):
     for m in models:
         assert m.status == "candidate"
         assert m.model_type == "lstm"
-        assert m.market_id == "BTC_USD"
+        assert m.instrument_id == "BTC_USD"
         assert m.interval == "1h"
         assert m.horizon == 1
         assert os.path.exists(m.onnx_path)
@@ -125,7 +133,7 @@ def test_hparam_search_and_promotion_integration(temp_db_and_config, tmp_path):
 
     # Retrieve production model
     prod = model_repo.get_production_model(
-        model_type="lstm", market_id="BTC_USD", interval="1h", horizon=1
+        model_type="lstm", instrument_id="BTC_USD", interval="1h", horizon=1
     )
     assert prod is not None
     assert prod.model_id == best_candidate.model_id
@@ -161,7 +169,7 @@ def test_all_config_files_integration(temp_db_and_config, tmp_path):
             "n_trials": 1,
             "model_type": model_type,
         }
-        config_dict["market"] = {"market_id": "BTC_USD", "interval": "1h"}
+        config_dict["market"] = {"instrument_id": "BTC_USD", "interval": "1h"}
         config_dict["dates"] = {"start_date": None, "end_date": None}
 
         # neural network specific scaling-down for testing speed
@@ -191,7 +199,7 @@ def test_all_config_files_integration(temp_db_and_config, tmp_path):
         assert len(models) == 1, f"Failed to find registered model for {model_type}"
         m = models[0]
         assert m.status == "candidate"
-        assert m.market_id == "BTC_USD"
+        assert m.instrument_id == "BTC_USD"
         assert m.interval == "1h"
         assert os.path.exists(m.onnx_path)
 

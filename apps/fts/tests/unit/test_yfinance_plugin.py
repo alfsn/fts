@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from trading_bot.core.enums import BarType
+from quant_core.enums import BarType
 from yfinance_plugin.data_providers import YFinanceMarketDataProvider
 
 
@@ -13,9 +13,8 @@ def test_yfinance_market_details():
     provider = YFinanceMarketDataProvider()
     details = provider.get_market_details("AAPL")
 
-    assert details.market_id == "AAPL"
+    assert details.instrument_id == "AAPL"
     assert "AAPL" in details.name
-    assert details.resolution_source == "yfinance"
 
 
 @patch("yfinance_plugin.data_providers.yf.download")

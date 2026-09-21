@@ -174,7 +174,7 @@ def run_model_backtest(
         # Execute Historical Replay Loop via BacktestEngine
         data_reader = SQLBacktestDataReader(
             session=db,
-            market_id=model_entry.market_id,
+            instrument_id=model_entry.instrument_id,
             start_date=start_dt,
             end_date=end_dt,
         )
@@ -183,7 +183,7 @@ def run_model_backtest(
             pipeline=pipeline,
             data_reader=data_reader,
             db=db,
-            market_id=model_entry.market_id,
+            instrument_id=model_entry.instrument_id,
         )
         bt_result = bt_engine.run(run_id=run_id, clear_previous_run=True)
 
@@ -242,7 +242,7 @@ def run_parameter_sweep(
         sweep_name=spec.sweep_name,
         sweep_param=spec.sweep_param,
         sweep_values=spec.sweep_values,
-        market_id=spec.market.market_id,
+        instrument_id=spec.market.instrument_id,
     )
 
     for i, val in enumerate(spec.sweep_values):
@@ -257,7 +257,7 @@ def run_parameter_sweep(
         # 2. Train and register candidate model
         train_res = train_and_register_candidate(
             model_type=spec.model_type,
-            market_id=spec.market.market_id,
+            instrument_id=spec.market.instrument_id,
             interval=spec.market.interval,
             lookback_period=spec.features.lookback_period,
             feature_cols=spec.features.feature_cols,

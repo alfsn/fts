@@ -48,7 +48,7 @@ class TrainingResult:
 
 def train_and_register_candidate(
     model_type: str,
-    market_id: str,
+    instrument_id: str,
     interval: str,
     lookback_period: int,
     feature_cols: list,
@@ -77,13 +77,15 @@ def train_and_register_candidate(
     with SessionLocal() as db:
         market_repo = MarketDataRepository(db)
         raw_bars = market_repo.get_bars(
-            market_id,
+            instrument_id,
             interval=interval,
             start_date=start_dt,
             end_date=end_dt,
         )
         if not raw_bars:
-            raise ValueError(f"No bar data found in database for market {market_id}")
+            raise ValueError(
+                f"No bar data found in database for market {instrument_id}"
+            )
 
         bar_schemas = [
             BarData(
@@ -105,7 +107,7 @@ def train_and_register_candidate(
         dataset_full_hash = calculate_dataset_hash(sorted_raw_bars)
         model_repo = ModelRepository(db)
         dataset_obj = model_repo.get_or_create_dataset(
-            market_id=market_id,
+            instrument_id=instrument_id,
             interval=interval,
             start_time=sorted_raw_bars[0].timestamp,
             end_time=sorted_raw_bars[-1].timestamp,
@@ -170,7 +172,7 @@ def train_and_register_candidate(
             model_id=model_id,
             run_id=run_id,
             model_type=model_type,
-            market_id=market_id,
+            instrument_id=instrument_id,
             interval=interval,
             horizon=horizon,
             onnx_path=onnx_filename,

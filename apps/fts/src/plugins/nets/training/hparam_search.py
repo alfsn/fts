@@ -88,7 +88,7 @@ def run_hparam_search(
     init_db(extra_models=["trading_bot.core.models"])
 
     # Load data ONCE with short-lived session to prevent session leak
-    market_id = spec.market.market_id
+    instrument_id = spec.market.instrument_id
     interval = spec.market.interval
     start_dt = parse_datetime_param(start_date) or spec.dates.start_date
     end_dt = parse_datetime_param(end_date) or spec.dates.end_date
@@ -96,13 +96,15 @@ def run_hparam_search(
     with SessionLocal() as db:
         market_repo = MarketDataRepository(db)
         raw_bars = market_repo.get_bars(
-            market_id,
+            instrument_id,
             interval=interval,
             start_date=start_dt,
             end_date=end_dt,
         )
         if not raw_bars:
-            raise ValueError(f"No bar data found in database for market {market_id}")
+            raise ValueError(
+                f"No bar data found in database for market {instrument_id}"
+            )
 
         # Map BarData logs back to schema structures
         from trading_bot.core.schemas import BarData
@@ -128,7 +130,7 @@ def run_hparam_search(
         dataset_full_hash = calculate_dataset_hash(sorted_raw_bars)
         model_repo = ModelRepository(db)
         dataset_obj = model_repo.get_or_create_dataset(
-            market_id=market_id,
+            instrument_id=instrument_id,
             interval=interval,
             start_time=sorted_raw_bars[0].timestamp,
             end_time=sorted_raw_bars[-1].timestamp,
@@ -214,7 +216,7 @@ def run_hparam_search(
                 model_repo.register_model(
                     model_id=model_id,
                     model_type=model_type,
-                    market_id=market_id,
+                    instrument_id=instrument_id,
                     interval=interval,
                     horizon=training_config.horizon,
                     onnx_path=onnx_filename,
@@ -248,7 +250,7 @@ def run_hparam_search(
 def get_scored_models(
     db_session,
     model_type: str = None,
-    market_id: str = None,
+    instrument_id: str = None,
     interval: str = None,
     horizon: int = None,
     weight_ic: float = 0.4,
@@ -268,8 +270,8 @@ def get_scored_models(
     query = db_session.query(ModelRegistryLog)
     if model_type:
         query = query.filter(ModelRegistryLog.model_type == model_type)
-    if market_id:
-        query = query.filter(ModelRegistryLog.market_id == market_id)
+    if instrument_id:
+        query = query.filter(ModelRegistryLog.instrument_id == instrument_id)
     if interval:
         query = query.filter(ModelRegistryLog.interval == interval)
     if horizon is not None:

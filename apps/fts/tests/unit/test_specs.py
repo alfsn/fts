@@ -11,7 +11,7 @@ from trading_bot.core.spec_base import PROJECT_ROOT
 def test_backtest_spec_loading(tmp_path):
     yaml_content = """
 market:
-  market_id: "BTC/USDT"
+  instrument_id: "BTC/USDT"
   interval: "30m"
 
 dates:
@@ -42,7 +42,7 @@ output_dir: "../runs/reports"
 
     spec = BacktestSpec.from_yaml(spec_file)
 
-    assert spec.market.market_id == "BTC/USDT"
+    assert spec.market.instrument_id == "BTC/USDT"
     assert spec.model_type == "lstm"
     assert spec.market.interval == "30m"
     assert spec.execution.execution_delay_k == 1
@@ -64,7 +64,7 @@ study:
   model_type: "lstm"
 
 market:
-  market_id: "BTC/USDT"
+  instrument_id: "BTC/USDT"
   interval: "30m"
 
 dates:
@@ -109,19 +109,19 @@ def test_modular_spec_imports_and_overrides(tmp_path):
     # Component 1: Market
     market_comp = tmp_path / "market_comp.yaml"
     market_comp.write_text(
-        "market:\n  market_id: 'ETH/USDT'\n  interval: '1h'\n", encoding="utf-8"
+        "market:\n  instrument_id: 'ETH/USDT'\n  interval: '1h'\n", encoding="utf-8"
     )
 
-    # Top level spec overriding market_id but inheriting interval
+    # Top level spec overriding instrument_id but inheriting interval
     main_spec = tmp_path / "main_spec.yaml"
     main_spec.write_text(
-        f"imports:\n  - '{market_comp}'\nmarket:\n  market_id: 'SOL/USDT'\nmodel_type: 'cnn'\n",
+        f"imports:\n  - '{market_comp}'\nmarket:\n  instrument_id: 'SOL/USDT'\nmodel_type: 'cnn'\n",
         encoding="utf-8",
     )
 
     spec = BacktestSpec.from_yaml(main_spec)
 
-    assert spec.market.market_id == "SOL/USDT"  # Root override applied
+    assert spec.market.instrument_id == "SOL/USDT"  # Root override applied
     assert spec.market.interval == "1h"  # Inherited from component
     assert spec.model_type == "cnn"
 
@@ -149,7 +149,7 @@ def test_repo_specs_loading():
     # Verify canonical backtest spec load
     backtest_path = PROJECT_ROOT / "specs/backtests/BTCUSDT/lstm_close_backtest.yaml"
     bt_spec = BacktestSpec.from_yaml(backtest_path)
-    assert bt_spec.market.market_id == "BTC/USDT"
+    assert bt_spec.market.instrument_id == "BTC/USDT"
     assert bt_spec.market.interval == "30m"
     assert bt_spec.model_type == "lstm"
     assert bt_spec.execution.execution_delay_k == 1
@@ -157,7 +157,7 @@ def test_repo_specs_loading():
     # Verify canonical training spec load
     train_path = PROJECT_ROOT / "specs/train/BTCUSDT/lstm_hparam_ohlcv.yaml"
     tr_spec = HParamStudySpec.from_yaml(train_path)
-    assert tr_spec.market.market_id == "BTC/USDT"
+    assert tr_spec.market.instrument_id == "BTC/USDT"
     assert tr_spec.market.interval == "30m"
     assert tr_spec.study.model_type == "lstm"
     assert len(tr_spec.features.feature_cols) == 5

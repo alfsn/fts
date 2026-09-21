@@ -1,24 +1,25 @@
-# tests/integration/test_exec_risk_integration.py
-
 import logging
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from trading_bot.core.database import Base
-from trading_bot.core.enums import (
+from quant_core.enums import (
+    AssetType,
+    Geography,
     OrderSide,
     OrderStatus,
     SignalType,
 )
+from quant_core.models import Instrument, TradFiDetails
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from trading_bot.core.database import Base
 from trading_bot.core.models import OrderLog as OrderLogModel
 from trading_bot.core.models import Position as PositionModel
 from trading_bot.core.schemas import (
     ExecutionResult,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     PriceLevel,
     TradeSignal,
@@ -28,6 +29,9 @@ from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
+
+# tests/integration/test_exec_risk_integration.py
+
 
 # Set up logging for tests
 logging.basicConfig(level=logging.INFO)
@@ -106,17 +110,21 @@ def real_execution_engine(
 def mock_market_data() -> MarketData:
     """Returns a mock MarketData object with a live order book."""
     return MarketData(
-        market_id="MARKET_01",
+        instrument_id="MARKET_01",
         order_book=OrderBook(
-            bids=[PriceLevel(price=0.49, size=100)],
-            asks=[PriceLevel(price=0.51, size=100)],  # We will BUY at 0.51
+            bids=[PriceLevel(price=0.49, quantity=100)],
+            asks=[PriceLevel(price=0.51, quantity=100)],  # We will BUY at 0.51
         ),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MARKET_01",
+        details=Instrument(
+            instrument_id="MARKET_01",
             name="Test Market",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -131,7 +139,7 @@ def market_data_map(mock_market_data: MarketData) -> dict:
 def mock_buy_signal() -> TradeSignal:
     """Returns a simple BUY signal for MARKET_01."""
     return TradeSignal(
-        market_id="MARKET_01",
+        instrument_id="MARKET_01",
         strategy_name="integration_test_strat",
         signal_type=SignalType.BUY,
         confidence=0.7,  # High confidence
@@ -170,14 +178,14 @@ def test_full_order_lifecycle_integration(
     open_result = ExecutionResult(
         order_id=order_id,
         status=OrderStatus.OPEN,
-        filled_size=0,
+        filled_quantity=0,
         avg_price=0,
         timestamp=datetime.now(timezone.utc),
     )
     filled_result = ExecutionResult(
         order_id=order_id,
         status=OrderStatus.FILLED,
-        filled_size=196.0784,  # 100 / 0.51
+        filled_quantity=196.0784,  # 100 / 0.51
         avg_price=0.51,
         timestamp=datetime.now(timezone.utc),
     )
@@ -201,7 +209,7 @@ def test_full_order_lifecycle_integration(
     assert order_request is not None
     assert order_request.side == OrderSide.BUY
     assert order_request.price == 0.51
-    assert order_request.size == pytest.approx(100.0 / 0.51)
+    assert order_request.quantity == pytest.approx(100.0 / 0.51)
 
     # ExecutionEngine executes the order
     exec_result_open = real_execution_engine.execute_order(
@@ -225,10 +233,10 @@ def test_full_order_lifecycle_integration(
     # Check portfolio state: Cash should be committed, order tracked as open
     portfolio_state_open = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_open.open_orders) == 1
-    assert portfolio_state_open.open_orders[0].market_id == "MARKET_01"
-    assert portfolio_state_open.total_balance_quote == 10000.0  # No P&L yet
+    assert portfolio_state_open.open_orders[0].instrument_id == "MARKET_01"
+    assert portfolio_state_open.cash_balances[0].total == 10000.0  # No P&L yet
     # Available balance = 10000 - (100 / 0.51) * 0.51 = 9900.0
-    assert portfolio_state_open.available_balance_quote == pytest.approx(9900.0)
+    assert portfolio_state_open.cash_balances[0].available == pytest.approx(9900.0)
     assert len(portfolio_state_open.positions) == 0  # No position yet
 
     # --- 4. ACT (Flow 2: ExecutionEngine -> Portfolio) ---
@@ -251,31 +259,31 @@ def test_full_order_lifecycle_integration(
     # Check the database: The log should be updated to FILLED
     db.refresh(db_log)  # Refresh object from DB
     assert db_log.status == OrderStatus.FILLED
-    assert db_log.filled_size == filled_result.filled_size
+    assert db_log.filled_quantity == filled_result.filled_quantity
 
     # Check database: A new PositionModel should be created
     db_pos = (
         db.query(PositionModel)
         .filter_by(
-            market_id="MARKET_01",
+            instrument_id="MARKET_01",
         )
         .first()
     )
     assert db_pos is not None
-    assert db_pos.size == filled_result.filled_size
-    assert db_pos.entry_price == 0.51
+    assert db_pos.quantity == filled_result.filled_quantity
+    assert db_pos.cost_basis == 0.51
 
     # Check final portfolio state: Order is closed, position is open
     portfolio_state_filled = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_filled.open_orders) == 0
     assert len(portfolio_state_filled.positions) == 1
-    assert portfolio_state_filled.positions[0].size == filled_result.filled_size
-    assert portfolio_state_filled.positions[0].entry_price == 0.51
+    assert portfolio_state_filled.positions[0].quantity == filled_result.filled_quantity
+    assert portfolio_state_filled.positions[0].cost_basis == 0.51
 
     # Check cash: 10000 (start) - 100 (fill cost) = 9900
     assert real_portfolio._cash_balance == pytest.approx(9900.0)
     # Available and total should be equal now (minus unrealized P&L)
-    assert portfolio_state_filled.available_balance_quote == pytest.approx(9900.0)
+    assert portfolio_state_filled.cash_balances[0].available == pytest.approx(9900.0)
 
     # Total balance = 9900 (cash) + (position_size * current_bid_price)
     # position_size = 196.0784
@@ -283,8 +291,8 @@ def test_full_order_lifecycle_integration(
     # market_value = 196.0784 * 0.49 = 96.0784
     # total_balance = 9900 + 96.0784 = 9996.0784
     # This reflects the immediate unrealized loss from crossing the spread.
-    assert portfolio_state_filled.total_balance_quote == pytest.approx(
-        9900.0 + (filled_result.filled_size * 0.49)
+    assert portfolio_state_filled.cash_balances[0].total == pytest.approx(
+        9900.0 + (filled_result.filled_quantity * 0.49)
     )
     logger.info("--- Integration test successful ---")
 
@@ -316,7 +324,7 @@ def test_order_rejection_integration(
     rejected_result = ExecutionResult(
         order_id=order_id,
         status=OrderStatus.REJECTED,
-        filled_size=0,
+        filled_quantity=0,
         avg_price=0,
         timestamp=datetime.now(timezone.utc),
     )
@@ -347,8 +355,8 @@ def test_order_rejection_integration(
     portfolio_state_rejected = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_rejected.open_orders) == 0
     assert len(portfolio_state_rejected.positions) == 0
-    assert portfolio_state_rejected.available_balance_quote == 10000.0
-    assert portfolio_state_rejected.total_balance_quote == 10000.0
+    assert portfolio_state_rejected.cash_balances[0].available == 10000.0
+    assert portfolio_state_rejected.cash_balances[0].total == 10000.0
     assert real_portfolio._cash_balance == 10000.0
 
 
@@ -379,14 +387,14 @@ def test_order_cancellation_integration(
     open_result = ExecutionResult(
         order_id=order_id,
         status=OrderStatus.OPEN,
-        filled_size=0,
+        filled_quantity=0,
         avg_price=0,
         timestamp=datetime.now(timezone.utc),
     )
     cancelled_result = ExecutionResult(
         order_id=order_id,
         status=OrderStatus.CANCELLED,
-        filled_size=0,
+        filled_quantity=0,
         avg_price=0,
         timestamp=datetime.now(timezone.utc),
     )
@@ -403,7 +411,7 @@ def test_order_cancellation_integration(
     logger.info("--- Asserting Setup: Order is OPEN ---")
     portfolio_state_open = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_open.open_orders) == 1
-    assert portfolio_state_open.available_balance_quote == pytest.approx(9900.0)
+    assert portfolio_state_open.cash_balances[0].available == pytest.approx(9900.0)
     db_log = db.query(OrderLogModel).filter_by(order_id=order_id).first()
     assert db_log is not None
     assert db_log.status == OrderStatus.OPEN
@@ -427,6 +435,6 @@ def test_order_cancellation_integration(
     portfolio_state_cancelled = real_portfolio.get_state(market_data_map)
     assert len(portfolio_state_cancelled.open_orders) == 0
     assert len(portfolio_state_cancelled.positions) == 0
-    assert portfolio_state_cancelled.available_balance_quote == 10000.0
-    assert portfolio_state_cancelled.total_balance_quote == 10000.0
+    assert portfolio_state_cancelled.cash_balances[0].available == 10000.0
+    assert portfolio_state_cancelled.cash_balances[0].total == 10000.0
     assert real_portfolio._cash_balance == 10000.0

@@ -1,14 +1,15 @@
-# tests/unit/test_nets_plugin.py
-
 from datetime import datetime, timezone
 
 import numpy as np
 import pytest
 from nets.enums import PredictionSignal
 from nets.output_selectors import DynamicThresholdClassifier, SimpleThresholdClassifier
-from trading_bot.core.enums import BarType
+from quant_core.enums import AssetType, BarType, Geography
+from quant_core.models import CashBalance, TradFiDetails
 from trading_bot.core.schemas import BarData
 from trading_bot.core.transforms import LogReturnTransform
+
+# tests/unit/test_nets_plugin.py
 
 
 def test_log_return_transform():
@@ -344,11 +345,12 @@ def test_multidimensional_training(tmp_path):
 
 def test_confidence_sizer_zero_size():
     from nets.sizing.confidence_sizer import ConfidenceSizer
-    from trading_bot.core.enums import BarType, SignalType
+    from quant_core.enums import AssetType, BarType, Geography, SignalType
+    from quant_core.models import TradFiDetails
     from trading_bot.core.schemas import (
+        Instrument,
         MarketData,
-        MarketDetails,
-        PortfolioState,
+        Portfolio,
         SizingInput,
         TradeSignal,
     )
@@ -357,19 +359,19 @@ def test_confidence_sizer_zero_size():
 
     # Mock input data
     signal_flat = TradeSignal(
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         strategy_name="test_strat",
         signal_type=SignalType.FLAT,
         confidence=0.5,
     )
     signal_hold = TradeSignal(
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         strategy_name="test_strat",
         signal_type=SignalType.HOLD,
         confidence=0.5,
     )
     signal_buy = TradeSignal(
-        market_id="BTC_USD",
+        instrument_id="BTC_USD",
         strategy_name="test_strat",
         signal_type=SignalType.BUY,
         confidence=0.5,
@@ -389,17 +391,20 @@ def test_confidence_sizer_zero_size():
         )
     ]
 
-    details = MarketDetails(
-        market_id="BTC_USD",
+    details = Instrument(
+        instrument_id="BTC_USD",
         name="BTC_USD",
-        end_date=datetime.now(),
-        resolution_source="test",
+        details=TradFiDetails(
+            asset_type=AssetType.STOCK,
+            geography=Geography.US,
+            industry="Tech",
+            currency="USD",
+        ),
     )
-    market_data = MarketData(market_id="BTC_USD", recent_bars=bars, details=details)
+    market_data = MarketData(instrument_id="BTC_USD", recent_bars=bars, details=details)
 
-    portfolio = PortfolioState(
-        total_balance_quote=10000.0,
-        available_balance_quote=10000.0,
+    portfolio = Portfolio(
+        cash_balances=[CashBalance(currency="USD", total=10000.0, available=10000.0)],
         positions=[],
         open_orders=[],
     )
@@ -419,12 +424,12 @@ def test_confidence_sizer_zero_size():
     output_buy = sizer.calculate_size(input_buy)
 
     assert output_flat.amount_quote == 0.0
-    assert output_flat.size_shares == 0.0
+    assert output_flat.quantity_shares == 0.0
     assert output_hold.amount_quote == 0.0
-    assert output_hold.size_shares == 0.0
+    assert output_hold.quantity_shares == 0.0
 
     assert output_buy.amount_quote == 500.0
-    assert output_buy.size_shares == 5.0
+    assert output_buy.quantity_shares == 5.0
 
 
 def test_calculate_atr_pct_with_gaps():
@@ -544,10 +549,12 @@ def test_onnx_metadata_serialization_and_guardrails(tmp_path):
     from nets.output_selectors import SimpleThresholdClassifier
     from nets.strategies.nets_strategy import NetsStrategy
     from nets.training import CNNTrainer, LinearRegressionTrainer, XGBoostTrainer
+    from quant_core.enums import AssetType, Geography
+    from quant_core.models import TradFiDetails
     from trading_bot.core.schemas import (
         IngestionEngineOutput,
+        Instrument,
         MarketData,
-        MarketDetails,
     )
 
     # Generate sequential historical bars with fixed timezone
@@ -616,12 +623,16 @@ def test_onnx_metadata_serialization_and_guardrails(tmp_path):
     # Mock ingestion inputs at different timestamps
     # Inside training range:
     mdata_in_sample = MarketData(
-        market_id="mock-market",
-        details=MarketDetails(
-            market_id="mock-market",
+        instrument_id="mock-market",
+        details=Instrument(
+            instrument_id="mock-market",
             name="mock",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
         recent_bars=bars[:12],
     )
@@ -650,12 +661,16 @@ def test_onnx_metadata_serialization_and_guardrails(tmp_path):
 
     # Outside training range:
     mdata_out_of_sample = MarketData(
-        market_id="mock-market",
-        details=MarketDetails(
-            market_id="mock-market",
+        instrument_id="mock-market",
+        details=Instrument(
+            instrument_id="mock-market",
             name="mock",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
         recent_bars=bars[35:48],
     )

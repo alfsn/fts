@@ -58,14 +58,14 @@ class SweepResult:
         sweep_name: str,
         sweep_param: str,
         sweep_values: List[Any],
-        market_id: str = "",
+        instrument_id: str = "",
         trials: Optional[List[SweepTrialResult]] = None,
         created_at: Optional[str] = None,
     ) -> None:
         self.sweep_name = sweep_name
         self.sweep_param = sweep_param
         self.sweep_values = sweep_values
-        self.market_id = market_id
+        self.instrument_id = instrument_id
         self.trials: List[SweepTrialResult] = trials or []
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
 
@@ -85,7 +85,7 @@ class SweepResult:
             "sweep_name": self.sweep_name,
             "sweep_param": self.sweep_param,
             "sweep_values": self.sweep_values,
-            "market_id": self.market_id,
+            "instrument_id": self.instrument_id,
             "created_at": self.created_at,
             "total_trials": len(self.trials),
             "trials": [t.model_dump() for t in self.trials],
@@ -121,7 +121,7 @@ class SweepResult:
                 sweep_name=data.get("sweep_name", ""),
                 sweep_param=data.get("sweep_param", ""),
                 sweep_values=data.get("sweep_values", []),
-                market_id=data.get("market_id", ""),
+                instrument_id=data.get("instrument_id", ""),
                 trials=trials,
                 created_at=data.get("created_at"),
             )

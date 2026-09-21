@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from trading_bot.core.enums import BarType
+from quant_core.enums import BarType
 from trading_bot.core.schemas import BarData
 from trading_bot.utils.resampling import resample_bars, timeframe_to_seconds
 

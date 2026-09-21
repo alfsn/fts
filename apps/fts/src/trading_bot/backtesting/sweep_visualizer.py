@@ -305,7 +305,7 @@ class SweepVisualizer:
 
         main_title = (
             title
-            or f"Parameter Sweep Evaluation: {sweep_result.sweep_name} ({sweep_result.market_id})"
+            or f"Parameter Sweep Evaluation: {sweep_result.sweep_name} ({sweep_result.instrument_id})"
         )
         fig.update_layout(
             title=dict(text=main_title, font=dict(size=18)),

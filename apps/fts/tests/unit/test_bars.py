@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from trading_bot.core.enums import BarType, OrderSide
+from quant_core.enums import BarType, OrderSide
 from trading_bot.core.schemas import Trade
 from trading_bot.data_ingestion.bars import BarFactory
 
@@ -21,7 +21,7 @@ def test_time_bar_aggregator(base_time):
     # Trade 1 at 10:01
     t1 = Trade(
         price=100.0,
-        size=10.0,
+        quantity=10.0,
         timestamp=base_time + timedelta(minutes=1),
         side=OrderSide.BUY,
     )
@@ -33,7 +33,7 @@ def test_time_bar_aggregator(base_time):
     # Trade 2 at 10:04
     t2 = Trade(
         price=105.0,
-        size=5.0,
+        quantity=5.0,
         timestamp=base_time + timedelta(minutes=4),
         side=OrderSide.BUY,
     )
@@ -45,7 +45,7 @@ def test_time_bar_aggregator(base_time):
     # Trade 3 at 10:06 (should trigger completion of 10:05 bar)
     t3 = Trade(
         price=102.0,
-        size=2.0,
+        quantity=2.0,
         timestamp=base_time + timedelta(minutes=6),
         side=OrderSide.SELL,
     )
@@ -65,14 +65,14 @@ def test_volume_bar_aggregator(base_time):
     agg = BarFactory.create_aggregator(BarType.VOLUME, "MKT1", threshold=100.0)
 
     # Trade 1: 60 volume
-    t1 = Trade(price=10.0, size=60.0, timestamp=base_time, side=OrderSide.BUY)
+    t1 = Trade(price=10.0, quantity=60.0, timestamp=base_time, side=OrderSide.BUY)
     bar = agg.add_trade(t1)
     assert bar is None
 
     # Trade 2: 50 volume (crosses 100)
     t2 = Trade(
         price=11.0,
-        size=50.0,
+        quantity=50.0,
         timestamp=base_time + timedelta(seconds=10),
         side=OrderSide.BUY,
     )
@@ -90,14 +90,14 @@ def test_dollar_bar_aggregator(base_time):
     agg = BarFactory.create_aggregator(BarType.DOLLAR, "MKT1", threshold=1000.0)
 
     # Trade 1: 10 * 60 = 600 dollars
-    t1 = Trade(price=10.0, size=60.0, timestamp=base_time, side=OrderSide.BUY)
+    t1 = Trade(price=10.0, quantity=60.0, timestamp=base_time, side=OrderSide.BUY)
     bar = agg.add_trade(t1)
     assert bar is None
 
     # Trade 2: 20 * 30 = 600 dollars (total 1200, crosses 1000)
     t2 = Trade(
         price=20.0,
-        size=30.0,
+        quantity=30.0,
         timestamp=base_time + timedelta(seconds=10),
         side=OrderSide.BUY,
     )

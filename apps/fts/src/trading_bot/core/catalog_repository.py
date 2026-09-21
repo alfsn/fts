@@ -44,7 +44,7 @@ class ModelCatalogRepository:
     def list_models(
         self,
         model_type: Optional[str] = None,
-        market_id: Optional[str] = None,
+        instrument_id: Optional[str] = None,
         status: Optional[str] = None,
     ) -> List[ModelCatalogItem]:
         """List and filter models from model_registry."""
@@ -53,8 +53,8 @@ class ModelCatalogRepository:
 
             if model_type:
                 stmt = stmt.where(ModelRegistryLog.model_type == model_type)
-            if market_id:
-                stmt = stmt.where(ModelRegistryLog.market_id == market_id)
+            if instrument_id:
+                stmt = stmt.where(ModelRegistryLog.instrument_id == instrument_id)
             if status:
                 stmt = stmt.where(ModelRegistryLog.status == status)
 
@@ -77,7 +77,7 @@ class ModelCatalogRepository:
                         model_id=r.model_id,
                         run_id=r.run_id,
                         model_type=r.model_type,
-                        market_id=r.market_id,
+                        instrument_id=r.instrument_id,
                         interval=r.interval,
                         horizon=r.horizon,
                         dataset_id=r.dataset_id,
@@ -110,7 +110,7 @@ class ModelCatalogRepository:
                 model_id=record.model_id,
                 run_id=record.run_id,
                 model_type=record.model_type,
-                market_id=record.market_id,
+                instrument_id=record.instrument_id,
                 interval=record.interval,
                 horizon=record.horizon,
                 dataset_id=record.dataset_id,
@@ -130,7 +130,7 @@ class ModelCatalogRepository:
     def update_model_status(self, model_id: str, new_status: str) -> bool:
         """
         Update model status. If new_status is 'production', demote any active production model
-        matching the (model_type, market_id, interval, horizon) signature back to 'candidate'
+        matching the (model_type, instrument_id, interval, horizon) signature back to 'candidate'
         within an atomic transaction.
         """
         with self.session_factory() as session:
@@ -149,7 +149,7 @@ class ModelCatalogRepository:
                         update(ModelRegistryLog)
                         .where(
                             ModelRegistryLog.model_type == model.model_type,
-                            ModelRegistryLog.market_id == model.market_id,
+                            ModelRegistryLog.instrument_id == model.instrument_id,
                             ModelRegistryLog.interval == model.interval,
                             ModelRegistryLog.horizon == model.horizon,
                             ModelRegistryLog.status == "production",
@@ -247,7 +247,7 @@ class BacktestCatalogRepository:
         )
 
     def list_runs(
-        self, market_id: Optional[str] = None, min_sharpe: Optional[float] = None
+        self, instrument_id: Optional[str] = None, min_sharpe: Optional[float] = None
     ) -> List[BacktestRunCatalogItem]:
         """List backtest runs with dynamically calculated summary metrics."""
         run_ids = set()
@@ -322,12 +322,16 @@ class BacktestCatalogRepository:
                 else "MLStrategy"
             )
             m_id = (
-                order_sample.market_id
-                if (order_sample and order_sample.market_id)
+                order_sample.instrument_id
+                if (order_sample and order_sample.instrument_id)
                 else "ALL"
             )
 
-            if market_id and market_id.upper() != "ALL" and m_id != market_id:
+            if (
+                instrument_id
+                and instrument_id.upper() != "ALL"
+                and m_id != instrument_id
+            ):
                 continue
 
             start_time = equity_records[0].timestamp
@@ -396,7 +400,7 @@ class BacktestCatalogRepository:
                 BacktestRunCatalogItem(
                     run_id=r_id,
                     strategy_name=strategy_name,
-                    market_id=m_id,
+                    instrument_id=m_id,
                     model_id=mod_id,
                     hyperparameters=hparams,
                     start_time=start_time,
@@ -476,8 +480,8 @@ class BacktestCatalogRepository:
             else "MLStrategy"
         )
         m_id = (
-            order_sample.market_id
-            if (order_sample and order_sample.market_id)
+            order_sample.instrument_id
+            if (order_sample and order_sample.instrument_id)
             else "ALL"
         )
 
@@ -500,9 +504,9 @@ class BacktestCatalogRepository:
             {
                 "id": t.id,
                 "order_id": t.order_id,
-                "market_id": t.market_id,
+                "instrument_id": t.instrument_id,
                 "side": t.side.value if hasattr(t.side, "value") else str(t.side),
-                "fill_size": t.fill_size,
+                "quantity": t.quantity,
                 "fill_price": t.fill_price,
                 "fill_timestamp": (
                     t.fill_timestamp.isoformat() if t.fill_timestamp else ""
@@ -514,7 +518,7 @@ class BacktestCatalogRepository:
         predictions_list = [
             {
                 "timestamp": p.timestamp.isoformat() if p.timestamp else "",
-                "market_id": p.market_id,
+                "instrument_id": p.instrument_id,
                 "predicted_signal": p.predicted_signal,
                 "confidence": p.confidence,
                 "actual_future_return": p.actual_future_return,
@@ -525,7 +529,7 @@ class BacktestCatalogRepository:
         return BacktestDetailDTO(
             run_id=run_id,
             strategy_name=strategy_name,
-            market_id=m_id,
+            instrument_id=m_id,
             start_time=equity_records[0].timestamp,
             end_time=equity_records[-1].timestamp,
             total_return=tot_ret,

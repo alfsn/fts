@@ -1,17 +1,23 @@
-# tests/unit/test_simulated_handler.py
-
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, PropertyMock
 
 import pytest
+from quant_core.enums import (
+    AssetType,
+    BarType,
+    Geography,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+)
+from quant_core.models import Instrument, TradFiDetails
 from sqlalchemy.orm import Session
-from trading_bot.core.enums import BarType, OrderSide, OrderStatus, OrderType
 from trading_bot.core.schemas import (
     BarData,
     ExecutionResult,
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderRequest,
 )
 from trading_bot.execution.delay import KBarExecuteDelay
@@ -19,6 +25,8 @@ from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.execution.handlers.simulated_handler import SimulatedExecutionHandler
 from trading_bot.execution.slippage import FlatPriceSlip
 from trading_bot.risk_management.portfolio import Portfolio
+
+# tests/unit/test_simulated_handler.py
 
 
 def test_validation():
@@ -54,9 +62,9 @@ def test_simulated_handler_delay_and_price_source():
 
     # Place order
     order = OrderRequest(
-        market_id="GGAL",
+        instrument_id="GGAL",
         side=OrderSide.BUY,
-        size=10.0,
+        quantity=10.0,
         price=100.0,
         order_type=OrderType.MARKET,
     )
@@ -67,11 +75,15 @@ def test_simulated_handler_delay_and_price_source():
     order_id = res.order_id
 
     # 1. First tick arrives
-    details = MarketDetails(
-        market_id="GGAL",
+    details = Instrument(
+        instrument_id="GGAL",
         name="GGAL",
-        end_date=datetime.now(timezone.utc),
-        resolution_source="test",
+        details=TradFiDetails(
+            asset_type=AssetType.STOCK,
+            geography=Geography.US,
+            industry="Tech",
+            currency="USD",
+        ),
     )
     bar1 = BarData(
         timestamp=datetime(2026, 6, 21, 10, 0, tzinfo=timezone.utc),
@@ -85,7 +97,7 @@ def test_simulated_handler_delay_and_price_source():
         dollar_volume=9700.0,
     )
     mdata1 = MarketData(
-        market_id="GGAL",
+        instrument_id="GGAL",
         details=details,
         recent_bars=[bar1],
     )
@@ -116,7 +128,7 @@ def test_simulated_handler_delay_and_price_source():
         dollar_volume=12120.0,
     )
     mdata2 = MarketData(
-        market_id="GGAL",
+        instrument_id="GGAL",
         details=details,
         recent_bars=[bar2],
     )
@@ -133,7 +145,7 @@ def test_simulated_handler_delay_and_price_source():
     status_res = handler.get_order_status(order_id)
     assert status_res.status == OrderStatus.FILLED
     assert status_res.avg_price == 101.0
-    assert status_res.filled_size == 10.0
+    assert status_res.filled_quantity == 10.0
     assert handler.get_account_balances()["USD"] == 1000.0 - (10.0 * 101.0)
 
 
@@ -149,11 +161,15 @@ def test_simulated_handler_slippage():
     )
 
     # Feed initial tick so GGAL tick index = 1
-    details = MarketDetails(
-        market_id="GGAL",
+    details = Instrument(
+        instrument_id="GGAL",
         name="GGAL",
-        end_date=datetime.now(timezone.utc),
-        resolution_source="test",
+        details=TradFiDetails(
+            asset_type=AssetType.STOCK,
+            geography=Geography.US,
+            industry="Tech",
+            currency="USD",
+        ),
     )
     bar1 = BarData(
         timestamp=datetime(2026, 6, 21, 10, 0, tzinfo=timezone.utc),
@@ -167,7 +183,7 @@ def test_simulated_handler_slippage():
         dollar_volume=9700.0,
     )
     mdata1 = MarketData(
-        market_id="GGAL",
+        instrument_id="GGAL",
         details=details,
         recent_bars=[bar1],
     )
@@ -181,9 +197,9 @@ def test_simulated_handler_slippage():
 
     # Place BUY order at tick index 1, execution at 1 + 1 = 2
     order_buy = OrderRequest(
-        market_id="GGAL",
+        instrument_id="GGAL",
         side=OrderSide.BUY,
-        size=5.0,
+        quantity=5.0,
         price=100.0,
         order_type=OrderType.MARKET,
     )
@@ -203,7 +219,7 @@ def test_simulated_handler_slippage():
         dollar_volume=12120.0,
     )
     mdata2 = MarketData(
-        market_id="GGAL",
+        instrument_id="GGAL",
         details=details,
         recent_bars=[bar2],
     )
@@ -223,9 +239,9 @@ def test_simulated_handler_slippage():
     # 3. SELL order slippage
     # Place SELL order at tick index 2, execution at 2 + 1 = 3
     order_sell = OrderRequest(
-        market_id="GGAL",
+        instrument_id="GGAL",
         side=OrderSide.SELL,
-        size=5.0,
+        quantity=5.0,
         price=100.0,
         order_type=OrderType.MARKET,
     )
@@ -245,7 +261,7 @@ def test_simulated_handler_slippage():
         dollar_volume=12120.0,
     )
     mdata3 = MarketData(
-        market_id="GGAL",
+        instrument_id="GGAL",
         details=details,
         recent_bars=[bar3],
     )
@@ -269,9 +285,9 @@ def test_simulated_handler_cancel():
     handler = SimulatedExecutionHandler(delay_model=delay, slippage_model=slip)
 
     order = OrderRequest(
-        market_id="GGAL",
+        instrument_id="GGAL",
         side=OrderSide.BUY,
-        size=10.0,
+        quantity=10.0,
         price=100.0,
         order_type=OrderType.MARKET,
     )
@@ -304,9 +320,9 @@ def test_execution_engine_integration():
 
     # Place order
     order = OrderRequest(
-        market_id="GGAL",
+        instrument_id="GGAL",
         side=OrderSide.BUY,
-        size=10.0,
+        quantity=10.0,
         price=100.0,
         order_type=OrderType.MARKET,
     )
@@ -323,11 +339,15 @@ def test_execution_engine_integration():
     engine.check_order_status = MagicMock(return_value=res)
 
     # Create tick data
-    details = MarketDetails(
-        market_id="GGAL",
+    details = Instrument(
+        instrument_id="GGAL",
         name="GGAL",
-        end_date=datetime.now(timezone.utc),
-        resolution_source="test",
+        details=TradFiDetails(
+            asset_type=AssetType.STOCK,
+            geography=Geography.US,
+            industry="Tech",
+            currency="USD",
+        ),
     )
     bar1 = BarData(
         timestamp=datetime(2026, 6, 21, 10, 0, tzinfo=timezone.utc),
@@ -341,7 +361,7 @@ def test_execution_engine_integration():
         dollar_volume=9700.0,
     )
     mdata1 = MarketData(
-        market_id="GGAL",
+        instrument_id="GGAL",
         details=details,
         recent_bars=[bar1],
     )

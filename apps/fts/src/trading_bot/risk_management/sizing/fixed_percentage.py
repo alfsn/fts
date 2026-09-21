@@ -43,20 +43,20 @@ class FixedPercentageSizer(BaseSizingStrategy):
         :return: A SizingOutput object.
         """
         if input_data.signal.signal_type == SignalType.HOLD:
-            return SizingOutput(amount_quote=0, size_shares=0)
+            return SizingOutput(amount_quote=0, quantity_shares=0)
 
         price = self._get_execution_price(input_data)
 
         if price <= 1e-6:  # Avoid division by zero
             logger.warning(
-                f"Invalid price ({price}) for {input_data.signal.market_id}. "
+                f"Invalid price ({price}) for {input_data.signal.instrument_id}. "
                 "Returning zero size."
             )
-            return SizingOutput(amount_quote=0, size_shares=0)
+            return SizingOutput(amount_quote=0, quantity_shares=0)
 
         # Calculate the quote amount based on total portfolio equity
-        total_equity = input_data.portfolio_state.total_balance_quote
+        total_equity = input_data.portfolio_state.total_balance_usd
         amount_quote = total_equity * self.default_percentage
 
         size_shares = amount_quote / price
-        return SizingOutput(amount_quote=amount_quote, size_shares=size_shares)
+        return SizingOutput(amount_quote=amount_quote, quantity_shares=size_shares)

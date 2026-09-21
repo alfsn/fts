@@ -1,12 +1,13 @@
-# tests/unit/test_ingest_historical.py
-
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from trading_bot.core.enums import BarType
-from trading_bot.core.schemas import BarData, MarketDetails
+from quant_core.enums import AssetType, BarType, Geography
+from quant_core.models import Instrument, TradFiDetails
+from trading_bot.core.schemas import BarData
 from trading_bot.utils.ingest_historical import main
+
+# tests/unit/test_ingest_historical.py
 
 
 @patch("trading_bot.utils.ingest_historical.argparse.ArgumentParser.parse_args")
@@ -33,11 +34,15 @@ def test_ingest_historical_yfinance(
 
     # 3. Mock yfinance provider client
     mock_provider = MagicMock()
-    mock_provider.get_market_details.return_value = MarketDetails(
-        market_id="AAPL",
+    mock_provider.get_market_details.return_value = Instrument(
+        instrument_id="AAPL",
         name="Apple Inc",
-        end_date=datetime.now(timezone.utc),
-        resolution_source="yfinance",
+        details=TradFiDetails(
+            asset_type=AssetType.STOCK,
+            geography=Geography.US,
+            industry="Tech",
+            currency="USD",
+        ),
     )
     mock_bars = [
         BarData(
@@ -96,11 +101,15 @@ def test_ingest_historical_ccxt(
 
     # 3. Mock CCXT provider client
     mock_provider = MagicMock()
-    mock_provider.get_market_details.return_value = MarketDetails(
-        market_id="BTC/USDT",
+    mock_provider.get_market_details.return_value = Instrument(
+        instrument_id="BTC/USDT",
         name="Binance BTC/USDT",
-        end_date=datetime.max.replace(tzinfo=timezone.utc),
-        resolution_source="binance",
+        details=TradFiDetails(
+            asset_type=AssetType.CRYPTO,
+            geography=Geography.GLOBAL,
+            industry="Crypto",
+            currency="USDT",
+        ),
     )
     mock_bars = [
         BarData(

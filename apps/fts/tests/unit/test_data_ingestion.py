@@ -1,18 +1,18 @@
-# tests/unit/test_data_ingestion.py
-
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List
 
 import pytest
+from quant_core.enums import AssetType, Geography
+from quant_core.models import Instrument, TradFiDetails
 
 # Import ABCs and Schemas
 from trading_bot.core.schemas import (
     BarData,
     ExternalData,
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     PriceLevel,
     Trade,
@@ -24,6 +24,9 @@ from trading_bot.data_ingestion.abc import (
 
 # Import the class we are testing
 from trading_bot.data_ingestion.engine import DataIngestionEngine
+
+# tests/unit/test_data_ingestion.py
+
 
 # --- Fake (Stub) Implementations for Testing ---
 
@@ -41,27 +44,27 @@ class FakeMarketProvider(BaseMarketDataProvider):
         self.data_to_return = data
         self.markets_to_fail = markets_to_fail or []
 
-    def get_market_data(self, market_id: str) -> MarketData | None:
+    def get_market_data(self, instrument_id: str) -> MarketData | None:
         """Returns pre-canned data or simulates a failure."""
-        if market_id in self.markets_to_fail:
-            raise ValueError(f"Simulated failure for {market_id}")
-        return self.data_to_return.get(market_id)
+        if instrument_id in self.markets_to_fail:
+            raise ValueError(f"Simulated failure for {instrument_id}")
+        return self.data_to_return.get(instrument_id)
 
     # --- Other ABC methods (not used by the engine) ---
-    def list_tradable_markets(self) -> List[MarketDetails]:
+    def list_tradable_markets(self) -> List[Instrument]:
         return [md.details for md in self.data_to_return.values()]
 
-    def get_market_details(self, market_id: str) -> MarketDetails:
-        return self.data_to_return.get(market_id).details
+    def get_market_details(self, instrument_id: str) -> Instrument:
+        return self.data_to_return.get(instrument_id).details
 
-    def get_order_book(self, market_id: str) -> OrderBook:
-        return self.data_to_return.get(market_id).order_book
+    def get_order_book(self, instrument_id: str) -> OrderBook:
+        return self.data_to_return.get(instrument_id).order_book
 
-    def get_trade_history(self, market_id: str) -> List[Trade]:
-        return self.data_to_return.get(market_id).recent_trades
+    def get_trade_history(self, instrument_id: str) -> List[Trade]:
+        return self.data_to_return.get(instrument_id).recent_trades
 
-    def get_bars(self, market_id: str, count: int = 100) -> List[BarData]:
-        return getattr(self.data_to_return.get(market_id), "recent_bars", [])
+    def get_bars(self, instrument_id: str, count: int = 100) -> List[BarData]:
+        return getattr(self.data_to_return.get(instrument_id), "recent_bars", [])
 
 
 class FakeExternalProvider(BaseExternalDataProvider):
@@ -98,17 +101,21 @@ class FakeExternalProvider(BaseExternalDataProvider):
 def sample_market_data_1() -> MarketData:
     """A sample MarketData object for MKT1."""
     return MarketData(
-        market_id="MKT1",
+        instrument_id="MKT1",
         order_book=OrderBook(
-            bids=[PriceLevel(price=0.49, size=100)],
-            asks=[PriceLevel(price=0.51, size=100)],
+            bids=[PriceLevel(price=0.49, quantity=100)],
+            asks=[PriceLevel(price=0.51, quantity=100)],
         ),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MKT1",
+        details=Instrument(
+            instrument_id="MKT1",
             name="Test Market 1",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -117,17 +124,21 @@ def sample_market_data_1() -> MarketData:
 def sample_market_data_2() -> MarketData:
     """A sample MarketData object for MKT2."""
     return MarketData(
-        market_id="MKT2",
+        instrument_id="MKT2",
         order_book=OrderBook(
-            bids=[PriceLevel(price=0.69, size=50)],
-            asks=[PriceLevel(price=0.71, size=50)],
+            bids=[PriceLevel(price=0.69, quantity=50)],
+            asks=[PriceLevel(price=0.71, quantity=50)],
         ),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MKT2",
+        details=Instrument(
+            instrument_id="MKT2",
             name="Test Market 2",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -174,7 +185,7 @@ def test_engine_initialization(sample_market_data_1, sample_external_data_1):
     # Then
     assert engine.market_provider == market_provider
     assert engine.external_providers == [external_provider]
-    assert engine.market_ids == market_ids
+    assert engine.instrument_ids == market_ids
 
 
 def test_fetch_all_data_happy_path(sample_market_data_1, sample_external_data_1):
@@ -343,7 +354,7 @@ def test_fetch_external_data_partial_failure(
 def test_fetch_market_data_returns_none(sample_market_data_1, caplog):
     """
     Tests that the engine handles a provider returning None for a
-    market_id instead of raising an error.
+    instrument_id instead of raising an error.
     """
     # Given
     # The provider has data for MKT1, but we will ask for MKT_NONE

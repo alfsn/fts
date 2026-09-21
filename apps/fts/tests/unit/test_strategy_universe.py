@@ -1,20 +1,23 @@
-# tests/test_strategy_universe.py
-
 from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pytest
+from quant_core.enums import AssetType, Geography
+from quant_core.models import Instrument, PredictionMarketDetails, TradFiDetails
 
 # Import Schemas
 from trading_bot.core.schemas import (
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     PriceLevel,
 )
 
 # Import the class we are testing
 from trading_bot.strategy.universe import UniverseBuilder
+
+# tests/test_strategy_universe.py
+
 
 # --- Pytest Fixtures ---
 
@@ -33,22 +36,25 @@ def base_builder() -> UniverseBuilder:
 
 
 def create_mock_market_data(
-    market_id: str,
+    instrument_id: str,
     name: str,
-    end_date: datetime,
     bids: List[PriceLevel],
     asks: List[PriceLevel],
 ) -> MarketData:
     """Helper to create MarketData fixtures."""
     return MarketData(
-        market_id=market_id,
+        instrument_id=instrument_id,
         order_book=OrderBook(bids=bids, asks=asks),
         recent_trades=[],
-        details=MarketDetails(
-            market_id=market_id,
+        details=Instrument(
+            instrument_id=instrument_id,
             name=name,
-            end_date=end_date,
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -57,35 +63,53 @@ def create_mock_market_data(
 def market_perfect() -> MarketData:
     """A market that should pass all default filters."""
     return create_mock_market_data(
-        market_id="PERFECT",
+        instrument_id="PERFECT",
         name="Will this market pass?",
-        end_date=NOW + timedelta(days=15),
-        bids=[PriceLevel(price=0.50, size=1000)],  # 500 USD
-        asks=[PriceLevel(price=0.51, size=1000)],  # 510 USD
+        bids=[PriceLevel(price=0.50, quantity=1000)],  # 500 USD
+        asks=[PriceLevel(price=0.51, quantity=1000)],  # 510 USD
+    )
+
+
+def create_prediction_market_data(
+    instrument_id: str,
+    name: str,
+    end_date: datetime,
+    bids: List[PriceLevel],
+    asks: List[PriceLevel],
+) -> MarketData:
+    return MarketData(
+        instrument_id=instrument_id,
+        order_book=OrderBook(bids=bids, asks=asks),
+        recent_trades=[],
+        details=Instrument(
+            instrument_id=instrument_id,
+            name=name,
+            details=PredictionMarketDetails(
+                end_date=end_date, resolution_source="test"
+            ),
+        ),
     )
 
 
 @pytest.fixture
 def market_expired() -> MarketData:
-    """A market that has already expired."""
-    return create_mock_market_data(
-        market_id="EXPIRED",
+    return create_prediction_market_data(
+        instrument_id="EXPIRED",
         name="Expired Market",
         end_date=NOW - timedelta(days=1),
-        bids=[PriceLevel(price=0.50, size=1000)],
-        asks=[PriceLevel(price=0.51, size=1000)],
+        bids=[PriceLevel(price=0.50, quantity=1000)],
+        asks=[PriceLevel(price=0.51, quantity=1000)],
     )
 
 
 @pytest.fixture
 def market_too_far() -> MarketData:
-    """A market that expires too far in the future."""
-    return create_mock_market_data(
-        market_id="TOO_FAR",
-        name="Market 2099",
+    return create_prediction_market_data(
+        instrument_id="TOO_FAR",
+        name="Too Far Market",
         end_date=NOW + timedelta(days=100),
-        bids=[PriceLevel(price=0.50, size=1000)],
-        asks=[PriceLevel(price=0.51, size=1000)],
+        bids=[PriceLevel(price=0.50, quantity=1000)],
+        asks=[PriceLevel(price=0.51, quantity=1000)],
     )
 
 
@@ -93,11 +117,10 @@ def market_too_far() -> MarketData:
 def market_illiquid_bid() -> MarketData:
     """A market with insufficient liquidity on the bid side."""
     return create_mock_market_data(
-        market_id="ILLIQUID_BID",
+        instrument_id="ILLIQUID_BID",
         name="Illiquid Market",
-        end_date=NOW + timedelta(days=15),
-        bids=[PriceLevel(price=0.50, size=10)],  # 5 USD
-        asks=[PriceLevel(price=0.51, size=1000)],
+        bids=[PriceLevel(price=0.50, quantity=10)],  # 5 USD
+        asks=[PriceLevel(price=0.51, quantity=1000)],
     )
 
 
@@ -105,11 +128,10 @@ def market_illiquid_bid() -> MarketData:
 def market_wide_spread() -> MarketData:
     """A market with a spread wider than the 5% (500bps) limit."""
     return create_mock_market_data(
-        market_id="WIDE_SPREAD",
+        instrument_id="WIDE_SPREAD",
         name="Wide Spread Market",
-        end_date=NOW + timedelta(days=15),
-        bids=[PriceLevel(price=0.50, size=1000)],
-        asks=[PriceLevel(price=0.53, size=1000)],  # 6% spread
+        bids=[PriceLevel(price=0.50, quantity=1000)],
+        asks=[PriceLevel(price=0.53, quantity=1000)],  # 6% spread
     )
 
 
@@ -117,11 +139,10 @@ def market_wide_spread() -> MarketData:
 def market_no_bids() -> MarketData:
     """A market with no bids."""
     return create_mock_market_data(
-        market_id="NO_BIDS",
+        instrument_id="NO_BIDS",
         name="No Bids Market",
-        end_date=NOW + timedelta(days=15),
         bids=[],
-        asks=[PriceLevel(price=0.51, size=1000)],
+        asks=[PriceLevel(price=0.51, quantity=1000)],
     )
 
 
@@ -129,11 +150,10 @@ def market_no_bids() -> MarketData:
 def market_include_kw() -> MarketData:
     """A market with a keyword to be included."""
     return create_mock_market_data(
-        market_id="INCLUDE_KW",
+        instrument_id="INCLUDE_KW",
         name="Market about [TRUMP]",
-        end_date=NOW + timedelta(days=15),
-        bids=[PriceLevel(price=0.50, size=1000)],
-        asks=[PriceLevel(price=0.51, size=1000)],
+        bids=[PriceLevel(price=0.50, quantity=1000)],
+        asks=[PriceLevel(price=0.51, quantity=1000)],
     )
 
 
@@ -141,11 +161,10 @@ def market_include_kw() -> MarketData:
 def market_exclude_kw() -> MarketData:
     """A market with a keyword to be excluded."""
     return create_mock_market_data(
-        market_id="EXCLUDE_KW",
+        instrument_id="EXCLUDE_KW",
         name="Market about [BIDEN]",
-        end_date=NOW + timedelta(days=15),
-        bids=[PriceLevel(price=0.50, size=1000)],
-        asks=[PriceLevel(price=0.51, size=1000)],
+        bids=[PriceLevel(price=0.50, quantity=1000)],
+        asks=[PriceLevel(price=0.51, quantity=1000)],
     )
 
 
@@ -225,7 +244,7 @@ class TestUniverseBuilder:
         to ensure only the perfect market passes.
         """
         all_data = {
-            m.market_id: m
+            m.instrument_id: m
             for m in [
                 market_perfect,
                 market_expired,
@@ -256,7 +275,7 @@ class TestUniverseBuilder:
         )
 
         all_data = {
-            m.market_id: m
+            m.instrument_id: m
             for m in [market_perfect, market_include_kw, market_exclude_kw]
         }
 

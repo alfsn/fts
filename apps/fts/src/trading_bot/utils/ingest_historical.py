@@ -140,7 +140,7 @@ def main() -> None:
         logger.info(f"Fetching market details for ticker '{args.ticker}'...")
         details = provider.get_market_details(args.ticker)
         repo.ensure_market(details)
-        logger.info(f"Market '{details.market_id}' registered in DB.")
+        logger.info(f"Market '{details.instrument_id}' registered in DB.")
 
         # 4. Fetch candles/bars
         logger.info(f"Downloading historical bars for '{args.ticker}'...")
@@ -191,7 +191,7 @@ def main() -> None:
 
                 hash_val = calculate_dataset_hash(all_bars_db)
                 dataset = model_repo.get_or_create_dataset(
-                    market_id=args.ticker,
+                    instrument_id=args.ticker,
                     interval=args.timeframe,
                     start_time=all_bars_db[0].timestamp,
                     end_time=all_bars_db[-1].timestamp,
@@ -204,7 +204,7 @@ def main() -> None:
                 )
                 print(f"\n--- DATASET REGISTRATION SUCCESSFUL ---")
                 print(f"Dataset ID: {dataset.dataset_id}")
-                print(f"Market: {dataset.market_id} ({dataset.interval})")
+                print(f"Market: {dataset.instrument_id} ({dataset.interval})")
                 print(f"Total Bars: {len(all_bars_db)}")
                 print(f"Start Time: {dataset.start_time}")
                 print(f"End Time:   {dataset.end_time}")

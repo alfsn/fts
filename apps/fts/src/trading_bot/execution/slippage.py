@@ -1,6 +1,7 @@
 # src/trading_bot/execution/slippage.py
 
-from ..core.enums import OrderSide
+from quant_core.enums import OrderSide
+
 from ..core.schemas import OrderRequest
 from .abc import PriceSlip
 

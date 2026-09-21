@@ -3,15 +3,18 @@
 import logging
 from typing import Dict, Optional
 
+from quant_core.enums import OrderSide, OrderStatus
 from sqlalchemy.orm import Session
 
-from ..core.enums import OrderSide, OrderStatus
 from ..core.repository import OrderRepository, PositionRepository
 from ..core.schemas import (
+    CashBalance,
     ExecutionResult,
     MarketData,
     OrderRequest,
-    PortfolioState,
+)
+from ..core.schemas import Portfolio as PortfolioSchema
+from ..core.schemas import (
     Position,
 )
 
@@ -49,7 +52,7 @@ class Portfolio:
         self.order_repo = order_repo
 
         # In-memory state
-        # Key: f"{market_id}:{outcome}" if outcome else market_id
+        # Key: f"{instrument_id}:{outcome}" if outcome else instrument_id
         self._positions: Dict[str, Position] = {}
         # Key: order_id -> OrderRequest schema
         self._open_orders: Dict[str, OrderRequest] = {}
@@ -79,9 +82,9 @@ class Portfolio:
         self._positions.clear()
         for pos_schema in open_positions:
             key = (
-                f"{pos_schema.market_id}:{pos_schema.outcome}"
+                f"{pos_schema.instrument_id}:{pos_schema.outcome}"
                 if pos_schema.outcome
-                else pos_schema.market_id
+                else pos_schema.instrument_id
             )
             self._positions[key] = pos_schema
             count += 1
@@ -124,7 +127,7 @@ class Portfolio:
             active_order_repo.update_order(
                 order_id=result.order_id,
                 status=result.status,
-                filled_size=result.filled_size,
+                filled_quantity=result.filled_quantity,
                 avg_fill_price=result.avg_price,
             )
 
@@ -155,11 +158,15 @@ class Portfolio:
             return
 
         # --- Process the Fill (Agnostic / Outcome-aware Logic) ---
-        fill_cost = result.filled_size * result.avg_price
-        key = f"{order.market_id}:{order.outcome}" if order.outcome else order.market_id
+        fill_cost = result.filled_quantity * result.avg_price
+        key = (
+            f"{order.instrument_id}:{order.outcome}"
+            if order.outcome
+            else order.instrument_id
+        )
         pos = self._positions.get(key)
         realized_pnl = 0.0
-        trade_size = result.filled_size
+        trade_size = result.filled_quantity
         trade_price = result.avg_price
 
         # Signed size: positive for BUY, negative for SELL
@@ -173,17 +180,17 @@ class Portfolio:
 
         if pos is None:  # Opening a new position
             pos = Position(
-                market_id=order.market_id,
+                instrument_id=order.instrument_id,
                 outcome=order.outcome,
-                size=trade_delta,
-                entry_price=trade_price,
+                quantity=trade_delta,
+                cost_basis=trade_price,
             )
             self._positions[key] = pos
             if active_pos_repo:
                 active_pos_repo.save_position(pos)
 
         else:  # Modifying an existing position
-            old_size = pos.size
+            old_size = pos.quantity
             new_size = old_size + trade_delta
 
             is_flipping = (old_size * new_size) < 0
@@ -192,29 +199,29 @@ class Portfolio:
 
             if is_adding:
                 # Calculate new average entry price
-                old_value = abs(old_size) * pos.entry_price
+                old_value = abs(old_size) * pos.cost_basis
                 new_trade_value = trade_size * trade_price
                 new_avg_price = (old_value + new_trade_value) / abs(new_size)
-                pos.entry_price = new_avg_price
-                pos.size = new_size
+                pos.cost_basis = new_avg_price
+                pos.quantity = new_size
 
             elif is_reducing:
                 # Realize P&L, entry price remains the same
                 if old_size > 0:  # Closing part of a long
-                    realized_pnl = trade_size * (trade_price - pos.entry_price)
+                    realized_pnl = trade_size * (trade_price - pos.cost_basis)
                 else:  # Closing part of a short
-                    realized_pnl = trade_size * (pos.entry_price - trade_price)
-                pos.size = new_size
+                    realized_pnl = trade_size * (pos.cost_basis - trade_price)
+                pos.quantity = new_size
 
             elif is_flipping:
                 # Realize P&L on the closed portion, set new entry price
                 size_closed = abs(old_size)
                 if old_size > 0:  # Flipping long to short
-                    realized_pnl = size_closed * (trade_price - pos.entry_price)
+                    realized_pnl = size_closed * (trade_price - pos.cost_basis)
                 else:  # Flipping short to long
-                    realized_pnl = size_closed * (pos.entry_price - trade_price)
-                pos.size = new_size
-                pos.entry_price = trade_price  # New entry price is the flip price
+                    realized_pnl = size_closed * (pos.cost_basis - trade_price)
+                pos.quantity = new_size
+                pos.cost_basis = trade_price  # New entry price is the flip price
 
             # Check if position was closed out
             if abs(new_size) < 1e-9:
@@ -227,7 +234,7 @@ class Portfolio:
 
         logger.info(
             f"Fill processed for order {result.order_id}. "
-            f"Market: {key}, New Size: {pos.size if pos else 0:.4f}. "
+            f"Market: {key}, New Size: {pos.quantity if pos else 0:.4f}. "
             f"Realized P&L: {realized_pnl:.2f}. New cash: {self._cash_balance:.2f}"
         )
 
@@ -237,26 +244,26 @@ class Portfolio:
         """
         Calculates the unrealized P&L for all open positions.
 
-        :param market_data_map: A map of market_id to MarketData.
+        :param market_data_map: A map of instrument_id to MarketData.
         :return: A dictionary mapping position keys to their unrealized P&L.
         """
         pnl_map = {}
         for key, pos in self._positions.items():
-            market_data = market_data_map.get(pos.market_id)
-            current_price = pos.entry_price  # Default to no P&L
+            market_data = market_data_map.get(pos.instrument_id)
+            current_price = pos.cost_basis  # Default to no P&L
 
             if market_data:
                 try:
                     # If long (size > 0), we'd sell (use best bid)
                     if (
-                        pos.size > 0
+                        pos.quantity > 0
                         and market_data.order_book
                         and market_data.order_book.bids
                     ):
                         current_price = market_data.order_book.bids[0].price
                     # If short (size < 0), we'd buy (use best ask)
                     elif (
-                        pos.size < 0
+                        pos.quantity < 0
                         and market_data.order_book
                         and market_data.order_book.asks
                     ):
@@ -264,25 +271,25 @@ class Portfolio:
                 except IndexError:
                     pass  # No liquidity, use entry price
 
-            unrealized_pnl = pos.size * (current_price - pos.entry_price)
+            unrealized_pnl = pos.quantity * (current_price - pos.cost_basis)
             pnl_map[key] = unrealized_pnl
 
         return pnl_map
 
-    def get_state(self, market_data_map: Dict[str, MarketData]) -> PortfolioState:
+    def get_state(self, market_data_map: Dict[str, MarketData]) -> PortfolioSchema:
         """
         Generates a snapshot of the current portfolio state.
 
-        :param market_data_map: A dictionary mapping market_id to its
+        :param market_data_map: A dictionary mapping instrument_id to its
                                 latest MarketData, used for pricing.
-        :return: A PortfolioState schema object.
+        :return: A Portfolio schema object.
         """
         # 1. Calculate cash committed to open BUY orders
         committed_cash = 0.0
         open_orders_list = list(self._open_orders.values())
         for order in open_orders_list:
             if order.side == OrderSide.BUY:
-                committed_cash += order.size * order.price
+                committed_cash += order.quantity * order.price
 
         available_balance = self._cash_balance - committed_cash
 
@@ -292,18 +299,27 @@ class Portfolio:
         unrealized_pnl_map = self.calculate_unrealized_pnl(market_data_map)
 
         for pos in positions_list:
-            key = f"{pos.market_id}:{pos.outcome}" if pos.outcome else pos.market_id
+            key = (
+                f"{pos.instrument_id}:{pos.outcome}"
+                if pos.outcome
+                else pos.instrument_id
+            )
             pnl = unrealized_pnl_map.get(key, 0.0)
-            cost_basis = pos.size * pos.entry_price
+            cost_basis = pos.quantity * pos.cost_basis
             market_value = cost_basis + pnl
             total_market_value += market_value
 
         # 3. Total balance = current cash + current market value of positions
         total_balance = self._cash_balance + total_market_value
 
-        return PortfolioState(
-            total_balance_quote=total_balance,
-            available_balance_quote=available_balance,
+        return PortfolioSchema(
+            cash_balances=[
+                CashBalance(
+                    currency=self.quote_currency,
+                    total=total_balance,
+                    available=available_balance,
+                )
+            ],
             positions=positions_list,
             open_orders=open_orders_list,
         )

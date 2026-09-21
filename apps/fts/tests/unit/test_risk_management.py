@@ -1,19 +1,22 @@
-# tests/unit/test_risk_management.py
-
 import logging
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy.orm import Session
 
 # Import Enums from your project
-from trading_bot.core.enums import (
+from quant_core.enums import (
+    AssetType,
+    Geography,
     OrderSide,
     OrderStatus,
     PositionStatus,
     SignalType,
 )
+from quant_core.models import CashBalance, Instrument
+from quant_core.models import Portfolio as PortfolioSchema
+from quant_core.models import TradFiDetails
+from sqlalchemy.orm import Session
 
 # Import ORM Models from your project
 from trading_bot.core.models import Position as PositionModel
@@ -21,11 +24,11 @@ from trading_bot.core.models import Position as PositionModel
 # Import Schemas from your project
 from trading_bot.core.schemas import (
     ExecutionResult,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     OrderRequest,
-    PortfolioState,
+    Portfolio,
     Position,
     PriceLevel,
     SizingOutput,
@@ -37,6 +40,9 @@ from trading_bot.risk_management.abc import BaseSizingStrategy
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
+
+# tests/unit/test_risk_management.py
+
 
 # Set up logging for tests
 logging.basicConfig(level=logging.INFO)
@@ -72,17 +78,21 @@ def fixed_sizer():
 def mock_market_data():
     """Returns a mock MarketData object."""
     return MarketData(
-        market_id="MARKET_01",
+        instrument_id="MARKET_01",
         order_book=OrderBook(
-            bids=[PriceLevel(price=0.49, size=100)],
-            asks=[PriceLevel(price=0.51, size=100)],
+            bids=[PriceLevel(price=0.49, quantity=100)],
+            asks=[PriceLevel(price=0.51, quantity=100)],
         ),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MARKET_01",
+        details=Instrument(
+            instrument_id="MARKET_01",
             name="Test Market",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -97,7 +107,7 @@ def market_data_map(mock_market_data):
 def mock_buy_signal():
     """Returns a simple BUY signal."""
     return TradeSignal(
-        market_id="MARKET_01",
+        instrument_id="MARKET_01",
         strategy_name="test_strat",
         signal_type=SignalType.BUY,
         confidence=0.6,
@@ -108,7 +118,7 @@ def mock_buy_signal():
 def mock_sell_signal():
     """Returns a simple SELL signal."""
     return TradeSignal(
-        market_id="MARKET_01",
+        instrument_id="MARKET_01",
         strategy_name="test_strat",
         signal_type=SignalType.SELL,
         confidence=0.4,
@@ -129,9 +139,9 @@ class TestPortfolio:
 
     def test_add_open_order(self, base_portfolio: Portfolio):
         order = OrderRequest(
-            market_id="MKT1",
+            instrument_id="MKT1",
             side=OrderSide.BUY,
-            size=100,
+            quantity=100,
             price=0.5,
         )
         base_portfolio.add_open_order("ORDER_123", order)
@@ -140,33 +150,33 @@ class TestPortfolio:
 
     def test_get_state_initial(self, base_portfolio: Portfolio):
         state = base_portfolio.get_state({})
-        assert state.total_balance_quote == 10000.0
-        assert state.available_balance_quote == 10000.0
+        assert state.cash_balances[0].total == 10000.0
+        assert state.cash_balances[0].available == 10000.0
         assert state.positions == []
         assert state.open_orders == []
 
     def test_get_state_with_open_buy_order(self, base_portfolio: Portfolio):
         order = OrderRequest(
-            market_id="MKT1",
+            instrument_id="MKT1",
             side=OrderSide.BUY,
-            size=100,
+            quantity=100,
             price=0.5,
         )
         base_portfolio.add_open_order("ORDER_123", order)
         state = base_portfolio.get_state({})
 
         # Total balance is unchanged, available is reduced
-        assert state.total_balance_quote == 10000.0
-        assert state.available_balance_quote == 9950.0  # 10000 - (100 * 0.5)
+        assert state.cash_balances[0].total == 10000.0
+        assert state.cash_balances[0].available == 9950.0  # 10000 - (100 * 0.5)
         assert len(state.open_orders) == 1
 
     def test_update_order_status_buy_new_long(
         self, base_portfolio: Portfolio, mock_db_session
     ):
         order = OrderRequest(
-            market_id="MKT1",
+            instrument_id="MKT1",
             side=OrderSide.BUY,
-            size=200,
+            quantity=200,
             price=0.5,
         )
         base_portfolio.add_open_order("ORDER_123", order)
@@ -174,7 +184,7 @@ class TestPortfolio:
         fill = ExecutionResult(
             order_id="ORDER_123",
             status=OrderStatus.FILLED,
-            filled_size=200,
+            filled_quantity=200,
             avg_price=0.5,
             timestamp=datetime.now(timezone.utc),
         )
@@ -186,8 +196,8 @@ class TestPortfolio:
 
         pos_key = "MKT1"
         assert pos_key in base_portfolio._positions
-        assert base_portfolio._positions[pos_key].size == 200
-        assert base_portfolio._positions[pos_key].entry_price == 0.5
+        assert base_portfolio._positions[pos_key].quantity == 200
+        assert base_portfolio._positions[pos_key].cost_basis == 0.5
         mock_db_session.add.assert_called_once()
         mock_db_session.commit.assert_not_called()
 
@@ -195,9 +205,9 @@ class TestPortfolio:
         self, base_portfolio: Portfolio, mock_db_session
     ):
         order = OrderRequest(
-            market_id="MKT1",
+            instrument_id="MKT1",
             side=OrderSide.SELL,
-            size=100,
+            quantity=100,
             price=0.6,
         )
         base_portfolio.add_open_order("ORDER_123", order)
@@ -205,7 +215,7 @@ class TestPortfolio:
         fill = ExecutionResult(
             order_id="ORDER_123",
             status=OrderStatus.FILLED,
-            filled_size=100,
+            filled_quantity=100,
             avg_price=0.6,
             timestamp=datetime.now(timezone.utc),
         )
@@ -216,8 +226,8 @@ class TestPortfolio:
 
         pos_key = "MKT1"
         assert pos_key in base_portfolio._positions
-        assert base_portfolio._positions[pos_key].size == -100
-        assert base_portfolio._positions[pos_key].entry_price == 0.6
+        assert base_portfolio._positions[pos_key].quantity == -100
+        assert base_portfolio._positions[pos_key].cost_basis == 0.6
         mock_db_session.add.assert_called_once()
         mock_db_session.commit.assert_not_called()
 
@@ -225,15 +235,15 @@ class TestPortfolio:
         self, base_portfolio: Portfolio, mock_db_session
     ):
         # 1. Create initial position
-        pos = Position(market_id="MKT1", size=100, entry_price=0.4)
+        pos = Position(instrument_id="MKT1", quantity=100, cost_basis=0.4)
         base_portfolio._positions["MKT1"] = pos
         base_portfolio._cash_balance = 9960.0  # 10000 - (100 * 0.4)
 
         # 2. Add new order
         order = OrderRequest(
-            market_id="MKT1",
+            instrument_id="MKT1",
             side=OrderSide.BUY,
-            size=100,
+            quantity=100,
             price=0.6,
         )
         base_portfolio.add_open_order("ORDER_123", order)
@@ -242,7 +252,7 @@ class TestPortfolio:
         fill = ExecutionResult(
             order_id="ORDER_123",
             status=OrderStatus.FILLED,
-            filled_size=100,
+            filled_quantity=100,
             avg_price=0.6,
             timestamp=datetime.now(timezone.utc),
         )
@@ -255,25 +265,25 @@ class TestPortfolio:
         assert pos_key in base_portfolio._positions
 
         # Size = 100 + 100 = 200
-        assert base_portfolio._positions[pos_key].size == 200
+        assert base_portfolio._positions[pos_key].quantity == 200
 
         # Entry = (100 * 0.4 + 100 * 0.6) / 200 = 0.5
-        assert base_portfolio._positions[pos_key].entry_price == 0.5
+        assert base_portfolio._positions[pos_key].cost_basis == 0.5
         mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_sell_close_long(
         self, base_portfolio: Portfolio, mock_db_session
     ):
         # 1. Create initial position
-        pos = Position(market_id="MKT1", size=100, entry_price=0.4)
+        pos = Position(instrument_id="MKT1", quantity=100, cost_basis=0.4)
         base_portfolio._positions["MKT1"] = pos
         base_portfolio._cash_balance = 9960.0  # 10000 - (100 * 0.4)
 
         # 2. Add sell order
         order = OrderRequest(
-            market_id="MKT1",
+            instrument_id="MKT1",
             side=OrderSide.SELL,
-            size=100,
+            quantity=100,
             price=0.7,
         )
         base_portfolio.add_open_order("ORDER_123", order)
@@ -282,7 +292,7 @@ class TestPortfolio:
         fill = ExecutionResult(
             order_id="ORDER_123",
             status=OrderStatus.FILLED,
-            filled_size=100,
+            filled_quantity=100,
             avg_price=0.7,
             timestamp=datetime.now(timezone.utc),
         )
@@ -299,9 +309,9 @@ class TestPortfolio:
 
     def test_update_order_status_non_fill(self, base_portfolio: Portfolio):
         order = OrderRequest(
-            market_id="MKT1",
+            instrument_id="MKT1",
             side=OrderSide.BUY,
-            size=100,
+            quantity=100,
             price=0.5,
         )
         base_portfolio.add_open_order("ORDER_123", order)
@@ -309,7 +319,7 @@ class TestPortfolio:
         result = ExecutionResult(
             order_id="ORDER_123",
             status=OrderStatus.CANCELLED,
-            filled_size=0,
+            filled_quantity=0,
             avg_price=0,
             timestamp=datetime.now(timezone.utc),
         )
@@ -325,11 +335,11 @@ class TestPortfolio:
         self, base_portfolio: Portfolio, mock_market_data
     ):
         # Long position
-        pos_long = Position(market_id="MARKET_01", size=100, entry_price=0.4)
+        pos_long = Position(instrument_id="MARKET_01", quantity=100, cost_basis=0.4)
         base_portfolio._positions["MARKET_01"] = pos_long
 
         # Short position
-        pos_short = Position(market_id="MARKET_01", size=-100, entry_price=0.6)
+        pos_short = Position(instrument_id="MARKET_01", quantity=-100, cost_basis=0.6)
         base_portfolio._positions[("MARKET_01", "no")] = pos_short
 
         pnl_map = base_portfolio.calculate_unrealized_pnl(
@@ -339,7 +349,9 @@ class TestPortfolio:
         # Long P&L = size * (current_price - entry_price) = 100 * (0.49 - 0.40) = 9.0
         assert pnl_map["MARKET_01"] == pytest.approx(9.0)
 
-        pos_short_yes = Position(market_id="MARKET_01", size=-100, entry_price=0.6)
+        pos_short_yes = Position(
+            instrument_id="MARKET_01", quantity=-100, cost_basis=0.6
+        )
         base_portfolio._positions["MARKET_01"] = pos_short_yes
 
         pnl_map = base_portfolio.calculate_unrealized_pnl(
@@ -353,9 +365,9 @@ class TestPortfolio:
     def test_load_positions(self, base_portfolio: Portfolio, mock_db_session):
         mock_pos_orm = PositionModel(
             id=1,
-            market_id="MKT_DB",
-            size=50,
-            entry_price=0.2,
+            instrument_id="MKT_DB",
+            quantity=50,
+            cost_basis=0.2,
             status=PositionStatus.OPEN,
         )
         mock_db_session.query.return_value.filter_by.return_value.all.return_value = [
@@ -366,8 +378,8 @@ class TestPortfolio:
 
         pos_key = "MKT_DB"
         assert pos_key in base_portfolio._positions
-        assert base_portfolio._positions[pos_key].size == 50
-        assert base_portfolio._positions[pos_key].entry_price == 0.2
+        assert base_portfolio._positions[pos_key].quantity == 50
+        assert base_portfolio._positions[pos_key].cost_basis == 0.2
 
 
 # --- TestRiskManager Class ---
@@ -381,9 +393,10 @@ class TestRiskManager:
         """Mocks the Portfolio object."""
         portfolio = MagicMock(spec=Portfolio)
         # Default state
-        portfolio.get_state.return_value = PortfolioState(
-            total_balance_quote=10000.0,
-            available_balance_quote=10000.0,
+        portfolio.get_state.return_value = PortfolioSchema(
+            cash_balances=[
+                CashBalance(currency="USD", total=10000.0, available=10000.0)
+            ],
             positions=[],
             open_orders=[],
         )
@@ -397,14 +410,14 @@ class TestRiskManager:
             max_total_positions=5,
         )
         assert rm.portfolio == mock_portfolio
-        assert rm.sizer == fixed_sizer
+        assert rm.quantityr == fixed_sizer
         assert rm.max_allocation_per_market == 0.5
         assert rm.max_total_positions == 5
 
     def test_process_signal_hold(self, mock_portfolio, fixed_sizer, market_data_map):
         rm = RiskManager(portfolio=mock_portfolio, sizer=fixed_sizer)
         signal = TradeSignal(
-            market_id="MARKET_01",
+            instrument_id="MARKET_01",
             strategy_name="test",
             signal_type=SignalType.HOLD,
             confidence=0.5,
@@ -427,7 +440,7 @@ class TestRiskManager:
         # Use a sizer that will return 0
         zero_sizer = MagicMock(spec=BaseSizingStrategy)
         zero_sizer.calculate_size.return_value = SizingOutput(
-            amount_quote=0, size_shares=0
+            amount_quote=0, quantity_shares=0
         )
 
         rm = RiskManager(portfolio=mock_portfolio, sizer=zero_sizer)
@@ -443,9 +456,8 @@ class TestRiskManager:
         self, mock_portfolio, fixed_sizer, mock_buy_signal, market_data_map, caplog
     ):
         # Make available balance too low
-        low_balance_state = PortfolioState(
-            total_balance_quote=50.0,
-            available_balance_quote=50.0,
+        low_balance_state = PortfolioSchema(
+            cash_balances=[CashBalance(currency="USD", total=50.0, available=50.0)],
             positions=[],
             open_orders=[],
         )
@@ -465,12 +477,12 @@ class TestRiskManager:
         order = rm.process_signal(mock_buy_signal, market_data_map)
 
         assert isinstance(order, OrderRequest)
-        assert order.market_id == "MARKET_01"
+        assert order.instrument_id == "MARKET_01"
         assert order.side == OrderSide.BUY
 
         # Sizer is 100 quote currency. Price is 0.51 (best ask).
         # Size = 100 / 0.51 = 196.078...
-        assert order.size == pytest.approx(100.0 / 0.51)
+        assert order.quantity == pytest.approx(100.0 / 0.51)
         assert order.price == 0.51
 
     def test_process_signal_success_sell(
@@ -484,23 +496,25 @@ class TestRiskManager:
 
         # Sizer is 100 quote currency. Price is 0.49 (best bid).
         # Size = 100 / 0.49 = 204.08...
-        assert order.size == pytest.approx(100.0 / 0.49)
+        assert order.quantity == pytest.approx(100.0 / 0.49)
         assert order.price == 0.49
 
     def test_process_signal_flat(self, mock_portfolio, fixed_sizer, market_data_map):
         rm = RiskManager(portfolio=mock_portfolio, sizer=fixed_sizer)
 
         # Setup a position to flatten (Long 100 shares)
-        pos = Position(market_id="MARKET_01", size=100, entry_price=0.4)
-        mock_portfolio.get_state.return_value = PortfolioState(
-            total_balance_quote=10000.0,
+        pos = Position(instrument_id="MARKET_01", quantity=100, cost_basis=0.4)
+        mock_portfolio.get_state.return_value = PortfolioSchema(
+            cash_balances=[
+                CashBalance(currency="USD", total=10000.0, available=10000.0)
+            ],
             available_balance_quote=9960.0,
             positions=[pos],
             open_orders=[],
         )
 
         signal = TradeSignal(
-            market_id="MARKET_01",
+            instrument_id="MARKET_01",
             strategy_name="test",
             signal_type=SignalType.FLAT,
             confidence=1.0,
@@ -510,7 +524,7 @@ class TestRiskManager:
 
         assert order is not None
         assert order.side == OrderSide.SELL
-        assert order.size == 100
+        assert order.quantity == 100
         assert order.price == 0.49  # Best bid from market_data_map fixture
 
     # --- Direct tests for _passes_risk_checks ---
@@ -519,16 +533,17 @@ class TestRiskManager:
     def risk_check_deps(self, mock_market_data):
         """Dependencies for testing _passes_risk_checks directly."""
         rm = RiskManager(MagicMock(spec=Portfolio), MagicMock())  # Mock portfolio
-        sizing_output = SizingOutput(amount_quote=1000, size_shares=2000)
+        sizing_output = SizingOutput(amount_quote=1000, quantity_shares=2000)
         signal = TradeSignal(
-            market_id="MKT1",
+            instrument_id="MKT1",
             strategy_name="test",
             signal_type=SignalType.BUY,
             confidence=0.7,
         )
-        portfolio_state = PortfolioState(
-            total_balance_quote=10000,
-            available_balance_quote=10000,
+        portfolio_state = PortfolioSchema(
+            cash_balances=[
+                CashBalance(currency="USD", total=10000.0, available=10000.0)
+            ],
             positions=[],
             open_orders=[],
         )
@@ -538,7 +553,7 @@ class TestRiskManager:
     def test_passes_risk_checks_insufficient_balance(self, risk_check_deps, caplog):
         rm, sizing_output, signal, portfolio_state, market_map = risk_check_deps
 
-        portfolio_state.available_balance_quote = 500  # Less than 1000
+        portfolio_state.cash_balances[0].available = 500  # Less than 1000
 
         passes = rm._passes_risk_checks(
             sizing_output, signal, portfolio_state, market_map
@@ -552,9 +567,9 @@ class TestRiskManager:
         rm.max_total_positions = 1
         portfolio_state.positions = [
             Position(
-                market_id="OTHER_MKT",
-                size=10,
-                entry_price=0.1,
+                instrument_id="OTHER_MKT",
+                quantity=10,
+                cost_basis=0.1,
             )
         ]
 
@@ -572,7 +587,7 @@ class TestRiskManager:
         # sizing_output.amount_quote is 1000.
 
         portfolio_state.positions = [
-            Position(market_id="MKT1", size=10, entry_price=0.1)
+            Position(instrument_id="MKT1", quantity=10, cost_basis=0.1)
         ]
         # Mock PnL calculation on the RiskManager's portfolio instance
         rm.portfolio.calculate_unrealized_pnl.return_value = {"MKT1": 0.0}

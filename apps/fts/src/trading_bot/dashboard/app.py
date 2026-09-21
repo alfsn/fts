@@ -56,11 +56,11 @@ def get_cached_db_summary() -> Dict[str, int]:
 @st.cache_data(ttl=60)
 def get_cached_models(
     model_type: Optional[str] = None,
-    market_id: Optional[str] = None,
+    instrument_id: Optional[str] = None,
     status: Optional[str] = None,
 ):
     return query_service.model_repo.list_models(
-        model_type=model_type, market_id=market_id, status=status
+        model_type=model_type, instrument_id=instrument_id, status=status
     )
 
 
@@ -71,10 +71,10 @@ def get_cached_model_details(model_id: str) -> Optional[ModelDetailDTO]:
 
 @st.cache_data(ttl=60)
 def get_cached_backtest_runs(
-    market_id: Optional[str] = None, min_sharpe: Optional[float] = None
+    instrument_id: Optional[str] = None, min_sharpe: Optional[float] = None
 ):
     return query_service.backtest_repo.list_runs(
-        market_id=market_id, min_sharpe=min_sharpe
+        instrument_id=instrument_id, min_sharpe=min_sharpe
     )
 
 
@@ -155,7 +155,7 @@ with tab_models:
     mk_filter = market_filter.strip() if market_filter.strip() else None
 
     models = get_cached_models(
-        model_type=mt_filter, market_id=mk_filter, status=st_filter
+        model_type=mt_filter, instrument_id=mk_filter, status=st_filter
     )
 
     if not models:
@@ -242,7 +242,7 @@ with tab_models:
                     {
                         "Model ID": m.model_id,
                         "Type": m.model_type,
-                        "Market": m.market_id,
+                        "Market": m.instrument_id,
                         "Interval": m.interval,
                         "Horizon": m.horizon,
                         "Status": m.status,
@@ -273,7 +273,8 @@ with tab_models:
                     c1.metric("Status", detail.status.upper())
                     c2.metric("Model Type", detail.model_type)
                     c3.metric(
-                        "Market / Horizon", f"{detail.market_id} (h={detail.horizon})"
+                        "Market / Horizon",
+                        f"{detail.instrument_id} (h={detail.horizon})",
                     )
                     c4.metric(
                         "ONNX Artifact",
@@ -325,7 +326,9 @@ with tab_backtests:
         )
 
     bk_m_filter = bk_market_filter.strip() if bk_market_filter.strip() else None
-    runs = get_cached_backtest_runs(market_id=bk_m_filter, min_sharpe=min_sharpe_filter)
+    runs = get_cached_backtest_runs(
+        instrument_id=bk_m_filter, min_sharpe=min_sharpe_filter
+    )
 
     if not runs:
         st.warning("No backtest runs found matching the filter criteria.")
@@ -405,7 +408,7 @@ with tab_backtests:
                         "Linked Model ID": r.model_id or "N/A",
                         "Model Params": num_params,
                         "Strategy": r.strategy_name,
-                        "Market": r.market_id,
+                        "Market": r.instrument_id,
                         "Total Return (%)": r.total_return,
                         "Sharpe Ratio": r.sharpe_ratio,
                         "Max Drawdown (%)": r.max_drawdown,

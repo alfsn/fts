@@ -83,10 +83,10 @@ class TradingPipeline:
 
             # Step 3: Process Signals through Risk & Route for Execution
             for signal in signals:
-                market_data = ingestion_output.market_data.get(signal.market_id)
+                market_data = ingestion_output.market_data.get(signal.instrument_id)
                 if not market_data:
                     logger.warning(
-                        f"Skipping signal for {signal.market_id}: no market data "
+                        f"Skipping signal for {signal.instrument_id}: no market data "
                         f"available in ingestion output."
                     )
                     continue
@@ -99,8 +99,8 @@ class TradingPipeline:
 
                 if order_request:
                     logger.info(
-                        f"Risk approved order for {signal.market_id} "
-                        f"(size: {order_request.size:.4f} shares)."
+                        f"Risk approved order for {signal.instrument_id} "
+                        f"(size: {order_request.quantity:.4f} shares)."
                     )
                     # Step 4: Execute Order
                     self.execution.execute_order(
@@ -110,7 +110,7 @@ class TradingPipeline:
                     )
                 else:
                     logger.debug(
-                        f"Signal for {signal.market_id} rejected by risk manager."
+                        f"Signal for {signal.instrument_id} rejected by risk manager."
                     )
 
         except Exception as e:

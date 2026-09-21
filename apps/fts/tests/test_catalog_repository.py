@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from quant_core.enums import OrderSide, OrderStatus
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.core.catalog_repository import (
@@ -11,7 +12,6 @@ from trading_bot.core.catalog_repository import (
     ModelCatalogRepository,
 )
 from trading_bot.core.database import Base
-from trading_bot.core.enums import OrderSide, OrderStatus
 from trading_bot.core.models import (
     BacktestEquityLog,
     BacktestPredictionLog,
@@ -39,7 +39,7 @@ def test_model_catalog_repository_list_and_details(db_session_factory):
             model_id="model_lgb_001",
             run_id="run_101",
             model_type="LightGBM",
-            market_id="AAPL",
+            instrument_id="AAPL",
             interval="1m",
             horizon=5,
             onnx_path="/tmp/model1.onnx",
@@ -51,7 +51,7 @@ def test_model_catalog_repository_list_and_details(db_session_factory):
             model_id="model_xgb_002",
             run_id="run_102",
             model_type="XGBoost",
-            market_id="AAPL",
+            instrument_id="AAPL",
             interval="1m",
             horizon=5,
             onnx_path="/tmp/model2.onnx",
@@ -85,7 +85,7 @@ def test_model_promotion_demotes_prior_production(db_session_factory):
         m1 = ModelRegistryLog(
             model_id="model_lgb_001",
             model_type="LightGBM",
-            market_id="AAPL",
+            instrument_id="AAPL",
             interval="1m",
             horizon=5,
             onnx_path="/tmp/model1.onnx",
@@ -96,7 +96,7 @@ def test_model_promotion_demotes_prior_production(db_session_factory):
         m2 = ModelRegistryLog(
             model_id="model_lgb_002",
             model_type="LightGBM",
-            market_id="AAPL",
+            instrument_id="AAPL",
             interval="1m",
             horizon=5,
             onnx_path="/tmp/model2.onnx",
@@ -162,10 +162,10 @@ def test_backtest_catalog_repository_metrics(db_session_factory):
         o1 = OrderLog(
             order_id="ord_1",
             run_id="run_test",
-            market_id="AAPL",
+            instrument_id="AAPL",
             strategy_name="TrendStrategy",
             side=OrderSide.BUY,
-            requested_size=1.0,
+            requested_quantity=1.0,
             requested_price=10.0,
             status=OrderStatus.FILLED,
         )
@@ -174,9 +174,9 @@ def test_backtest_catalog_repository_metrics(db_session_factory):
         t1 = TradeLog(
             order_id="ord_1",
             run_id="run_test",
-            market_id="AAPL",
+            instrument_id="AAPL",
             side=OrderSide.BUY,
-            fill_size=1.0,
+            quantity=1.0,
             fill_price=10.0,
             outcome="win",
             fill_timestamp=now + timedelta(minutes=1),
@@ -190,7 +190,7 @@ def test_backtest_catalog_repository_metrics(db_session_factory):
     run = runs[0]
     assert run.run_id == "run_test"
     assert run.strategy_name == "TrendStrategy"
-    assert run.market_id == "AAPL"
+    assert run.instrument_id == "AAPL"
     assert run.total_return == 20.0  # (120 - 100)/100 * 100%
     assert run.max_drawdown > 0  # 110 -> 105 is DD
     assert run.total_trades == 1
@@ -206,7 +206,7 @@ def test_catalog_query_service_summary(db_session_factory):
 
     with db_session_factory() as session:
         m = Market(
-            market_id="TSLA",
+            instrument_id="TSLA",
             name="Tesla Inc.",
             end_date=datetime.now(timezone.utc) + timedelta(days=365),
         )
@@ -235,7 +235,7 @@ def test_catalog_query_service_dual_factories():
             model_id="model_001",
             run_id="bt_run_1",
             model_type="LSTM",
-            market_id="BTC/USDT",
+            instrument_id="BTC/USDT",
             interval="1m",
             horizon=5,
             onnx_path="/tmp/model.onnx",

@@ -18,7 +18,7 @@ class BaseBacktestExporter(ABC):
     @abstractmethod
     def export(
         self,
-        market_id: str,
+        instrument_id: str,
         strategy_name: Optional[str] = None,
         run_id: Optional[str] = None,
         output_path: Optional[str] = None,
@@ -26,7 +26,7 @@ class BaseBacktestExporter(ABC):
         """
         Exports the backtest visualization for a given market, strategy, and run.
 
-        :param market_id: The market ID (e.g. 'BTC/USDT').
+        :param instrument_id: The market ID (e.g. 'BTC/USDT').
         :param strategy_name: The strategy name.
         :param run_id: The specific backtest simulation run ID.
         :param output_path: Optional file path or directory to write the report to.
@@ -53,7 +53,7 @@ class HTMLBacktestExporter(BaseBacktestExporter):
 
     def export(
         self,
-        market_id: str,
+        instrument_id: str,
         strategy_name: Optional[str] = None,
         run_id: Optional[str] = None,
         output_path: Optional[str] = None,
@@ -62,18 +62,18 @@ class HTMLBacktestExporter(BaseBacktestExporter):
         Loads the backtest logs, generates the interactive Plotly charts,
         and writes them out to a standalone HTML file.
         """
-        df = self.visualizer.load_data(market_id, strategy_name, run_id)
+        df = self.visualizer.load_data(instrument_id, strategy_name, run_id)
         if df.empty:
             raise ValueError(
-                f"No backtest prediction data found for market: {market_id}, "
+                f"No backtest prediction data found for market: {instrument_id}, "
                 f"strategy: {strategy_name}, run_id: {run_id}"
             )
 
         # Generate the interactive Plotly figure
-        fig = self.visualizer.render_charts(df, market_id)
+        fig = self.visualizer.render_charts(df, instrument_id)
 
-        # Sanitize market_id for use in filenames (e.g., replace '/' with '_')
-        sanitized_market = market_id.replace("/", "_")
+        # Sanitize instrument_id for use in filenames (e.g., replace '/' with '_')
+        sanitized_market = instrument_id.replace("/", "_")
         filename = f"report_{sanitized_market}_{strategy_name or 'None'}_{run_id}.html"
 
         # Determine if output_path is intended to be a directory

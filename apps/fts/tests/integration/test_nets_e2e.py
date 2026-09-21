@@ -24,7 +24,7 @@ def e2e_db_session():
     """
     original_db_url = settings.DATABASE_URL
     # 1. Update settings to point to tests/test_persistence.db
-    settings.DATABASE_URL = "sqlite+pysqlite:///./tests/test_persistence.db"
+    settings.DATABASE_URL = "sqlite+pysqlite:///apps/fts/tests/test_persistence.db"
 
     # 2. Configure SessionLocal to bind to tests/test_persistence.db
     engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)

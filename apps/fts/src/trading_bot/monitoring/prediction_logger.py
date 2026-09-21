@@ -75,7 +75,7 @@ class DatabasePredictionLogger:
             insert_data.append(
                 {
                     "timestamp": ts_normalized,
-                    "market_id": signal.market_id,
+                    "instrument_id": signal.instrument_id,
                     "strategy_name": signal.strategy_name,
                     "run_id": run_id_val,
                     "prediction_output": signal.prediction_output,
@@ -97,7 +97,7 @@ class DatabasePredictionLogger:
                     stmt = stmt.on_conflict_do_update(
                         index_elements=[
                             "timestamp",
-                            "market_id",
+                            "instrument_id",
                             "strategy_name",
                             "run_id",
                             "log_type",
@@ -117,7 +117,7 @@ class DatabasePredictionLogger:
                     stmt = stmt.on_conflict_do_update(
                         index_elements=[
                             "timestamp",
-                            "market_id",
+                            "instrument_id",
                             "strategy_name",
                             "run_id",
                             "log_type",

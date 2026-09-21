@@ -1,17 +1,17 @@
-# tests/test_strategy.py
-
 import logging
 from datetime import datetime, timezone
 from typing import List
 
 import pytest
+from quant_core.enums import AssetType, Geography
+from quant_core.models import Instrument, TradFiDetails
 
 # Import ABCs and Schemas
 from trading_bot.core.schemas import (
     ExternalData,
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     SignalType,
     TradeSignal,
@@ -20,6 +20,9 @@ from trading_bot.strategy.abc import BaseStrategy
 
 # Import the class we are testing
 from trading_bot.strategy.engine import StrategyEngine
+
+# tests/test_strategy.py
+
 
 # --- Fake (Stub) Implementations for Testing ---
 
@@ -70,7 +73,7 @@ class FakeStrategy(BaseStrategy):
 def mock_signal_1() -> TradeSignal:
     """A sample signal from 'strat_A'."""
     return TradeSignal(
-        market_id="MKT1",
+        instrument_id="MKT1",
         strategy_name="strat_A",
         signal_type=SignalType.BUY,
         confidence=0.7,
@@ -81,7 +84,7 @@ def mock_signal_1() -> TradeSignal:
 def mock_signal_2() -> TradeSignal:
     """A sample signal from 'strat_B'."""
     return TradeSignal(
-        market_id="MKT2",
+        instrument_id="MKT2",
         strategy_name="strat_B",
         signal_type=SignalType.SELL,
         confidence=0.8,
@@ -92,14 +95,18 @@ def mock_signal_2() -> TradeSignal:
 def mock_data_tick() -> IngestionEngineOutput:
     """A sample IngestionEngineOutput data packet."""
     market_data = MarketData(
-        market_id="MKT1",
+        instrument_id="MKT1",
         order_book=OrderBook(bids=[], asks=[]),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MKT1",
+        details=Instrument(
+            instrument_id="MKT1",
             name="Test",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
     external_data = ExternalData(
@@ -242,7 +249,7 @@ def test_engine_signal_name_correction(mock_data_tick, mock_signal_1, caplog):
     # Check that the signal's name was corrected
     assert len(signals) == 1
     assert signals[0].strategy_name == "strat_A"
-    assert signals[0].market_id == "MKT1"
+    assert signals[0].instrument_id == "MKT1"
 
     # Check that a warning was logged
     assert "has mismatched name: 'WRONG_NAME'. Correcting." in caplog.text

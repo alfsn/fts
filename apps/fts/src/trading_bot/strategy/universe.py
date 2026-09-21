@@ -85,27 +85,29 @@ class UniverseBuilder:
         now = datetime.now(timezone.utc)
         investable_markets: List[str] = []
 
-        for market_id, data in all_market_data.items():
+        for instrument_id, data in all_market_data.items():
             # 1. Filter by Expiry Date
             if not self._filter_by_expiry(data, now):
-                logger.debug(f"Market {market_id} excluded: Fails expiry filter.")
+                logger.debug(f"Market {instrument_id} excluded: Fails expiry filter.")
                 continue
 
             # 2. Filter by Name (Keywords)
             if not self._filter_by_name(data):
-                logger.debug(f"Market {market_id} excluded: Fails name keyword filter.")
+                logger.debug(
+                    f"Market {instrument_id} excluded: Fails name keyword filter."
+                )
                 continue
 
             # 3. Filter by Liquidity and Spread
             if not self._filter_by_liquidity_and_spread(data):
                 logger.debug(
-                    f"Market {market_id} excluded: Fails liquidity/spread filter."
+                    f"Market {instrument_id} excluded: Fails liquidity/spread filter."
                 )
                 continue
 
             # If all filters passed:
-            logger.debug(f"Market {market_id} included in universe.")
-            investable_markets.append(market_id)
+            logger.debug(f"Market {instrument_id} included in universe.")
+            investable_markets.append(instrument_id)
 
         logger.info(
             f"Universe built. {len(investable_markets)} / "
@@ -115,7 +117,12 @@ class UniverseBuilder:
 
     def _filter_by_expiry(self, data: MarketData, now: datetime) -> bool:
         """Checks if the market's end date is within the allowed range."""
-        days_to_expiry = (data.details.end_date - now).total_seconds() / (60 * 60 * 24)
+        if getattr(data.details.details, "type", None) != "prediction":
+            return True
+
+        days_to_expiry = (data.details.details.end_date - now).total_seconds() / (
+            60 * 60 * 24
+        )
         return (
             self.min_days_to_expiry <= days_to_expiry
             and days_to_expiry <= self.max_days_to_expiry
@@ -150,8 +157,8 @@ class UniverseBuilder:
         best_ask: PriceLevel = book.asks[0]
 
         # Check liquidity
-        bid_liquidity_usd = best_bid.price * best_bid.size
-        ask_liquidity_usd = best_ask.price * best_ask.size
+        bid_liquidity_usd = best_bid.price * best_bid.quantity
+        ask_liquidity_usd = best_ask.price * best_ask.quantity
 
         if (
             bid_liquidity_usd < self.min_liquidity_usd

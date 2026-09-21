@@ -1,5 +1,3 @@
-# tests/unit/test_backtest_readers.py
-
 import csv
 import os
 import tempfile
@@ -8,17 +6,20 @@ from typing import Iterator
 from unittest.mock import MagicMock
 
 import pytest
+from quant_core.enums import AssetType, BarType, Geography
+from quant_core.models import Instrument, TradFiDetails
 from trading_bot.backtesting.abc import BaseBacktestDataReader
 from trading_bot.backtesting.readers import CSVBacktestDataReader, SQLBacktestDataReader
-from trading_bot.core.enums import BarType
 from trading_bot.core.loop import HistoricalReplayLoop
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.schemas import (
     BarData,
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
 )
+
+# tests/unit/test_backtest_readers.py
 
 
 # Define a MockDataReader that inherits from BaseBacktestDataReader
@@ -57,7 +58,7 @@ def test_csv_backtest_data_reader(temp_csv_file):
     Verifies that CSVBacktestDataReader correctly parses CSV rows
     and yields chronological IngestionEngineOutput packets.
     """
-    reader = CSVBacktestDataReader(file_path=temp_csv_file, market_id="AAPL")
+    reader = CSVBacktestDataReader(file_path=temp_csv_file, instrument_id="AAPL")
     ticks = list(reader.read_data())
 
     # Assertions
@@ -71,9 +72,8 @@ def test_csv_backtest_data_reader(temp_csv_file):
 
     mdata1 = tick1.market_data["AAPL"]
     assert isinstance(mdata1, MarketData)
-    assert mdata1.market_id == "AAPL"
+    assert mdata1.instrument_id == "AAPL"
     assert mdata1.details.name == "AAPL Historical Replay"
-    assert mdata1.details.resolution_source == "csv_replay"
 
     bar1 = mdata1.recent_bars[0]
     assert isinstance(bar1, BarData)
@@ -96,14 +96,18 @@ def test_historical_replay_loop_dependency_injection():
     BaseBacktestDataReader and streams ticks chronologically to the pipeline.
     """
     # 1. Arrange Mock Data
-    mock_details = MarketDetails(
-        market_id="MKT-1",
+    mock_details = Instrument(
+        details=TradFiDetails(
+            asset_type=AssetType.STOCK,
+            geography=Geography.US,
+            industry="Tech",
+            currency="USD",
+        ),
+        instrument_id="MKT-1",
         name="Test",
-        end_date=datetime.now(timezone.utc),
-        resolution_source="test",
     )
     mock_market_data = MarketData(
-        market_id="MKT-1",
+        instrument_id="MKT-1",
         details=mock_details,
         recent_bars=[],
     )
@@ -159,10 +163,10 @@ def test_historical_replay_loop_backwards_compatibility_fallback(temp_csv_file):
 @pytest.fixture
 def sql_db_session():
     """Sets up an in-memory SQLite database and creates the schema."""
+    from quant_core.enums import BarType
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from trading_bot.core.database import Base
-    from trading_bot.core.enums import BarType
     from trading_bot.core.models import BarDataLog, Market
 
     engine = create_engine("sqlite:///:memory:")
@@ -172,16 +176,14 @@ def sql_db_session():
 
     # Pre-populate a market record since foreign key constraints exist
     market = Market(
-        market_id="AAPL",
+        instrument_id="AAPL",
         name="Apple Inc.",
-        end_date=datetime(2026, 12, 31, 23, 59, 59, tzinfo=timezone.utc),
-        resolution_source="sqlite_test",
     )
     session.add(market)
 
     # Pre-populate some historical bars
     bar1 = BarDataLog(
-        market_id="AAPL",
+        instrument_id="AAPL",
         timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
         open=100.0,
         high=105.0,
@@ -193,7 +195,7 @@ def sql_db_session():
         dollar_volume=51000.0,
     )
     bar2 = BarDataLog(
-        market_id="AAPL",
+        instrument_id="AAPL",
         timestamp=datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc),
         open=102.0,
         high=103.0,
@@ -218,7 +220,7 @@ def test_sql_backtest_data_reader(sql_db_session):
     Verifies that SQLBacktestDataReader correctly parses SQL rows
     and yields chronological IngestionEngineOutput packets.
     """
-    reader = SQLBacktestDataReader(session=sql_db_session, market_id="AAPL")
+    reader = SQLBacktestDataReader(session=sql_db_session, instrument_id="AAPL")
     ticks = list(reader.read_data())
 
     # Assertions
@@ -232,9 +234,8 @@ def test_sql_backtest_data_reader(sql_db_session):
 
     mdata1 = tick1.market_data["AAPL"]
     assert isinstance(mdata1, MarketData)
-    assert mdata1.market_id == "AAPL"
+    assert mdata1.instrument_id == "AAPL"
     assert mdata1.details.name == "Apple Inc."
-    assert mdata1.details.resolution_source == "sqlite_test"
 
     bar1 = mdata1.recent_bars[0]
     assert isinstance(bar1, BarData)
@@ -256,7 +257,7 @@ def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
     start_date = datetime(2026, 5, 30, 12, 0, 30, tzinfo=timezone.utc)
     reader = SQLBacktestDataReader(
         session=sql_db_session,
-        market_id="AAPL",
+        instrument_id="AAPL",
         start_date=start_date,
     )
     ticks = list(reader.read_data())
@@ -265,9 +266,9 @@ def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
 
     end_date = datetime(2026, 5, 30, 12, 0, 30, tzinfo=timezone.utc)
     reader_end = SQLBacktestDataReader(
-        session=sql_db_session,
-        market_id="AAPL",
         end_date=end_date,
+        session=sql_db_session,
+        instrument_id="AAPL",
     )
     ticks_end = list(reader_end.read_data())
     assert len(ticks_end) == 1
@@ -282,7 +283,7 @@ def test_sql_backtest_data_reader_fallback_market(sql_db_session):
 
     # Add a bar for an unsaved market ID
     bar = BarDataLog(
-        market_id="GOOG",
+        instrument_id="GOOG",
         timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
         open=200.0,
         high=205.0,
@@ -296,16 +297,15 @@ def test_sql_backtest_data_reader_fallback_market(sql_db_session):
     sql_db_session.add(bar)
     sql_db_session.commit()
 
-    reader = SQLBacktestDataReader(session=sql_db_session, market_id="GOOG")
+    reader = SQLBacktestDataReader(session=sql_db_session, instrument_id="GOOG")
     ticks = list(reader.read_data())
     assert len(ticks) == 1
     assert ticks[0].market_data["GOOG"].details.name == "GOOG Historical Replay"
-    assert ticks[0].market_data["GOOG"].details.resolution_source == "sqlite_replay"
 
 
 def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     """Verifies that SQLBacktestDataReader respects warmup_bars and lookback_limit."""
-    from trading_bot.core.enums import BarType
+    from quant_core.enums import BarType
     from trading_bot.core.models import BarDataLog
 
     # Clear pre-populated logs to have complete control
@@ -316,7 +316,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     warmup_time1 = datetime(2026, 5, 30, 11, 0, 0, tzinfo=timezone.utc)
     warmup_time2 = datetime(2026, 5, 30, 11, 30, 0, tzinfo=timezone.utc)
     bar_warmup1 = BarDataLog(
-        market_id="AAPL",
+        instrument_id="AAPL",
         timestamp=warmup_time1,
         open=98.0,
         high=99.0,
@@ -328,7 +328,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
         dollar_volume=9850.0,
     )
     bar_warmup2 = BarDataLog(
-        market_id="AAPL",
+        instrument_id="AAPL",
         timestamp=warmup_time2,
         open=98.5,
         high=100.0,
@@ -345,7 +345,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     actual_time1 = start_time
     actual_time2 = datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
     bar_actual1 = BarDataLog(
-        market_id="AAPL",
+        instrument_id="AAPL",
         timestamp=actual_time1,
         open=100.0,
         high=105.0,
@@ -357,7 +357,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
         dollar_volume=51000.0,
     )
     bar_actual2 = BarDataLog(
-        market_id="AAPL",
+        instrument_id="AAPL",
         timestamp=actual_time2,
         open=102.0,
         high=103.0,
@@ -375,7 +375,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     # Initialize reader with warmup_bars=2 and lookback_limit=3
     reader = SQLBacktestDataReader(
         session=sql_db_session,
-        market_id="AAPL",
+        instrument_id="AAPL",
         start_date=start_time,
         warmup_bars=2,
         lookback_limit=3,

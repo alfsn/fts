@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class MarketSpec(BaseModel):
     """Specification model for target market pair and aggregation timeframe."""
 
-    market_id: str = Field(default="BTC/USDT", description="Target market pair")
+    instrument_id: str = Field(default="BTC/USDT", description="Target market pair")
     interval: str = Field(default="30m", description="Bar aggregation timeframe")
 
 

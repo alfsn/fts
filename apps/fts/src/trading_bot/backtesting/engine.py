@@ -39,7 +39,7 @@ class BacktestEngine:
         pipeline: TradingPipeline,
         data_reader: BaseBacktestDataReader,
         db: Session,
-        market_id: Optional[str] = None,
+        instrument_id: Optional[str] = None,
     ):
         """
         Initializes the Backtest Engine.
@@ -47,13 +47,15 @@ class BacktestEngine:
         :param pipeline: The fully wired trading pipeline (strategy, risk, execution).
         :param data_reader: The historical data provider streaming chronological ticks.
         :param db: SQLAlchemy database session for order persistence.
-        :param market_id: Optional market identifier. If omitted, it will be inferred
+        :param instrument_id: Optional market identifier. If omitted, it will be inferred
                           from the data reader if possible.
         """
         self.pipeline = pipeline
         self.data_reader = data_reader
         self.db = db
-        self.market_id = market_id or getattr(data_reader, "market_id", None)
+        self.instrument_id = instrument_id or getattr(
+            data_reader, "instrument_id", None
+        )
 
     def run(
         self, run_id: Optional[str] = None, clear_previous_run: bool = False
@@ -149,14 +151,14 @@ class BacktestEngine:
                 pos_size = 0.0
                 close_price = 0.0
 
-                if self.market_id:
+                if self.instrument_id:
                     # Retrieve active position size
-                    pos = self.pipeline.portfolio.positions.get(self.market_id)
+                    pos = self.pipeline.portfolio.positions.get(self.instrument_id)
                     if pos:
-                        pos_size = pos.size
+                        pos_size = pos.quantity
 
                     # Retrieve last close price for equity calculation
-                    market_data = tick_data.market_data.get(self.market_id)
+                    market_data = tick_data.market_data.get(self.instrument_id)
                     if market_data and market_data.recent_bars:
                         close_price = market_data.recent_bars[-1].close
 
@@ -193,7 +195,7 @@ class BacktestEngine:
 
             result = BacktestResult(
                 run_id=run_id,
-                market_id=self.market_id or "Unknown",
+                instrument_id=self.instrument_id or "Unknown",
                 strategy_name=(
                     self.pipeline.strategy.strategies[0].name
                     if (self.pipeline.strategy and self.pipeline.strategy.strategies)

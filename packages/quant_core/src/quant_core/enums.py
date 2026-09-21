@@ -73,3 +73,9 @@ class AlertSeverity(str, Enum):
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
+
+
+class SizingStrategyType(str, Enum):
+    KELLY_CRITERION = "kelly_criterion"
+    FIXED_AMOUNT = "fixed_amount"
+    FIXED_PERCENTAGE = "fixed_percentage"

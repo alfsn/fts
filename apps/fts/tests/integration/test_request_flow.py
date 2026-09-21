@@ -1,24 +1,25 @@
-# tests/integration/test_request_flow.py
-
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-
-# Import your project's components
-from trading_bot.core.database import Base
-from trading_bot.core.enums import (
+from quant_core.enums import (
+    AssetType,
+    Geography,
     OrderSide,
     OrderStatus,
     PositionStatus,
     SignalType,
 )
+from quant_core.models import Instrument, TradFiDetails
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+# Import your project's components
+from trading_bot.core.database import Base
 from trading_bot.core.models import Position as PositionModel
 from trading_bot.core.schemas import (
     ExecutionResult,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     PriceLevel,
     TradeSignal,
@@ -26,6 +27,9 @@ from trading_bot.core.schemas import (
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
+
+# tests/integration/test_request_flow.py
+
 
 # --- Fixtures for the Integration Test ---
 
@@ -54,17 +58,21 @@ def market_data_map() -> dict[str, MarketData]:
     """
     return {
         "MKT-01": MarketData(
-            market_id="MKT-01",
+            instrument_id="MKT-01",
             order_book=OrderBook(
-                bids=[PriceLevel(price=0.59, size=100)],
-                asks=[PriceLevel(price=0.60, size=100)],
+                bids=[PriceLevel(price=0.59, quantity=100)],
+                asks=[PriceLevel(price=0.60, quantity=100)],
             ),
             recent_trades=[],
-            details=MarketDetails(
-                market_id="MKT-01",
+            details=Instrument(
+                instrument_id="MKT-01",
                 name="Test Market",
-                end_date=datetime.now(timezone.utc),
-                resolution_source="test",
+                details=TradFiDetails(
+                    asset_type=AssetType.STOCK,
+                    geography=Geography.US,
+                    industry="Tech",
+                    currency="USD",
+                ),
             ),
         )
     }
@@ -100,7 +108,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
 
     # Create a BUY signal
     buy_signal = TradeSignal(
-        market_id="MKT-01",
+        instrument_id="MKT-01",
         strategy_name="test_strat",
         signal_type=SignalType.BUY,
         confidence=0.7,  # Confidence for Kelly, ignored by FixedAmount
@@ -118,7 +126,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     assert len(pre_trade_state.open_orders) == 1
     # Best ask is 0.60, sizer is 600 USDC. Size = 600 / 0.60 = 1000 shares
 
-    assert pre_trade_state.available_balance_quote == 9400.0  # 10000 - 600
+    assert pre_trade_state.cash_balances[0].available == 9400.0  # 10000 - 600
 
     # --- 4. ACT (Simulate Execution Fill) ---
 
@@ -126,7 +134,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     fill_result = ExecutionResult(
         order_id="order-001",
         status=OrderStatus.FILLED,
-        filled_size=1000.0,
+        filled_quantity=1000.0,
         avg_price=0.60,
         timestamp=datetime.now(timezone.utc),
     )
@@ -144,28 +152,28 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     assert len(post_buy_state.positions) == 1
 
     position = post_buy_state.positions[0]
-    assert position.market_id == "MKT-01"
-    assert position.size == 1000.0
-    assert position.entry_price == 0.60
+    assert position.instrument_id == "MKT-01"
+    assert position.quantity == 1000.0
+    assert position.cost_basis == 0.60
 
     # P&L calculation (Unrealized P&L: 1000 * (0.59 - 0.60) = -10)
-    assert post_buy_state.total_balance_quote == 9990.0  # 9400 cash + (1000 * 0.59)
-    assert post_buy_state.available_balance_quote == 9400.0
+    assert post_buy_state.cash_balances[0].total == 9990.0  # 9400 cash + (1000 * 0.59)
+    assert post_buy_state.cash_balances[0].available == 9400.0
 
     # Check database state
-    db_pos = db_session.query(PositionModel).filter_by(market_id="MKT-01").one()
-    assert db_pos.size == 1000.0
-    assert db_pos.entry_price == 0.60
+    db_pos = db_session.query(PositionModel).filter_by(instrument_id="MKT-01").one()
+    assert db_pos.quantity == 1000.0
+    assert db_pos.cost_basis == 0.60
     assert db_pos.status == PositionStatus.OPEN
 
     # --- 6. ACT (Second Trade: SELL to close) ---
 
     # Update market data (price went up)
-    market_data_map["MKT-01"].order_book.bids = [PriceLevel(price=0.70, size=100)]
+    market_data_map["MKT-01"].order_book.bids = [PriceLevel(price=0.70, quantity=100)]
 
     # Create a SELL signal (to partially close)
     sell_signal = TradeSignal(
-        market_id="MKT-01",
+        instrument_id="MKT-01",
         strategy_name="test_strat",
         signal_type=SignalType.SELL,
         confidence=0.3,
@@ -182,7 +190,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     fill_result_2 = ExecutionResult(
         order_id="order-002",
         status=OrderStatus.FILLED,
-        filled_size=order_request_2.size,
+        filled_quantity=order_request_2.quantity,
         avg_price=0.70,
         timestamp=datetime.now(timezone.utc),
     )
@@ -199,10 +207,12 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
 
     # Remaining position = 1000 - 857.14 = 142.86
     final_pos = final_state.positions[0]
-    assert final_pos.size == pytest.approx(1000 - (600 / 0.7))
-    assert final_pos.entry_price == 0.60
+    assert final_pos.quantity == pytest.approx(1000 - (600 / 0.7))
+    assert final_pos.cost_basis == 0.60
 
     # Check DB
-    db_pos_final = db_session.query(PositionModel).filter_by(market_id="MKT-01").one()
-    assert db_pos_final.size == pytest.approx(1000 - (600 / 0.7))
+    db_pos_final = (
+        db_session.query(PositionModel).filter_by(instrument_id="MKT-01").one()
+    )
+    assert db_pos_final.quantity == pytest.approx(1000 - (600 / 0.7))
     assert db_pos_final.status == PositionStatus.OPEN

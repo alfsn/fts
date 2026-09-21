@@ -15,7 +15,7 @@ def test_render_equity_curve():
     dto = BacktestDetailDTO(
         run_id="run_001",
         strategy_name="TestStrategy",
-        market_id="AAPL",
+        instrument_id="AAPL",
         total_return=15.0,
         sharpe_ratio=1.8,
         max_drawdown=4.5,
@@ -55,7 +55,7 @@ def test_render_trade_overlay():
         {
             "id": 1,
             "order_id": "ord_1",
-            "market_id": "AAPL",
+            "instrument_id": "AAPL",
             "side": "BUY",
             "fill_size": 1.0,
             "fill_price": 10.0,

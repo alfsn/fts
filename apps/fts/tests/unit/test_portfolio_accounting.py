@@ -4,10 +4,10 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-from trading_bot.core.enums import OrderSide, OrderStatus
+from quant_core.enums import OrderSide, OrderStatus
+from quant_core.models import ExecutionResult, OrderRequest
 from trading_bot.core.loop import RealTimePollingLoop
 from trading_bot.core.pipeline import TradingPipeline
-from trading_bot.core.schemas import ExecutionResult, OrderRequest
 from trading_bot.risk_management.portfolio import Portfolio
 
 
@@ -20,15 +20,15 @@ def test_portfolio_accounting_long_reduce():
 
     # 1. Buy 10 shares at $100
     buy_order = OrderRequest(
-        market_id="BTC-USD",
+        instrument_id="BTC-USD",
         side=OrderSide.BUY,
-        size=10.0,
+        quantity=10.0,
         price=100.0,
     )
     buy_result = ExecutionResult(
         order_id="order-1",
         status=OrderStatus.FILLED,
-        filled_size=10.0,
+        filled_quantity=10.0,
         avg_price=100.0,
         timestamp=MagicMock(),
     )
@@ -37,20 +37,20 @@ def test_portfolio_accounting_long_reduce():
 
     assert portfolio._cash_balance == 0.0
     assert "BTC-USD" in portfolio._positions
-    assert portfolio._positions["BTC-USD"].size == 10.0
-    assert portfolio._positions["BTC-USD"].entry_price == 100.0
+    assert portfolio._positions["BTC-USD"].quantity == 10.0
+    assert portfolio._positions["BTC-USD"].cost_basis == 100.0
 
     # 2. Sell 5 shares at $120 (realized P&L should be $100, cash should be $600)
     sell_order = OrderRequest(
-        market_id="BTC-USD",
+        instrument_id="BTC-USD",
         side=OrderSide.SELL,
-        size=5.0,
+        quantity=5.0,
         price=120.0,
     )
     sell_result = ExecutionResult(
         order_id="order-2",
         status=OrderStatus.FILLED,
-        filled_size=5.0,
+        filled_quantity=5.0,
         avg_price=120.0,
         timestamp=MagicMock(),
     )
@@ -59,8 +59,8 @@ def test_portfolio_accounting_long_reduce():
 
     # Cash balance MUST be $600 (not $700, which would happen if P&L was double counted)
     assert portfolio._cash_balance == 600.0
-    assert portfolio._positions["BTC-USD"].size == 5.0
-    assert portfolio._positions["BTC-USD"].entry_price == 100.0
+    assert portfolio._positions["BTC-USD"].quantity == 5.0
+    assert portfolio._positions["BTC-USD"].cost_basis == 100.0
 
 
 def test_portfolio_accounting_short_reduce():
@@ -72,15 +72,15 @@ def test_portfolio_accounting_short_reduce():
 
     # 1. Short 10 shares at $100 (SELL order)
     short_order = OrderRequest(
-        market_id="BTC-USD",
+        instrument_id="BTC-USD",
         side=OrderSide.SELL,
-        size=10.0,
+        quantity=10.0,
         price=100.0,
     )
     short_result = ExecutionResult(
         order_id="order-1",
         status=OrderStatus.FILLED,
-        filled_size=10.0,
+        filled_quantity=10.0,
         avg_price=100.0,
         timestamp=MagicMock(),
     )
@@ -89,20 +89,20 @@ def test_portfolio_accounting_short_reduce():
 
     assert portfolio._cash_balance == 2000.0
     assert "BTC-USD" in portfolio._positions
-    assert portfolio._positions["BTC-USD"].size == -10.0
-    assert portfolio._positions["BTC-USD"].entry_price == 100.0
+    assert portfolio._positions["BTC-USD"].quantity == -10.0
+    assert portfolio._positions["BTC-USD"].cost_basis == 100.0
 
     # 2. Cover 5 shares at $80 (BUY order, realized P&L should be $100, cash should be $1600)
     cover_order = OrderRequest(
-        market_id="BTC-USD",
+        instrument_id="BTC-USD",
         side=OrderSide.BUY,
-        size=5.0,
+        quantity=5.0,
         price=80.0,
     )
     cover_result = ExecutionResult(
         order_id="order-2",
         status=OrderStatus.FILLED,
-        filled_size=5.0,
+        filled_quantity=5.0,
         avg_price=80.0,
         timestamp=MagicMock(),
     )
@@ -111,8 +111,8 @@ def test_portfolio_accounting_short_reduce():
 
     # Cash balance MUST be $1600 (not $1700, which would happen if P&L was double counted)
     assert portfolio._cash_balance == 1600.0
-    assert portfolio._positions["BTC-USD"].size == -5.0
-    assert portfolio._positions["BTC-USD"].entry_price == 100.0
+    assert portfolio._positions["BTC-USD"].quantity == -5.0
+    assert portfolio._positions["BTC-USD"].cost_basis == 100.0
 
 
 def test_portfolio_accounting_long_flip():
@@ -124,15 +124,15 @@ def test_portfolio_accounting_long_flip():
 
     # 1. Buy 10 shares at $100
     buy_order = OrderRequest(
-        market_id="BTC-USD",
+        instrument_id="BTC-USD",
         side=OrderSide.BUY,
-        size=10.0,
+        quantity=10.0,
         price=100.0,
     )
     buy_result = ExecutionResult(
         order_id="order-1",
         status=OrderStatus.FILLED,
-        filled_size=10.0,
+        filled_quantity=10.0,
         avg_price=100.0,
         timestamp=MagicMock(),
     )
@@ -141,15 +141,15 @@ def test_portfolio_accounting_long_flip():
 
     # 2. Sell 15 shares at $120 (flips to Short of -5, cash should be $1800)
     flip_order = OrderRequest(
-        market_id="BTC-USD",
+        instrument_id="BTC-USD",
         side=OrderSide.SELL,
-        size=15.0,
+        quantity=15.0,
         price=120.0,
     )
     flip_result = ExecutionResult(
         order_id="order-2",
         status=OrderStatus.FILLED,
-        filled_size=15.0,
+        filled_quantity=15.0,
         avg_price=120.0,
         timestamp=MagicMock(),
     )
@@ -158,8 +158,8 @@ def test_portfolio_accounting_long_flip():
 
     # Cash balance MUST be $1800 (not $2000, which would happen if P&L was double counted)
     assert portfolio._cash_balance == 1800.0
-    assert portfolio._positions["BTC-USD"].size == -5.0
-    assert portfolio._positions["BTC-USD"].entry_price == 120.0
+    assert portfolio._positions["BTC-USD"].quantity == -5.0
+    assert portfolio._positions["BTC-USD"].cost_basis == 120.0
 
 
 def test_real_time_polling_loop_drift_correction():

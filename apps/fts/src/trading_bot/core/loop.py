@@ -212,18 +212,18 @@ class HistoricalReplayLoop(BaseEventLoop):
                 if not run_id:
                     logger.warning("No run_id available to export backtest reports.")
                 else:
-                    for market_id in pipeline.ingestion.market_ids:
+                    for instrument_id in pipeline.ingestion.instrument_ids:
                         for strategy in pipeline.strategy.strategies:
                             try:
                                 exporter.export(
-                                    market_id=market_id,
+                                    instrument_id=instrument_id,
                                     strategy_name=strategy.name,
                                     run_id=run_id,
                                     output_path=self.backtest_report_dir,
                                 )
                             except Exception as export_err:
                                 logger.error(
-                                    f"Failed to automatically export report for market={market_id}, "
+                                    f"Failed to automatically export report for market={instrument_id}, "
                                     f"strategy={strategy.name}: {export_err}",
                                     exc_info=True,
                                 )

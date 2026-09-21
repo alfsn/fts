@@ -1,20 +1,20 @@
-# tests/integration/test_data_to_strategy.py
-
-from datetime import datetime, timezone
 from typing import Dict, List
 
 import pytest
-from trading_bot.core.enums import (
+from quant_core.enums import (
+    AssetType,
+    Geography,
     SignalType,
 )
+from quant_core.models import Instrument, TradFiDetails
 
 # --- Schemas & Enums (Data Contracts) ---
 from trading_bot.core.schemas import (
     BarData,
     ExternalData,
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     PriceLevel,
     Trade,
@@ -32,6 +32,8 @@ from trading_bot.data_ingestion.engine import DataIngestionEngine
 from trading_bot.strategy.abc import BaseStrategy
 from trading_bot.strategy.engine import StrategyEngine
 
+# tests/integration/test_data_to_strategy.py
+
 
 # --- Fakes (from tests/test_data_ingestion.py) ---
 class FakeMarketProvider(BaseMarketDataProvider):
@@ -43,25 +45,25 @@ class FakeMarketProvider(BaseMarketDataProvider):
     def __init__(self, data: Dict[str, MarketData]):
         self.data_to_return = data
 
-    def get_market_data(self, market_id: str) -> MarketData | None:
+    def get_market_data(self, instrument_id: str) -> MarketData | None:
         """Returns pre-canned data."""
-        return self.data_to_return.get(market_id)
+        return self.data_to_return.get(instrument_id)
 
     # --- Other ABC methods (not used by the engine) ---
-    def list_tradable_markets(self) -> List[MarketDetails]:
+    def list_tradable_markets(self) -> List[Instrument]:
         return [md.details for md in self.data_to_return.values()]
 
-    def get_market_details(self, market_id: str) -> MarketDetails:
-        return self.data_to_return.get(market_id).details
+    def get_market_details(self, instrument_id: str) -> Instrument:
+        return self.data_to_return.get(instrument_id).details
 
-    def get_order_book(self, market_id: str) -> OrderBook:
-        return self.data_to_return.get(market_id).order_book
+    def get_order_book(self, instrument_id: str) -> OrderBook:
+        return self.data_to_return.get(instrument_id).order_book
 
-    def get_trade_history(self, market_id: str) -> List[Trade]:
-        return self.data_to_return.get(market_id).recent_trades
+    def get_trade_history(self, instrument_id: str) -> List[Trade]:
+        return self.data_to_return.get(instrument_id).recent_trades
 
-    def get_bars(self, market_id: str, count: int = 100) -> List[BarData]:
-        return getattr(self.data_to_return.get(market_id), "recent_bars", [])
+    def get_bars(self, instrument_id: str, count: int = 100) -> List[BarData]:
+        return getattr(self.data_to_return.get(instrument_id), "recent_bars", [])
 
 
 class FakeExternalProvider(BaseExternalDataProvider):
@@ -111,7 +113,7 @@ class SimpleBuyStrategy(BaseStrategy):
                 # Generate a BUY signal
                 signals.append(
                     TradeSignal(
-                        market_id="MKT1",
+                        instrument_id="MKT1",
                         strategy_name=self.name,
                         signal_type=SignalType.BUY,
                         confidence=1.0,  # Max confidence for this simple rule
@@ -131,17 +133,21 @@ class SimpleBuyStrategy(BaseStrategy):
 def market_data_buy_signal() -> MarketData:
     """A MarketData object that *should* trigger our simple strategy."""
     return MarketData(
-        market_id="MKT1",
+        instrument_id="MKT1",
         order_book=OrderBook(
-            bids=[PriceLevel(price=0.49, size=100)],
-            asks=[PriceLevel(price=0.50, size=100)],  # Price is <= 0.50
+            bids=[PriceLevel(price=0.49, quantity=100)],
+            asks=[PriceLevel(price=0.50, quantity=100)],  # Price is <= 0.50
         ),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MKT1",
+        details=Instrument(
+            instrument_id="MKT1",
             name="Test Market 1",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -150,17 +156,21 @@ def market_data_buy_signal() -> MarketData:
 def market_data_hold_signal() -> MarketData:
     """A MarketData object that *should NOT* trigger our simple strategy."""
     return MarketData(
-        market_id="MKT1",
+        instrument_id="MKT1",
         order_book=OrderBook(
-            bids=[PriceLevel(price=0.50, size=100)],
-            asks=[PriceLevel(price=0.51, size=100)],  # Price is > 0.50
+            bids=[PriceLevel(price=0.50, quantity=100)],
+            asks=[PriceLevel(price=0.51, quantity=100)],  # Price is > 0.50
         ),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MKT1",
+        details=Instrument(
+            instrument_id="MKT1",
             name="Test Market 1",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -205,7 +215,7 @@ def test_pipeline_generates_buy_signal_on_low_ask(
     # --- Assert ---
     assert len(signals) == 1
     signal = signals[0]
-    assert signal.market_id == "MKT1"
+    assert signal.instrument_id == "MKT1"
     assert signal.signal_type == SignalType.BUY
     assert signal.strategy_name == "SimpleTakerStrategy"
 

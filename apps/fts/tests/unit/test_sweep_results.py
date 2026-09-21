@@ -48,7 +48,7 @@ def sample_sweep_result():
         sweep_name="lstm_num_layers_sweep",
         sweep_param="num_layers",
         sweep_values=[1, 2],
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
         trials=trials,
     )
 
@@ -107,7 +107,7 @@ def test_html_sweep_exporter_empty_raises():
         sweep_name="empty_sweep",
         sweep_param="hidden_dim",
         sweep_values=[],
-        market_id="BTC/USDT",
+        instrument_id="BTC/USDT",
     )
     exporter = HTMLSweepExporter(db_url="sqlite:///:memory:")
     with pytest.raises(ValueError, match="Cannot export empty SweepResult"):

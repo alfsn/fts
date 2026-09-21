@@ -39,10 +39,10 @@ class PositionRepository(BaseRepository):
             open_models = query.all()
             return [
                 PositionSchema(
-                    market_id=m.market_id,
+                    instrument_id=m.instrument_id,
                     outcome=m.outcome,
-                    size=m.size,
-                    entry_price=m.entry_price,
+                    quantity=m.quantity,
+                    cost_basis=m.cost_basis,
                     run_id=m.run_id,
                 )
                 for m in open_models
@@ -58,10 +58,9 @@ class PositionRepository(BaseRepository):
         Persists a Position schema state (Create, Update, or Close).
         """
         try:
-            # Query by market_id, outcome, and run_id
+            # Query by instrument_id, outcome, and run_id
             query = self.db.query(PositionModel).filter_by(
-                market_id=pos_schema.market_id,
-                run_id=pos_schema.run_id,
+                instrument_id=pos_schema.instrument_id,
             )
             if pos_schema.outcome:
                 query = query.filter_by(outcome=pos_schema.outcome)
@@ -73,28 +72,29 @@ class PositionRepository(BaseRepository):
             if is_delete:
                 if pos_model:
                     pos_model.status = PositionStatus.CLOSED
-                    pos_model.size = 0.0
+                    pos_model.quantity = 0.0
             else:
                 if not pos_model:
                     pos_model = PositionModel(
-                        market_id=pos_schema.market_id,
+                        instrument_id=pos_schema.instrument_id,
                         outcome=pos_schema.outcome,
-                        run_id=pos_schema.run_id,
-                        size=pos_schema.size,
-                        entry_price=pos_schema.entry_price,
+                        quantity=pos_schema.quantity,
+                        cost_basis=pos_schema.cost_basis,
                         status=PositionStatus.OPEN,
                     )
                     self.db.add(pos_model)
                 else:
-                    pos_model.size = pos_schema.size
-                    pos_model.entry_price = pos_schema.entry_price
+                    pos_model.quantity = pos_schema.quantity
+                    pos_model.cost_basis = pos_schema.cost_basis
                     pos_model.status = PositionStatus.OPEN
 
             logger.debug(
-                f"Position persisted for {pos_schema.market_id} (outcome: {pos_schema.outcome}, run_id: {pos_schema.run_id})"
+                f"Position persisted for {pos_schema.instrument_id} (outcome: {pos_schema.outcome})"
             )
         except Exception as e:
-            logger.error(f"Failed to persist position for {pos_schema.market_id}: {e}")
+            logger.error(
+                f"Failed to persist position for {pos_schema.instrument_id}: {e}"
+            )
             raise e
 
 
@@ -104,11 +104,11 @@ class OrderRepository(BaseRepository):
     def create_order(
         self,
         order_id: str,
-        market_id: str,
+        instrument_id: str,
         strategy_name: Optional[str],
         side: OrderSide,
         outcome: Optional[str],
-        requested_size: float,
+        requested_quantity: float,
         requested_price: float,
         status: OrderStatus = OrderStatus.PENDING,
     ) -> None:
@@ -116,11 +116,11 @@ class OrderRepository(BaseRepository):
         try:
             order_model = OrderLogModel(
                 order_id=order_id,
-                market_id=market_id,
+                instrument_id=instrument_id,
                 strategy_name=strategy_name,
                 side=side,
                 outcome=outcome,
-                requested_size=requested_size,
+                requested_quantity=requested_quantity,
                 requested_price=requested_price,
                 status=status,
             )
@@ -134,7 +134,7 @@ class OrderRepository(BaseRepository):
         self,
         order_id: str,
         status: OrderStatus,
-        filled_size: float,
+        filled_quantity: float,
         avg_fill_price: float,
     ) -> None:
         """Updates the status and fills details of an existing order."""
@@ -144,7 +144,7 @@ class OrderRepository(BaseRepository):
             )
             if order_model:
                 order_model.status = status
-                order_model.filled_size = filled_size
+                order_model.filled_quantity = filled_quantity
                 order_model.avg_fill_price = avg_fill_price
                 logger.debug(f"Updated order {order_id} status to {status} in DB.")
             else:
@@ -162,30 +162,26 @@ class MarketDataRepository(BaseRepository):
         try:
             market = (
                 self.db.query(MarketModel)
-                .filter_by(market_id=details.market_id)
+                .filter_by(instrument_id=details.instrument_id)
                 .first()
             )
             if not market:
                 market = MarketModel(
-                    market_id=details.market_id,
+                    instrument_id=details.instrument_id,
                     name=details.name,
-                    end_date=details.end_date,
-                    resolution_source=details.resolution_source,
                 )
                 self.db.add(market)
             else:
                 market.name = details.name
-                market.end_date = details.end_date
-                market.resolution_source = details.resolution_source
             return market
         except Exception as e:
-            logger.error(f"Failed to ensure market {details.market_id}: {e}")
+            logger.error(f"Failed to ensure market {details.instrument_id}: {e}")
             raise e
 
-    def save_bars(self, market_id: str, bars: Sequence[BarDataSchema]) -> int:
+    def save_bars(self, instrument_id: str, bars: Sequence[BarDataSchema]) -> int:
         """
         Saves a sequence of BarData schema elements to the database.
-        Avoids duplicates based on market_id, timestamp, bar_type, and interval.
+        Avoids duplicates based on instrument_id, timestamp, bar_type, and interval.
         Returns the number of new bars inserted.
         """
         if not bars:
@@ -199,7 +195,9 @@ class MarketDataRepository(BaseRepository):
             # Load existing timestamps to prevent duplicate insertions
             existing_records = (
                 self.db.query(BarDataLogModel.timestamp)
-                .filter_by(market_id=market_id, bar_type=bar_type, interval=interval)
+                .filter_by(
+                    instrument_id=instrument_id, bar_type=bar_type, interval=interval
+                )
                 .all()
             )
             # Normalize DB naive datetimes to naive UTC (assuming they were saved in UTC)
@@ -222,7 +220,7 @@ class MarketDataRepository(BaseRepository):
                 )
                 if ts_normalized not in timestamps:
                     log = BarDataLogModel(
-                        market_id=market_id,
+                        instrument_id=instrument_id,
                         timestamp=ts_normalized,
                         open=bar.open,
                         high=bar.high,
@@ -239,10 +237,12 @@ class MarketDataRepository(BaseRepository):
 
             if new_logs:
                 self.db.bulk_save_objects(new_logs)
-                logger.info(f"Saved {len(new_logs)} new bars for {market_id} to SQL.")
+                logger.info(
+                    f"Saved {len(new_logs)} new bars for {instrument_id} to SQL."
+                )
             return len(new_logs)
         except Exception as e:
-            logger.error(f"Failed to save bars for {market_id}: {e}")
+            logger.error(f"Failed to save bars for {instrument_id}: {e}")
             raise e
 
     def get_bars(
@@ -268,7 +268,7 @@ class MarketDataRepository(BaseRepository):
                 market_ids = [market_ids]
 
             query = self.db.query(BarDataLogModel).filter(
-                BarDataLogModel.market_id.in_(market_ids),
+                BarDataLogModel.instrument_id.in_(market_ids),
                 BarDataLogModel.bar_type == bar_type,
             )
             if interval is not None:
@@ -289,7 +289,7 @@ class ModelRepository(BaseRepository):
 
     def get_or_create_dataset(
         self,
-        market_id: str,
+        instrument_id: str,
         interval: str,
         start_time: datetime,
         end_time: datetime,
@@ -303,7 +303,7 @@ class ModelRepository(BaseRepository):
         dataset_id = f"ds_{hash_val[:12]}"
         dataset = TimeSeriesDataset(
             dataset_id=dataset_id,
-            market_id=market_id,
+            instrument_id=instrument_id,
             interval=interval,
             start_time=start_time,
             end_time=end_time,
@@ -316,7 +316,7 @@ class ModelRepository(BaseRepository):
         self,
         model_id: str,
         model_type: str,
-        market_id: str,
+        instrument_id: str,
         interval: str,
         horizon: int,
         onnx_path: str,
@@ -339,7 +339,7 @@ class ModelRepository(BaseRepository):
             model_id=model_id,
             run_id=run_id,
             model_type=model_type,
-            market_id=market_id,
+            instrument_id=instrument_id,
             interval=interval,
             horizon=horizon,
             onnx_path=onnx_path,
@@ -354,7 +354,7 @@ class ModelRepository(BaseRepository):
     def get_production_model(
         self,
         model_type: str,
-        market_id: str,
+        instrument_id: str,
         interval: str,
         horizon: int,
         feature_cols: Optional[Sequence[str]] = None,
@@ -364,7 +364,7 @@ class ModelRepository(BaseRepository):
             self.db.query(ModelRegistryLog)
             .filter_by(
                 model_type=model_type,
-                market_id=market_id,
+                instrument_id=instrument_id,
                 interval=interval,
                 horizon=horizon,
                 status="production",
@@ -392,7 +392,7 @@ class ModelRepository(BaseRepository):
     def get_candidate_model(
         self,
         model_type: str,
-        market_id: str,
+        instrument_id: str,
         interval: Optional[str] = None,
         horizon: Optional[int] = None,
         feature_cols: Optional[Sequence[str]] = None,
@@ -400,7 +400,7 @@ class ModelRepository(BaseRepository):
         """Fetches the latest candidate model matching the logical signature and optional feature_cols."""
         query = self.db.query(ModelRegistryLog).filter_by(
             model_type=model_type,
-            market_id=market_id,
+            instrument_id=instrument_id,
             status="candidate",
         )
         if interval:
@@ -460,7 +460,7 @@ class ModelRepository(BaseRepository):
         # Demote current production model(s) with matching logical signature
         self.db.query(ModelRegistryLog).filter_by(
             model_type=model.model_type,
-            market_id=model.market_id,
+            instrument_id=model.instrument_id,
             interval=model.interval,
             horizon=model.horizon,
             status="production",
@@ -474,7 +474,7 @@ class ModelRepository(BaseRepository):
             self.db.query(ModelRegistryLog)
             .filter(
                 ModelRegistryLog.model_type == model.model_type,
-                ModelRegistryLog.market_id == model.market_id,
+                ModelRegistryLog.instrument_id == model.instrument_id,
                 ModelRegistryLog.interval == model.interval,
                 ModelRegistryLog.horizon == model.horizon,
                 ModelRegistryLog.model_id != model_id,

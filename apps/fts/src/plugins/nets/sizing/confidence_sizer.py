@@ -1,6 +1,6 @@
 # src/plugins/nets/sizing/confidence_sizer.py
 
-from trading_bot.core.enums import SignalType, SizingStrategyType
+from quant_core.enums import SignalType, SizingStrategyType
 from trading_bot.core.schemas import SizingInput, SizingOutput
 from trading_bot.risk_management.abc import BaseSizingStrategy
 
@@ -21,7 +21,7 @@ class ConfidenceSizer(BaseSizingStrategy):
 
     def calculate_size(self, input_data: SizingInput) -> SizingOutput:
         if input_data.signal.signal_type not in (SignalType.BUY, SignalType.SELL):
-            return SizingOutput(amount_quote=0.0, size_shares=0.0)
+            return SizingOutput(amount_quote=0.0, quantity_shares=0.0)
 
         confidence = input_data.signal.confidence
 
@@ -32,8 +32,8 @@ class ConfidenceSizer(BaseSizingStrategy):
         price = self._get_execution_price(input_data)
 
         if price <= 1e-6:
-            return SizingOutput(amount_quote=0.0, size_shares=0.0)
+            return SizingOutput(amount_quote=0.0, quantity_shares=0.0)
 
         size_shares = target_amount / price
 
-        return SizingOutput(amount_quote=target_amount, size_shares=size_shares)
+        return SizingOutput(amount_quote=target_amount, quantity_shares=size_shares)

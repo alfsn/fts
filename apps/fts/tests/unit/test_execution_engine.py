@@ -5,13 +5,13 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 
 # Import Schemas, Models, and Enums
-from trading_bot.core.enums import OrderSide, OrderStatus
+from quant_core.enums import OrderSide, OrderStatus
+from quant_core.models import ExecutionResult, OrderRequest
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 from trading_bot.core.models import OrderLog as OrderLogModel
-from trading_bot.core.schemas import ExecutionResult, OrderRequest
 
 # Import classes to be mocked
 from trading_bot.execution.abc import BaseExecutionHandler
@@ -73,9 +73,9 @@ def engine(
 def sample_order_request() -> OrderRequest:
     """A sample order to be executed."""
     return OrderRequest(
-        market_id="MKT_123",
+        instrument_id="MKT_123",
         side=OrderSide.BUY,
-        size=100.0,
+        quantity=100.0,
         price=0.50,
     )
 
@@ -86,7 +86,7 @@ def sample_result_open() -> ExecutionResult:
     return ExecutionResult(
         order_id="HANDLER_ORDER_001",
         status=OrderStatus.OPEN,
-        filled_size=0,
+        filled_quantity=0,
         avg_price=0,
         timestamp=datetime.now(timezone.utc),
     )
@@ -98,7 +98,7 @@ def sample_result_filled() -> ExecutionResult:
     return ExecutionResult(
         order_id="HANDLER_ORDER_002",
         status=OrderStatus.FILLED,
-        filled_size=100.0,
+        filled_quantity=100.0,
         avg_price=0.50,
         timestamp=datetime.now(timezone.utc),
     )
@@ -110,12 +110,12 @@ def sample_order_log_open(sample_result_open: ExecutionResult) -> OrderLogModel:
     return OrderLogModel(
         order_id=sample_result_open.order_id,
         status=OrderStatus.OPEN,
-        market_id="MKT_123",
+        instrument_id="MKT_123",
         strategy_name="test_strat",
         side=OrderSide.BUY,
-        requested_size=100.0,
+        requested_quantity=100.0,
         requested_price=0.50,
-        filled_size=0,
+        filled_quantity=0,
         avg_fill_price=0,
     )
 
@@ -447,7 +447,7 @@ class TestExecutionEngine:
         # 2. Database log was updated
         mock_db_session.commit.assert_called_once()
         assert sample_order_log_open.status == OrderStatus.FILLED
-        assert sample_order_log_open.filled_size == filled_result.filled_size
+        assert sample_order_log_open.filled_quantity == filled_result.filled_quantity
 
         # 3. Portfolio was updated
         mock_portfolio.update_order_status.assert_called_once_with(
@@ -514,7 +514,7 @@ class TestExecutionEngine:
         cancelled_result = ExecutionResult(
             order_id=order_id,
             status=OrderStatus.CANCELLED,
-            filled_size=0,
+            filled_quantity=0,
             avg_price=0,
             timestamp=datetime.now(timezone.utc),
         )

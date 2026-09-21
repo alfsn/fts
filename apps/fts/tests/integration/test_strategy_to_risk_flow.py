@@ -1,15 +1,15 @@
-# tests/integration/test_strategy_to_risk_flow.py
-
 from datetime import datetime, timezone
 from typing import List
 
 import pytest
+from quant_core.enums import AssetType, Geography
+from quant_core.models import Instrument, TradFiDetails
 
 # Import Schemas
 from trading_bot.core.schemas import (
     IngestionEngineOutput,
+    Instrument,
     MarketData,
-    MarketDetails,
     OrderBook,
     PriceLevel,
     SignalType,
@@ -24,6 +24,9 @@ from trading_bot.strategy.abc import BaseStrategy
 
 # Import Real Components to Test
 from trading_bot.strategy.engine import StrategyEngine
+
+# tests/integration/test_strategy_to_risk_flow.py
+
 
 # --- A simple "real" strategy for testing ---
 
@@ -47,7 +50,7 @@ class SimpleBuyStrategy(BaseStrategy):
         if best_ask < 0.50:
             signals.append(
                 TradeSignal(
-                    market_id="MKT-01",
+                    instrument_id="MKT-01",
                     strategy_name=self.name,
                     signal_type=SignalType.BUY,
                     outcome="yes",
@@ -57,7 +60,7 @@ class SimpleBuyStrategy(BaseStrategy):
         else:
             signals.append(
                 TradeSignal(
-                    market_id="MKT-01",
+                    instrument_id="MKT-01",
                     strategy_name=self.name,
                     signal_type=SignalType.HOLD,
                     outcome="yes",
@@ -74,17 +77,21 @@ class SimpleBuyStrategy(BaseStrategy):
 def mock_market_data() -> MarketData:
     """Provides a default market data state."""
     return MarketData(
-        market_id="MKT-01",
+        instrument_id="MKT-01",
         order_book=OrderBook(
-            bids=[PriceLevel(price=0.48, size=100)],
-            asks=[PriceLevel(price=0.49, size=100)],  # Price is < 0.50
+            bids=[PriceLevel(price=0.48, quantity=100)],
+            asks=[PriceLevel(price=0.49, quantity=100)],  # Price is < 0.50
         ),
         recent_trades=[],
-        details=MarketDetails(
-            market_id="MKT-01",
+        details=Instrument(
+            instrument_id="MKT-01",
             name="Test Market",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         ),
     )
 
@@ -125,16 +132,16 @@ def test_strategy_generates_buy_signal_and_risk_manager_creates_order(
     # 3. ASSERT (Module 2 Output): Check that a BUY signal was created
     assert len(signals) == 1
     assert signals[0].signal_type == SignalType.BUY
-    assert signals[0].market_id == "MKT-01"
+    assert signals[0].instrument_id == "MKT-01"
 
     # 4. ACT (Module 3): Run the Risk Manager
     order_request = risk_manager.process_signal(signals[0], ingestion_data.market_data)
 
     # 5. ASSERT (Module 3 Output): Check that an OrderRequest was created
     assert order_request is not None
-    assert order_request.market_id == "MKT-01"
+    assert order_request.instrument_id == "MKT-01"
     assert order_request.side == "buy"
-    assert order_request.size == pytest.approx(10.0 / 0.49)  # 10 USD / 0.49 price
+    assert order_request.quantity == pytest.approx(10.0 / 0.49)  # 10 USD / 0.49 price
 
 
 def test_strategy_generates_hold_signal_and_risk_manager_does_nothing(
@@ -143,7 +150,7 @@ def test_strategy_generates_hold_signal_and_risk_manager_does_nothing(
     mock_market_data: MarketData,
 ):
     # 1. ARRANGE: Create input data that will trigger a HOLD
-    mock_market_data.order_book.asks = [PriceLevel(price=0.51, size=100)]
+    mock_market_data.order_book.asks = [PriceLevel(price=0.51, quantity=100)]
     ingestion_data = IngestionEngineOutput(
         timestamp=datetime.now(timezone.utc),
         market_data={"MKT-01": mock_market_data},

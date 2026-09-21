@@ -5,19 +5,19 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+from quant_core.enums import BarType
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from trading_bot.core.database import Base, SessionLocal
 from trading_bot.core.database import engine as dev_engine
 from trading_bot.core.database import init_db
-from trading_bot.core.enums import BarType
 from trading_bot.core.models import BarDataLog, Market
 
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
     # Use a separate temp test database file so we don't delete/overwrite test_persistence.db
-    test_db = "tests/temp_persistence.db"
+    test_db = "apps/fts/tests/temp_persistence.db"
     test_db_url = f"sqlite+pysqlite:///{test_db}"
     if os.path.exists(test_db):
         try:
@@ -47,14 +47,14 @@ def test_bar_data_log_persistence():
     db: Session = SessionLocal()
     try:
         # 1. Create a Market (or get it if it exists)
-        market_id = "GGAL"
+        instrument_id = "GGAL"
         market = db.execute(
-            select(Market).where(Market.market_id == market_id)
+            select(Market).where(Market.instrument_id == instrument_id)
         ).scalar_one_or_none()
 
         if not market:
             market = Market(
-                market_id=market_id,
+                instrument_id=instrument_id,
                 name="Grupo Galicia",
                 end_date=datetime(2025, 12, 31, tzinfo=timezone.utc),
                 resolution_source="BYMA",
@@ -65,7 +65,7 @@ def test_bar_data_log_persistence():
         # 2. Create a BarDataLog
         now = datetime.now(timezone.utc)
         bar = BarDataLog(
-            market_id=market_id,
+            instrument_id=instrument_id,
             timestamp=now,
             open=100.0,
             high=110.0,
@@ -80,7 +80,7 @@ def test_bar_data_log_persistence():
         db.commit()
 
         # 3. Retrieve and verify
-        stmt = select(BarDataLog).where(BarDataLog.market_id == "GGAL")
+        stmt = select(BarDataLog).where(BarDataLog.instrument_id == "GGAL")
         retrieved_bars = db.execute(stmt).scalars().all()
 
         assert len(retrieved_bars) >= 1

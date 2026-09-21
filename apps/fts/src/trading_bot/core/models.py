@@ -37,11 +37,11 @@ class Market(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     # The unique ID from the exchange, e.g., "AAPL" or "MARKET-ABC-YES"
-    market_id: Mapped[str] = mapped_column(
+    instrument_id: Mapped[str] = mapped_column(
         String, unique=True, index=True, nullable=False
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
-    end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    end_date: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     resolution_source: Mapped[Optional[str]] = mapped_column(String)
 
     # Timestamps for tracking when this record was created/updated
@@ -60,7 +60,7 @@ class Market(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Market(market_id='{self.market_id}', name='{self.name}')>"
+        return f"<Market(instrument_id='{self.instrument_id}', name='{self.name}')>"
 
 
 class BarDataLog(Base):
@@ -75,13 +75,13 @@ class BarDataLog(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "market_id", "timestamp", "bar_type", "interval", name="uq_bar_data_log"
+            "instrument_id", "timestamp", "bar_type", "interval", name="uq_bar_data_log"
         ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    instrument_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
     )
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
@@ -103,7 +103,7 @@ class BarDataLog(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<BarDataLog(market_id='{self.market_id}', "
+            f"<BarDataLog(instrument_id='{self.instrument_id}', "
             f"timestamp='{self.timestamp}', type='{self.bar_type}')>"
         )
 
@@ -124,8 +124,8 @@ class OrderLog(Base):
         String, unique=True, index=True, nullable=False
     )
     run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    instrument_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
     )
     # Store the strategy name for performance attribution
     strategy_name: Mapped[Optional[str]] = mapped_column(String, index=True)
@@ -133,14 +133,14 @@ class OrderLog(Base):
     # --- Data from OrderRequest ---
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide), nullable=False)
     outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    requested_size: Mapped[float] = mapped_column(nullable=False)
+    requested_quantity: Mapped[float] = mapped_column(nullable=False)
     requested_price: Mapped[float] = mapped_column(nullable=False)
 
     # --- Data from ExecutionResult ---
     status: Mapped[OrderStatus] = mapped_column(
         Enum(OrderStatus), nullable=False, index=True
     )
-    filled_size: Mapped[float] = mapped_column(default=0.0)
+    filled_quantity: Mapped[float] = mapped_column(default=0.0)
     avg_fill_price: Mapped[float] = mapped_column(default=0.0)
 
     # Timestamps for tracking the order's lifecycle
@@ -178,14 +178,14 @@ class TradeLog(Base):
         String, ForeignKey("order_logs.order_id"), index=True
     )
 
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    instrument_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
     )
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide), nullable=False)
     outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    # The size and price of this specific fill
-    fill_size: Mapped[float] = mapped_column(nullable=False)
+    # The quantity and price of this specific fill
+    quantity: Mapped[float] = mapped_column(nullable=False)
     fill_price: Mapped[float] = mapped_column(nullable=False)
 
     # Use server_default for DB-side timestamping
@@ -202,7 +202,7 @@ class TradeLog(Base):
     def __repr__(self) -> str:
         return (
             f"<TradeLog(id={self.id}, order_id='{self.order_id}', "
-            f"size={self.fill_size} @ {self.fill_price})>"
+            f"quantity={self.quantity} @ {self.fill_price})>"
         )
 
 
@@ -248,16 +248,16 @@ class Position(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
-    # market_id is now the sole unique identifier for the asset
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    # instrument_id is now the sole unique identifier for the asset
+    instrument_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
     )
     outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # The current number of shares held
-    size: Mapped[float] = mapped_column(nullable=False)
+    quantity: Mapped[float] = mapped_column(nullable=False)
     # The average price at which the shares were acquired
-    entry_price: Mapped[float] = mapped_column(nullable=False)
+    cost_basis: Mapped[float] = mapped_column(nullable=False)
 
     # Tracks if the position is active or has been fully closed
     status: Mapped[PositionStatus] = mapped_column(
@@ -277,8 +277,8 @@ class Position(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<Position(market_id='{self.market_id}', outcome='{self.outcome}', "
-            f"size={self.size}, status='{self.status}')>"
+            f"<Position(instrument_id='{self.instrument_id}', outcome='{self.outcome}', "
+            f"quantity={self.quantity}, status='{self.status}')>"
         )
 
 
@@ -293,7 +293,7 @@ class PredictionLog(Base):
     __table_args__ = (
         UniqueConstraint(
             "timestamp",
-            "market_id",
+            "instrument_id",
             "strategy_name",
             "run_id",
             "log_type",
@@ -318,8 +318,8 @@ class PredictionLog(Base):
     # Optional actual outcome for visual analysis
     actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
 
-    market_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.market_id"), index=True, nullable=False
+    instrument_id: Mapped[str] = mapped_column(
+        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
     )
     market: Mapped["Market"] = relationship("Market")
 
@@ -340,7 +340,7 @@ class ModelPredictionLog(PredictionLog):
 
     def __repr__(self) -> str:
         return (
-            f"<ModelPredictionLog(run_id='{self.run_id}', market_id='{self.market_id}', "
+            f"<ModelPredictionLog(run_id='{self.run_id}', instrument_id='{self.instrument_id}', "
             f"strategy='{self.strategy_name}', signal='{self.predicted_signal}')>"
         )
 
@@ -354,13 +354,13 @@ class BacktestPredictionLog(PredictionLog):
 
     def __repr__(self) -> str:
         return (
-            f"<BacktestPredictionLog(run_id='{self.run_id}', market_id='{self.market_id}', "
+            f"<BacktestPredictionLog(run_id='{self.run_id}', instrument_id='{self.instrument_id}', "
             f"strategy='{self.strategy_name}', signal='{self.predicted_signal}')>"
         )
 
 
 class BacktestEquityLog(Base):
-    """Logs cash, position size, and overall equity per tick for a backtest simulation run."""
+    """Logs cash, position quantity, and overall equity per tick for a backtest simulation run."""
 
     __tablename__ = "backtest_equity_logs"
 
@@ -398,7 +398,7 @@ class TimeSeriesDataset(Base):
     __tablename__ = "time_series_datasets"
 
     dataset_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
-    market_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    instrument_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     interval: Mapped[str] = mapped_column(String, index=True, nullable=False)
     start_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
@@ -407,7 +407,7 @@ class TimeSeriesDataset(Base):
     hash: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
 
     def __repr__(self) -> str:
-        return f"<TimeSeriesDataset(dataset_id='{self.dataset_id}', market_id='{self.market_id}', interval='{self.interval}')>"
+        return f"<TimeSeriesDataset(dataset_id='{self.dataset_id}', instrument_id='{self.instrument_id}', interval='{self.interval}')>"
 
 
 class ModelRegistryLog(Base):
@@ -422,7 +422,7 @@ class ModelRegistryLog(Base):
         Index(
             "ix_model_registry_signature",
             "model_type",
-            "market_id",
+            "instrument_id",
             "interval",
             "horizon",
             "status",
@@ -430,7 +430,7 @@ class ModelRegistryLog(Base):
         Index(
             "uq_production_model_signature",
             "model_type",
-            "market_id",
+            "instrument_id",
             "interval",
             "horizon",
             unique=True,
@@ -441,7 +441,7 @@ class ModelRegistryLog(Base):
     model_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     run_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     model_type: Mapped[str] = mapped_column(String, index=True, nullable=False)
-    market_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    instrument_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     interval: Mapped[str] = mapped_column(String, index=True, nullable=False)
     horizon: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
 

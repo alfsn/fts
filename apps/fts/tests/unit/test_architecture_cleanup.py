@@ -3,10 +3,11 @@
 import os
 
 import pytest
+from quant_core.enums import OrderSide, OrderStatus, PositionStatus
+from quant_core.models import Position as PositionSchema
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.core.database import Base, create_db_session, init_db
-from trading_bot.core.enums import OrderSide, OrderStatus, PositionStatus
 from trading_bot.core.models import (
     BacktestPredictionLog,
     ModelPredictionLog,
@@ -16,7 +17,6 @@ from trading_bot.core.models import (
     PredictionLog,
 )
 from trading_bot.core.repository import PositionRepository
-from trading_bot.core.schemas import Position as PositionSchema
 from trading_bot.risk_management.portfolio import Portfolio
 
 
@@ -58,7 +58,7 @@ def test_prediction_log_single_table_inheritance():
 
         # Add a dummy market first for foreign key constraint
         market = Market(
-            market_id="AAPL",
+            instrument_id="AAPL",
             name="Apple Stock",
             end_date=datetime.now(timezone.utc),
             resolution_source="test",
@@ -71,7 +71,7 @@ def test_prediction_log_single_table_inheritance():
             run_id="live_run_1",
             timestamp=datetime.now(timezone.utc),
             strategy_name="nets_strategy_cnn",
-            market_id="AAPL",
+            instrument_id="AAPL",
             predicted_signal="buy",
             confidence=0.9,
         )
@@ -81,7 +81,7 @@ def test_prediction_log_single_table_inheritance():
             run_id="backtest_run_1",
             timestamp=datetime.now(timezone.utc),
             strategy_name="nets_strategy_cnn",
-            market_id="AAPL",
+            instrument_id="AAPL",
             predicted_signal="sell",
             confidence=0.75,
         )
@@ -141,7 +141,7 @@ def test_decoupled_repository_transactions():
 
         # Add market
         market = Market(
-            market_id="AAPL",
+            instrument_id="AAPL",
             name="Apple Stock",
             end_date=datetime.now(timezone.utc),
             resolution_source="test",
@@ -152,9 +152,9 @@ def test_decoupled_repository_transactions():
         repo = PositionRepository(db)
 
         pos_schema = PositionSchema(
-            market_id="AAPL",
-            size=10.0,
-            entry_price=150.0,
+            instrument_id="AAPL",
+            quantity=10.0,
+            cost_basis=150.0,
             run_id="test_run",
         )
 
