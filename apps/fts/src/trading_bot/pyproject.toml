@@ -14,6 +14,7 @@ dependencies = [
     "fts-plugin-nets",
     "fts-plugin-argentina",
     "quant-core",
+    "quant-ui",
 ]
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -28,6 +29,7 @@ packages = ["trading_bot"]
 
 [tool.uv.sources]
 quant-core = { workspace = true }
+quant-ui = { workspace = true }
 quant-data = { workspace = true }
 fts-plugin-nets = { workspace = true }
 fts-plugin-argentina = { workspace = true }
