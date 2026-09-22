@@ -2,12 +2,13 @@ import logging
 from datetime import datetime
 from typing import List, Optional, Sequence
 
-from quant_core.enums import BarType
+from quant_core.enums import BarType, Currency, RateType
 from quant_core.models import BarData as BarDataSchema
 from quant_core.models import Instrument as MarketDetailsSchema
 from sqlalchemy.orm import Session
 
 from .models import BarDataLog as BarDataLogModel
+from .models import CorporateActionRecord, FXRateRecord
 from .models import Market as MarketModel
 
 logger = logging.getLogger(__name__)
@@ -124,4 +125,50 @@ class MarketDataRepository(BaseRepository):
             return query.order_by(BarDataLogModel.timestamp.asc()).all()
         except Exception as e:
             logger.error(f"Failed to load bars for {market_ids}: {e}")
+            raise e
+
+    def get_fx_rate(
+        self,
+        base_currency: Currency,
+        quote_currency: Currency,
+        rate_type: RateType,
+        as_of: datetime,
+    ) -> Optional[float]:
+        try:
+            record = (
+                self.db.query(FXRateRecord)
+                .filter(
+                    FXRateRecord.base_currency == base_currency,
+                    FXRateRecord.quote_currency == quote_currency,
+                    FXRateRecord.rate_type == rate_type,
+                    FXRateRecord.timestamp <= as_of,
+                )
+                .order_by(FXRateRecord.timestamp.desc())
+                .first()
+            )
+            return record.rate if record else None
+        except Exception as e:
+            logger.error(
+                f"Failed to get FX rate for {base_currency}/{quote_currency}: {e}"
+            )
+            raise e
+
+    def get_corporate_actions(
+        self,
+        instrument_id: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[CorporateActionRecord]:
+        try:
+            query = self.db.query(CorporateActionRecord).filter(
+                CorporateActionRecord.instrument_id == instrument_id
+            )
+            if start_date:
+                query = query.filter(CorporateActionRecord.ex_date >= start_date)
+            if end_date:
+                query = query.filter(CorporateActionRecord.ex_date <= end_date)
+
+            return query.order_by(CorporateActionRecord.ex_date.asc()).all()
+        except Exception as e:
+            logger.error(f"Failed to load corporate actions for {instrument_id}: {e}")
             raise e
