@@ -1,0 +1,14 @@
+[project]
+name = "quant-ui"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "plotly",
+    "pandas",
+    "ipywidgets",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
