@@ -2799,6 +2799,7 @@ dependencies = [
     { name = "quant-core" },
     { name = "quant-data" },
     { name = "quant-ui" },
+    { name = "rich" },
 ]
 
 [package.metadata]
@@ -2807,6 +2808,7 @@ requires-dist = [
     { name = "quant-core", editable = "packages/quant_core" },
     { name = "quant-data", editable = "packages/quant_data" },
     { name = "quant-ui", editable = "packages/quant_ui" },
+    { name = "rich" },
 ]
 
 [[package]]
@@ -3470,6 +3472,7 @@ source = { editable = "packages/quant_data" }
 dependencies = [
     { name = "ccxt" },
     { name = "pandas" },
+    { name = "pyyaml" },
     { name = "quant-core" },
     { name = "sqlalchemy" },
     { name = "yfinance" },
@@ -3479,6 +3482,7 @@ dependencies = [
 requires-dist = [
     { name = "ccxt", specifier = ">=4.0.0" },
     { name = "pandas", specifier = ">=2.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "quant-core", editable = "packages/quant_core" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "yfinance", specifier = ">=0.2.0" },
