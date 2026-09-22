@@ -6,8 +6,10 @@ dependencies = [
     "click",
     "quant_core",
     "quant_data",
+    "quant-ui",
 ]
 
 [tool.uv.sources]
 quant_core = { workspace = true }
 quant_data = { workspace = true }
+quant-ui = { workspace = true }

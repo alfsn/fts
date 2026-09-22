@@ -48,7 +48,32 @@ def analyze(broker):
 def client_review(broker):
     """Generate a client review dashboard"""
     click.echo(f"Generating client review for {broker}...")
-    click.echo("UI components not yet implemented (Stage 2).")
+    from datetime import datetime
+
+    import numpy as np
+    import pandas as pd
+    from quant_ui.plots.performance import plot_backtest_performance
+
+    # Mock a PnL dataframe for demonstration
+    dates = pd.date_range(end=datetime.today(), periods=100, freq="D")
+    df_pnl = pd.DataFrame(
+        {
+            "timestamp": dates,
+            "open": np.random.normal(100, 2, 100).cumprod(),
+        }
+    )
+    df_pnl["high"] = df_pnl["open"] + np.random.uniform(0, 2, 100)
+    df_pnl["low"] = df_pnl["open"] - np.random.uniform(0, 2, 100)
+    df_pnl["close"] = df_pnl["open"] + np.random.normal(0, 1, 100)
+    df_pnl["cum_strat_return"] = (
+        df_pnl["close"].pct_change().fillna(0) + np.random.normal(0.001, 0.005, 100)
+    ).cumsum()
+    df_pnl["cum_baseline_return"] = df_pnl["close"].pct_change().fillna(0).cumsum()
+
+    fig = plot_backtest_performance(df_pnl, f"{broker.upper()} PORTFOLIO")
+    output_file = f"client_review_{broker}.html"
+    fig.write_html(output_file)
+    click.echo(f"Client review dashboard generated at {output_file}")
 
 
 if __name__ == "__main__":
