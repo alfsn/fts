@@ -5,9 +5,10 @@ import logging
 import sys
 from datetime import datetime, timezone
 
+from quant_data.db.repositories import MarketDataRepository
 from trading_bot.core.database import SessionLocal, init_db
 from trading_bot.core.dataset import calculate_dataset_hash
-from trading_bot.core.repository import MarketDataRepository, ModelRepository
+from trading_bot.core.repository import ModelRepository
 from trading_bot.data_ingestion import MarketDataProviderRegistry
 from trading_bot.monitoring.logger import setup_logging
 

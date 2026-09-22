@@ -20,12 +20,11 @@ resolution-markers = [
 members = [
     "fts",
     "fts-plugin-argentina",
-    "fts-plugin-ccxt",
     "fts-plugin-nets",
-    "fts-plugin-yfinance",
     "fts-workspace",
     "portfolio-analyser",
     "quant-core",
+    "quant-data",
 ]
 
 [[package]]
@@ -984,16 +983,24 @@ name = "fts"
 version = "0.1.0"
 source = { editable = "apps/fts/src/trading_bot" }
 dependencies = [
+    { name = "fts-plugin-argentina" },
+    { name = "fts-plugin-nets" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "quant-core" },
+    { name = "quant-data" },
     { name = "sqlalchemy" },
     { name = "streamlit" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "fts-plugin-argentina", editable = "apps/fts/src/plugins/argentina" },
+    { name = "fts-plugin-nets", editable = "apps/fts/src/plugins/nets" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "quant-core", editable = "packages/quant_core" },
+    { name = "quant-data", editable = "packages/quant_data" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
     { name = "streamlit" },
 ]
@@ -1008,23 +1015,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "fts", editable = "apps/fts/src/trading_bot" }]
-
-[[package]]
-name = "fts-plugin-ccxt"
-version = "0.1.0"
-source = { editable = "apps/fts/src/plugins/ccxt" }
-dependencies = [
-    { name = "ccxt" },
-    { name = "fts" },
-    { name = "pandas" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "ccxt" },
-    { name = "fts", editable = "apps/fts/src/trading_bot" },
-    { name = "pandas" },
-]
 
 [[package]]
 name = "fts-plugin-nets"
@@ -1059,21 +1049,6 @@ requires-dist = [
     { name = "tensorboard" },
     { name = "torch" },
     { name = "xgboost" },
-]
-
-[[package]]
-name = "fts-plugin-yfinance"
-version = "0.1.0"
-source = { editable = "apps/fts/src/plugins/yfinance" }
-dependencies = [
-    { name = "fts" },
-    { name = "yfinance" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fts", editable = "apps/fts/src/trading_bot" },
-    { name = "yfinance" },
 ]
 
 [[package]]
@@ -3463,6 +3438,27 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
+]
+
+[[package]]
+name = "quant-data"
+version = "0.1.0"
+source = { editable = "packages/quant_data" }
+dependencies = [
+    { name = "ccxt" },
+    { name = "pandas" },
+    { name = "quant-core" },
+    { name = "sqlalchemy" },
+    { name = "yfinance" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ccxt", specifier = ">=4.0.0" },
+    { name = "pandas", specifier = ">=2.0.0" },
+    { name = "quant-core", editable = "packages/quant_core" },
+    { name = "sqlalchemy", specifier = ">=2.0.0" },
+    { name = "yfinance", specifier = ">=0.2.0" },
 ]
 
 [[package]]

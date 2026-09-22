@@ -7,12 +7,13 @@ from typing import Any, Dict, Optional, Union
 
 from nets.models import NNTrainingConfig
 from nets.training.registry import get_trainer_and_config
+from quant_data.db.repositories import MarketDataRepository
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.config import settings
 from trading_bot.core.database import SessionLocal, create_db_engine, init_db
 from trading_bot.core.dataset import calculate_dataset_hash
-from trading_bot.core.repository import MarketDataRepository, ModelRepository
+from trading_bot.core.repository import ModelRepository
 from trading_bot.core.schemas import BarData
 from trading_bot.core.transforms import BaseTransform
 from trading_bot.utils.model_id import generate_model_id

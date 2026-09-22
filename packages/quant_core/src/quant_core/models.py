@@ -6,6 +6,7 @@ from typing_extensions import Annotated
 
 from .enums import (
     AssetType,
+    BarType,
     Geography,
     OrderSide,
     OrderStatus,
@@ -94,3 +95,45 @@ class ExecutionResult(BaseModel):
     avg_price: float = Field(..., ge=0)
     timestamp: datetime
     order_type: OrderType = Field(OrderType.LIMIT)
+
+
+# --- 4. Market Data (Data Ingestion) ---
+
+
+class PriceLevel(BaseModel):
+    price: float = Field(..., gt=0)
+    quantity: float = Field(..., ge=0)
+
+
+class OrderBook(BaseModel):
+    bids: List[PriceLevel]
+    asks: List[PriceLevel]
+
+
+class Trade(BaseModel):
+    price: float = Field(..., gt=0)
+    quantity: float = Field(..., gt=0)
+    timestamp: datetime
+    side: OrderSide
+    outcome: Optional[str] = None
+
+
+class BarData(BaseModel):
+    timestamp: datetime
+    open: float = Field(..., gt=0)
+    high: float = Field(..., gt=0)
+    low: float = Field(..., gt=0)
+    close: float = Field(..., gt=0)
+    volume: float = Field(..., ge=0)
+    bar_type: BarType
+    interval: Optional[str] = None
+    ticks_count: int = Field(..., ge=1)
+    dollar_volume: float = Field(..., ge=0)
+
+
+class MarketData(BaseModel):
+    instrument_id: str
+    order_book: Optional[OrderBook] = None
+    recent_trades: Optional[List[Trade]] = None
+    details: Instrument
+    recent_bars: List[BarData] = Field(default_factory=list)

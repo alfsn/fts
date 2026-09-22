@@ -9,10 +9,10 @@ import onnxruntime as ort
 import pytest
 from nets.models import NNTrainingConfig, RNNConfig
 from nets.training import RNNTrainer, ValidationEvaluator
+from quant_data.db.repositories import MarketDataRepository
 from sqlalchemy import create_engine
 from trading_bot.config import settings
 from trading_bot.core.database import SessionLocal, init_db
-from trading_bot.core.repository import MarketDataRepository
 from trading_bot.core.schemas import BarData
 
 

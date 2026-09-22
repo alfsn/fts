@@ -13,12 +13,17 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from quant_core.models import (
+    BarData,
     CashBalance,
     ExecutionResult,
     Instrument,
+    MarketData,
+    OrderBook,
     OrderRequest,
     Portfolio,
     Position,
+    PriceLevel,
+    Trade,
 )
 
 # Refactored: MarketOutcome removed
@@ -33,114 +38,8 @@ def utc_now() -> datetime:
 # --- Module 1: Data Ingestion Engine Schemas ---
 
 
-class PriceLevel(BaseModel):
-    """
-    Represents a single price level in an order book (either a bid or an ask).
-    """
-
-    price: float = Field(
-        ..., description="The price of the orders at this level.", gt=0
-    )
-    quantity: float = Field(
-        ...,
-        description="The total volume (number of shares) of orders at price level.",
-        ge=0,
-    )
-
-
-class OrderBook(BaseModel):
-    """
-    Represents the current order book for a specific market,
-    containing lists of buy (bids) and sell (asks) levels.
-    """
-
-    bids: List[PriceLevel] = Field(
-        ...,
-        description="""A list of price levels for buy orders (bids),
-        typically sorted highest to lowest.""",
-    )
-    asks: List[PriceLevel] = Field(
-        ...,
-        description="""A list of price levels for sell orders (asks),
-                        typically sorted lowest to highest.""",
-    )
-
-
-class Trade(BaseModel):
-    """
-    Represents a single executed trade that occurred in a market.
-    """
-
-    price: float = Field(
-        ..., description="The price at which the trade was executed.", gt=0
-    )
-    quantity: float = Field(
-        ..., description="The volume (number of shares) of the trade.", gt=0
-    )
-    timestamp: datetime = Field(
-        ..., description="The timestamp when the trade was executed."
-    )
-    side: OrderSide = Field(
-        ...,
-        description="The side of the trade (buy or sell) from the taker's perspective.",
-    )
-    outcome: Optional[str] = Field(
-        None,
-        description="""
-        The specific outcome traded,
-        if this is a prediction market (e.g. 'yes' or 'no').
-        """,
-    )
-
-
+# Models moved to quant_core
 MarketDetails = Instrument
-
-
-class BarData(BaseModel):
-    """
-    Represents a single aggregated data bar (OHLCV).
-    """
-
-    timestamp: datetime = Field(..., description="The end time of the bar.")
-    open: float = Field(..., description="The opening price.", gt=0)
-    high: float = Field(..., description="The highest price during the interval.", gt=0)
-    low: float = Field(..., description="The lowest price during the interval.", gt=0)
-    close: float = Field(..., description="The closing price.", gt=0)
-    volume: float = Field(..., description="The total volume traded.", ge=0)
-    bar_type: BarType = Field(
-        ..., description="The type of bar (Time, Volume, Dollar)."
-    )
-    interval: Optional[str] = Field(
-        None, description="The timeframe/interval (e.g. 1m, 5m, 1h, 1d)."
-    )
-    ticks_count: int = Field(..., description="Number of ticks in this bar.", ge=1)
-    dollar_volume: float = Field(
-        ..., description="Total currency units traded in this bar.", ge=0
-    )
-
-
-class MarketData(BaseModel):
-    """
-    A composite snapshot of a single market's current state. This is the
-    primary object produced by a BaseMarketDataProvider.
-    """
-
-    instrument_id: str = Field(
-        ..., description="The unique identifier for the market this data pertains to."
-    )
-    order_book: Optional[OrderBook] = Field(
-        None, description="The current order book state, if available."
-    )
-    recent_trades: Optional[List[Trade]] = Field(
-        None,
-        description="A list of recently executed trades for this market, if available.",
-    )
-    details: Instrument = Field(..., description="The static details of the market.")
-    recent_bars: List[BarData] = Field(
-        default_factory=list,
-        description="A list of recent aggregated bars for this market.",
-    )
-
 
 # --- Module 2: Strategy Engine Schemas ---
 

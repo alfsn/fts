@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from ccxt_plugin.data_providers import CCXTMarketDataProvider
 from quant_core.enums import BarType, OrderSide
+from quant_data.providers.ccxt_provider import CCXTMarketDataProvider
 
 
 def test_ccxt_market_details():
@@ -16,7 +16,7 @@ def test_ccxt_market_details():
     assert "BINANCE" in details.name
 
 
-@patch("ccxt_plugin.data_providers.ccxt.binance")
+@patch("quant_data.providers.ccxt_provider.ccxt.binance")
 def test_ccxt_get_bars(mock_binance):
     # Setup mock exchange instance
     mock_exchange = MagicMock()
@@ -39,7 +39,7 @@ def test_ccxt_get_bars(mock_binance):
     assert bars[0].timestamp == datetime.fromtimestamp(1781568000.0, tz=timezone.utc)
 
 
-@patch("ccxt_plugin.data_providers.ccxt.binance")
+@patch("quant_data.providers.ccxt_provider.ccxt.binance")
 def test_ccxt_get_order_book(mock_binance):
     mock_exchange = MagicMock()
     mock_binance.return_value = mock_exchange
@@ -60,7 +60,7 @@ def test_ccxt_get_order_book(mock_binance):
     assert ob.asks[0].price == 50050.0
 
 
-@patch("ccxt_plugin.data_providers.ccxt.binance")
+@patch("quant_data.providers.ccxt_provider.ccxt.binance")
 def test_ccxt_get_trade_history(mock_binance):
     mock_exchange = MagicMock()
     mock_binance.return_value = mock_exchange
@@ -91,7 +91,7 @@ def test_ccxt_get_trade_history(mock_binance):
     assert trades[1].side == OrderSide.SELL
 
 
-@patch("ccxt_plugin.data_providers.ccxt.binance")
+@patch("quant_data.providers.ccxt_provider.ccxt.binance")
 def test_ccxt_get_bars_paginated(mock_binance):
     mock_exchange = MagicMock()
     mock_binance.return_value = mock_exchange

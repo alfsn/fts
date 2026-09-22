@@ -6,9 +6,10 @@ import yaml
 from nets.training.hparam_search import run_hparam_search
 from quant_core.enums import AssetType, BarType, Geography
 from quant_core.models import Instrument, TradFiDetails
+from quant_data.db.repositories import MarketDataRepository
 from trading_bot.config import settings
 from trading_bot.core.database import Base, create_db_session, init_db
-from trading_bot.core.repository import MarketDataRepository, ModelRepository
+from trading_bot.core.repository import ModelRepository
 from trading_bot.core.schemas import BarData
 
 

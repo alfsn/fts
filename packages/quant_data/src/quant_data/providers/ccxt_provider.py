@@ -4,16 +4,16 @@ from typing import Any, Dict, Optional, Sequence
 
 import ccxt
 from quant_core.enums import AssetType, BarType, Geography, OrderSide
-from quant_core.models import TradFiDetails
-from trading_bot.core.schemas import (
+from quant_core.interfaces import BaseMarketDataProvider
+from quant_core.models import (
     BarData,
     Instrument,
     MarketData,
     OrderBook,
     PriceLevel,
     Trade,
+    TradFiDetails,
 )
-from trading_bot.data_ingestion.abc import BaseMarketDataProvider
 
 # src/plugins/ccxt/data_providers.py
 

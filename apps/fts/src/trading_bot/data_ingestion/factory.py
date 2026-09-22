@@ -31,11 +31,13 @@ class MarketDataProviderRegistry:
         """Attempts to dynamically import and register a plugin by name."""
         try:
             if name == "yfinance":
-                from yfinance_plugin.data_providers import YFinanceMarketDataProvider
+                from quant_data.providers.yfinance_provider import (
+                    YFinanceMarketDataProvider,
+                )
 
                 cls.register("yfinance", YFinanceMarketDataProvider)
             elif name == "ccxt":
-                from ccxt_plugin.data_providers import CCXTMarketDataProvider
+                from quant_data.providers.ccxt_provider import CCXTMarketDataProvider
 
                 cls.register("ccxt", CCXTMarketDataProvider)
         except ImportError as e:

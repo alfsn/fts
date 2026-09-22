@@ -22,10 +22,11 @@ from nets.training import (
     RNNTrainer,
     XGBoostTrainer,
 )
+from quant_data.db.repositories import MarketDataRepository
 from trading_bot.config import settings
 from trading_bot.core.database import create_db_session, init_db
 from trading_bot.core.dataset import calculate_dataset_hash
-from trading_bot.core.repository import MarketDataRepository, ModelRepository
+from trading_bot.core.repository import ModelRepository
 
 logger = logging.getLogger(__name__)
 

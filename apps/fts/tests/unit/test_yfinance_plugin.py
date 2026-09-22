@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 from quant_core.enums import BarType
-from yfinance_plugin.data_providers import YFinanceMarketDataProvider
+from quant_data.providers.yfinance_provider import YFinanceMarketDataProvider
 
 
 def test_yfinance_market_details():
@@ -17,7 +17,7 @@ def test_yfinance_market_details():
     assert "AAPL" in details.name
 
 
-@patch("yfinance_plugin.data_providers.yf.download")
+@patch("quant_data.providers.yfinance_provider.yf.download")
 def test_yfinance_get_bars(mock_download):
     # Setup mock dataframe from yfinance
     dates = pd.date_range(start="2026-06-10 09:30:00", periods=3, freq="min", tz="UTC")
@@ -44,7 +44,7 @@ def test_yfinance_get_bars(mock_download):
     assert bars[1].timestamp == datetime(2026, 6, 10, 9, 32, tzinfo=timezone.utc)
 
 
-@patch("yfinance_plugin.data_providers.yf.download")
+@patch("quant_data.providers.yfinance_provider.yf.download")
 def test_yfinance_get_bars_handles_zeros(mock_download):
     # Setup mock dataframe containing a zero price row (should be filtered out)
     dates = pd.date_range(start="2026-06-10 09:30:00", periods=2, freq="min", tz="UTC")

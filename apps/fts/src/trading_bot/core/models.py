@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
+from quant_data.db.models import BarDataLog, Market
 from sqlalchemy import (
     JSON,
     DateTime,
@@ -24,88 +25,8 @@ from .database import Base
 # Import the enums we defined in core.enums
 from .enums import AlertSeverity, BarType, OrderSide, OrderStatus, PositionStatus
 
-
-class Market(Base):
-    """
-    SQLAlchemy ORM Model for storing market details.
-
-    This table persists the static data from the
-    MarketDetails Pydantic schema.
-    """
-
-    __tablename__ = "markets"
-
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    # The unique ID from the exchange, e.g., "AAPL" or "MARKET-ABC-YES"
-    instrument_id: Mapped[str] = mapped_column(
-        String, unique=True, index=True, nullable=False
-    )
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    end_date: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    resolution_source: Mapped[Optional[str]] = mapped_column(String)
-
-    # Timestamps for tracking when this record was created/updated
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), onupdate=func.now()
-    )
-
-    # Relationships
-    orders: Mapped[List["OrderLog"]] = relationship("OrderLog", back_populates="market")
-    trades: Mapped[List["TradeLog"]] = relationship("TradeLog", back_populates="market")
-    bars: Mapped[List["BarDataLog"]] = relationship(
-        "BarDataLog", back_populates="market"
-    )
-
-    def __repr__(self) -> str:
-        return f"<Market(instrument_id='{self.instrument_id}', name='{self.name}')>"
-
-
-class BarDataLog(Base):
-    """
-    SQLAlchemy ORM Model for persisting OHLCV bar data.
-
-    This table stores aggregated bar data (Time, Volume, or Dollar bars)
-    for historical analysis and ML feature engineering.
-    """
-
-    __tablename__ = "bar_data_logs"
-
-    __table_args__ = (
-        UniqueConstraint(
-            "instrument_id", "timestamp", "bar_type", "interval", name="uq_bar_data_log"
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    instrument_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
-    )
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), index=True, nullable=False
-    )
-
-    open: Mapped[float] = mapped_column(nullable=False)
-    high: Mapped[float] = mapped_column(nullable=False)
-    low: Mapped[float] = mapped_column(nullable=False)
-    close: Mapped[float] = mapped_column(nullable=False)
-    volume: Mapped[float] = mapped_column(nullable=False)
-
-    bar_type: Mapped[BarType] = mapped_column(Enum(BarType), nullable=False, index=True)
-    interval: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    ticks_count: Mapped[int] = mapped_column(nullable=False)
-    dollar_volume: Mapped[float] = mapped_column(nullable=False)
-
-    # Relationships
-    market: Mapped["Market"] = relationship("Market", back_populates="bars")
-
-    def __repr__(self) -> str:
-        return (
-            f"<BarDataLog(instrument_id='{self.instrument_id}', "
-            f"timestamp='{self.timestamp}', type='{self.bar_type}')>"
-        )
+Market.orders = relationship("OrderLog", back_populates="market")
+Market.trades = relationship("TradeLog", back_populates="market")
 
 
 class OrderLog(Base):

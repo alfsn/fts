@@ -10,6 +10,10 @@ dependencies = [
     "pydantic-settings>=2.0.0", 
     "sqlalchemy>=2.0.44",
     "streamlit",
+    "quant-data",
+    "fts-plugin-nets",
+    "fts-plugin-argentina",
+    "quant-core",
 ]
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -21,3 +25,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 package-dir = {"trading_bot" = "."}
 packages = ["trading_bot"]
+
+[tool.uv.sources]
+quant-core = { workspace = true }
+quant-data = { workspace = true }
+fts-plugin-nets = { workspace = true }
+fts-plugin-argentina = { workspace = true }

@@ -5,15 +5,15 @@ from typing import Any, Sequence
 import pandas as pd
 import yfinance as yf
 from quant_core.enums import AssetType, BarType, Geography
-from quant_core.models import TradFiDetails
-from trading_bot.core.schemas import (
+from quant_core.interfaces import BaseMarketDataProvider
+from quant_core.models import (
     BarData,
     Instrument,
     MarketData,
     OrderBook,
     Trade,
+    TradFiDetails,
 )
-from trading_bot.data_ingestion.abc import BaseMarketDataProvider
 
 # src/plugins/yfinance/data_providers.py
 

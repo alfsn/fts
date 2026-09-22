@@ -121,7 +121,7 @@ def test_market_data_repository(in_memory_db):
     """Tests ensuring markets and bulk saving unique bars via MarketDataRepository."""
     from quant_core.enums import AssetType, BarType, Geography
     from quant_core.models import Instrument, TradFiDetails
-    from trading_bot.core.repository import MarketDataRepository
+    from quant_data.db.repositories import MarketDataRepository
     from trading_bot.core.schemas import BarData
 
     repo = MarketDataRepository(in_memory_db)

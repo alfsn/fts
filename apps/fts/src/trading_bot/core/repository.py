@@ -20,11 +20,7 @@ from .schemas import Position as PositionSchema
 logger = logging.getLogger(__name__)
 
 
-class BaseRepository:
-    """Base repository holding the SQLAlchemy session."""
-
-    def __init__(self, db: Session) -> None:
-        self.db = db
+from quant_data.db.repositories import BaseRepository
 
 
 class PositionRepository(BaseRepository):
@@ -151,136 +147,6 @@ class OrderRepository(BaseRepository):
                 logger.warning(f"Order {order_id} not found in DB for status update.")
         except Exception as e:
             logger.error(f"Failed to update order {order_id}: {e}")
-            raise e
-
-
-class MarketDataRepository(BaseRepository):
-    """Encapsulates all database operations for market and bar data."""
-
-    def ensure_market(self, details: MarketDetailsSchema) -> MarketModel:
-        """Ensures that the market exists in the database, updating details if needed."""
-        try:
-            market = (
-                self.db.query(MarketModel)
-                .filter_by(instrument_id=details.instrument_id)
-                .first()
-            )
-            if not market:
-                market = MarketModel(
-                    instrument_id=details.instrument_id,
-                    name=details.name,
-                )
-                self.db.add(market)
-            else:
-                market.name = details.name
-            return market
-        except Exception as e:
-            logger.error(f"Failed to ensure market {details.instrument_id}: {e}")
-            raise e
-
-    def save_bars(self, instrument_id: str, bars: Sequence[BarDataSchema]) -> int:
-        """
-        Saves a sequence of BarData schema elements to the database.
-        Avoids duplicates based on instrument_id, timestamp, bar_type, and interval.
-        Returns the number of new bars inserted.
-        """
-        if not bars:
-            return 0
-
-        try:
-            bar_type = bars[0].bar_type
-            interval = bars[0].interval
-            from datetime import timezone
-
-            # Load existing timestamps to prevent duplicate insertions
-            existing_records = (
-                self.db.query(BarDataLogModel.timestamp)
-                .filter_by(
-                    instrument_id=instrument_id, bar_type=bar_type, interval=interval
-                )
-                .all()
-            )
-            # Normalize DB naive datetimes to naive UTC (assuming they were saved in UTC)
-            timestamps = {
-                (
-                    r[0].astimezone(timezone.utc).replace(tzinfo=None)
-                    if r[0].tzinfo
-                    else r[0]
-                )
-                for r in existing_records
-            }
-
-            new_logs = []
-            for bar in bars:
-                ts = bar.timestamp
-                ts_normalized = (
-                    ts.astimezone(timezone.utc).replace(tzinfo=None)
-                    if ts.tzinfo
-                    else ts
-                )
-                if ts_normalized not in timestamps:
-                    log = BarDataLogModel(
-                        instrument_id=instrument_id,
-                        timestamp=ts_normalized,
-                        open=bar.open,
-                        high=bar.high,
-                        low=bar.low,
-                        close=bar.close,
-                        volume=bar.volume,
-                        bar_type=bar.bar_type,
-                        interval=bar.interval,
-                        ticks_count=bar.ticks_count,
-                        dollar_volume=bar.dollar_volume,
-                    )
-                    new_logs.append(log)
-                    timestamps.add(ts_normalized)
-
-            if new_logs:
-                self.db.bulk_save_objects(new_logs)
-                logger.info(
-                    f"Saved {len(new_logs)} new bars for {instrument_id} to SQL."
-                )
-            return len(new_logs)
-        except Exception as e:
-            logger.error(f"Failed to save bars for {instrument_id}: {e}")
-            raise e
-
-    def get_bars(
-        self,
-        market_ids: str | Sequence[str],
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        bar_type: BarType = BarType.TIME,
-        interval: Optional[str] = None,
-    ) -> List[BarDataLogModel]:
-        """
-        Loads historical bars for given market(s) and date range, ordered by timestamp ascending.
-
-        :param market_ids: Market ID string or sequence of market ID strings.
-        :param start_date: Optional start datetime (inclusive).
-        :param end_date: Optional end datetime (inclusive).
-        :param bar_type: The type of bar to query (default: BarType.TIME).
-        :param interval: Optional timeframe/interval filter (e.g., '1m', '1h').
-        :return: A list of BarDataLog DB models.
-        """
-        try:
-            if isinstance(market_ids, str):
-                market_ids = [market_ids]
-
-            query = self.db.query(BarDataLogModel).filter(
-                BarDataLogModel.instrument_id.in_(market_ids),
-                BarDataLogModel.bar_type == bar_type,
-            )
-            if interval is not None:
-                query = query.filter(BarDataLogModel.interval == interval)
-            if start_date:
-                query = query.filter(BarDataLogModel.timestamp >= start_date)
-            if end_date:
-                query = query.filter(BarDataLogModel.timestamp <= end_date)
-
-            return query.order_by(BarDataLogModel.timestamp.asc()).all()
-        except Exception as e:
-            logger.error(f"Failed to load bars for {market_ids}: {e}")
             raise e
 
 
