@@ -1,0 +1,56 @@
+{
+    "sweep_name": "lstm_hidden_dim_sweep",
+    "sweep_param": "hidden_dim",
+    "sweep_values": [
+        16,
+        32,
+        64
+    ],
+    "market_id": "BTC/USDT",
+    "created_at": "2026-07-03T16:20:56.792125+00:00",
+    "total_trials": 3,
+    "trials": [
+        {
+            "trial_index": 0,
+            "param_value": 16,
+            "model_id": "752b4aa23a8b",
+            "run_id": "bt_752b4aa23a8b",
+            "val_ic": 0.0,
+            "val_loss": 0.0,
+            "oos_pnl": -426.7352402560409,
+            "oos_sharpe": -10.978964976462517,
+            "oos_max_dd": 7.269022699168379,
+            "win_rate": 0.0,
+            "total_trades": 609,
+            "final_equity": 9573.264759743959
+        },
+        {
+            "trial_index": 1,
+            "param_value": 32,
+            "model_id": "53016672b652",
+            "run_id": "bt_53016672b652",
+            "val_ic": 0.0,
+            "val_loss": 0.0,
+            "oos_pnl": -493.8973277645928,
+            "oos_sharpe": -10.317579432438302,
+            "oos_max_dd": 6.667757129468111,
+            "win_rate": 0.0,
+            "total_trades": 466,
+            "final_equity": 9506.102672235407
+        },
+        {
+            "trial_index": 2,
+            "param_value": 64,
+            "model_id": "0e68ea48b4f9",
+            "run_id": "bt_0e68ea48b4f9",
+            "val_ic": 0.0,
+            "val_loss": 0.0,
+            "oos_pnl": -40.889687111042804,
+            "oos_sharpe": -1.307485544199331,
+            "oos_max_dd": 4.603930829705534,
+            "win_rate": 0.0,
+            "total_trades": 478,
+            "final_equity": 9959.110312888957
+        }
+    ]
+}

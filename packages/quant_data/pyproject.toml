@@ -1,0 +1,19 @@
+[project]
+name = "quant-data"
+version = "0.1.0"
+description = "Infrastructure and Data Providers for Unified Quant Workspace"
+requires-python = ">=3.12"
+dependencies = [
+    "quant-core",
+    "sqlalchemy>=2.0.0",
+    "yfinance>=0.2.0",
+    "ccxt>=4.0.0",
+    "pandas>=2.0.0"
+]
+
+[tool.uv.sources]
+quant-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,14 @@
+[project]
+name = "quant-core"
+version = "0.1.0"
+description = "Pure Domain Models for Unified Quant Workspace"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    "typing-extensions>=4.0.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

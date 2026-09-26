@@ -8,13 +8,13 @@ __pycache__/
 
 .antigravitycli/*
 
-runs/*
+**/runs/*
 notebooks/runs/*
-models/*.onnx
-models/registry/*.onnx
-/models/registry/trials/*.onnx
-notebooks/models/*.onnx
-notebooks/models/registry/*.onnx
+**/models/**/*.onnx
+models/registry/**/*.onnx
+/models/registry/trials/**/*.onnx
+notebooks/models/**/*.onnx
+notebooks/models/registry/**/*.onnx
 
 
 # Distribution / packaging
@@ -239,4 +239,7 @@ __marimo__/
 *.db-wal
 
 # .diffs
-.diffs/*
+.diffs/
+apps/fts/runs/*
+apps/fts/models/**/*.onnx
+.diffs/

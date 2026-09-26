@@ -352,8 +352,9 @@ The framework is partitioned into **3 decoupled quantitative execution loops**:
 
 ### Interactive Parameter Sweep Reports
 * Multi-run parameter grid sensitivity dashboards:
-  * 📈 [Hidden Dimension Sweep Report](runs/reports/sweep_report_lstm_hidden_dim_sweep.html) (`runs/reports/sweep_report_lstm_hidden_dim_sweep.html`)
-  * 📈 [Number of Layers Sweep Report](runs/reports/sweep_report_lstm_num_layers_sweep.html) (`runs/reports/sweep_report_lstm_num_layers_sweep.html`)
+  * 📈 [XGBoost Max Depth Sweep](runs/reports/sweep_report_xgboost_max_depth_sweep.html) 
+  * 📈 [Hidden Dimension Sweep](runs/reports/sweep_report_lstm_hidden_dim_sweep.html) 
+  * 📈 [LSTM Number of Layers Sweep](runs/reports/sweep_report_lstm_num_layers_sweep.html) 
 
 ---
 
