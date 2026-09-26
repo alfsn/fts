@@ -175,6 +175,42 @@ class MarketData(BaseModel):
     recent_bars: List[BarData] = Field(default_factory=list)
 
 
+class MarketDataRequest(BaseModel):
+    instrument_id: str
+    interval: str
+    count: int = 100
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    include_order_book: bool = True
+    include_trades: bool = True
+
+    def resolve_bounds(self) -> tuple[datetime, datetime]:
+        import re
+        from datetime import timedelta
+
+        end = self.end_date or datetime.now(timezone.utc)
+        if self.start_date:
+            return self.start_date, end
+
+        match = re.match(r"(\d+)([a-zA-Z]+)", self.interval)
+        if not match:
+            return end - timedelta(days=self.count), end
+
+        val, unit = int(match.group(1)), match.group(2).lower()
+        if unit in ["m", "min"]:
+            delta = timedelta(minutes=val * self.count * 1.1)
+        elif unit in ["h", "hr"]:
+            delta = timedelta(hours=val * self.count * 1.5)
+        elif unit in ["d", "day"]:
+            delta = timedelta(days=int(val * self.count * 1.5))
+        elif unit in ["w", "wk"]:
+            delta = timedelta(weeks=val * self.count)
+        else:
+            delta = timedelta(days=self.count)
+
+        return end - delta, end
+
+
 # --- 5. Additional Domain Models ---
 
 

@@ -72,8 +72,9 @@ class IngestionEngineOutput(BaseModel):
     timestamp: datetime = Field(
         ..., description="The time this data packet was generated."
     )
-    market_data: Dict[str, MarketData] = Field(
-        ..., description="A dictionary mapping instrument_id to its latest MarketData."
+    market_data: List[MarketData] = Field(
+        ...,
+        description="A list containing the latest MarketData for all requested subscriptions.",
     )
     external_data: List[ExternalData] = Field(
         ...,

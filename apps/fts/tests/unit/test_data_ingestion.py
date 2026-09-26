@@ -4,7 +4,7 @@ from typing import Dict, List
 
 import pytest
 from quant_core.enums import AssetType, Geography
-from quant_core.models import Instrument, TradFiDetails
+from quant_core.models import Instrument, MarketDataRequest, TradFiDetails
 
 # Import ABCs and Schemas
 from trading_bot.core.schemas import (
@@ -44,26 +44,26 @@ class FakeMarketProvider(BaseMarketDataProvider):
         self.data_to_return = data
         self.markets_to_fail = markets_to_fail or []
 
-    def get_market_data(self, instrument_id: str) -> MarketData | None:
+    def get_market_data(self, request) -> MarketData | None:
         """Returns pre-canned data or simulates a failure."""
-        if instrument_id in self.markets_to_fail:
+        if request.instrument_id in self.markets_to_fail:
             raise ValueError(f"Simulated failure for {instrument_id}")
-        return self.data_to_return.get(instrument_id)
+        return self.data_to_return.get(request.instrument_id)
 
     # --- Other ABC methods (not used by the engine) ---
     def list_tradable_markets(self) -> List[Instrument]:
         return [md.details for md in self.data_to_return.values()]
 
     def get_market_details(self, instrument_id: str) -> Instrument:
-        return self.data_to_return.get(instrument_id).details
+        return self.data_to_return.get(request.instrument_id).details
 
     def get_order_book(self, instrument_id: str) -> OrderBook:
-        return self.data_to_return.get(instrument_id).order_book
+        return self.data_to_return.get(request.instrument_id).order_book
 
     def get_trade_history(self, instrument_id: str) -> List[Trade]:
-        return self.data_to_return.get(instrument_id).recent_trades
+        return self.data_to_return.get(request.instrument_id).recent_trades
 
-    def get_bars(self, instrument_id: str, count: int = 100) -> List[BarData]:
+    def get_bars(self, request) -> List[BarData]:
         return getattr(self.data_to_return.get(instrument_id), "recent_bars", [])
 
 
@@ -173,19 +173,19 @@ def test_engine_initialization(sample_market_data_1, sample_external_data_1):
     # Given
     market_provider = FakeMarketProvider(data={"MKT1": sample_market_data_1})
     external_provider = FakeExternalProvider(name="test", data=[sample_external_data_1])
-    market_ids = ["MKT1"]
+    market_ids = [MarketDataRequest(instrument_id="MKT1", interval="1d")]
 
     # When
     engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[external_provider],
-        market_ids=market_ids,
+        subscriptions=market_ids,
     )
 
     # Then
     assert engine.market_provider == market_provider
     assert engine.external_providers == [external_provider]
-    assert engine.instrument_ids == market_ids
+    assert len(engine.subscriptions) == 1
 
 
 def test_fetch_all_data_happy_path(sample_market_data_1, sample_external_data_1):
@@ -201,7 +201,7 @@ def test_fetch_all_data_happy_path(sample_market_data_1, sample_external_data_1)
     engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[external_provider],
-        market_ids=["MKT1"],
+        subscriptions=[MarketDataRequest(instrument_id="MKT1", interval="1d")],
     )
 
     # When
@@ -217,8 +217,8 @@ def test_fetch_all_data_happy_path(sample_market_data_1, sample_external_data_1)
 
     # Check market data
     assert len(result.market_data) == 1
-    assert "MKT1" in result.market_data
-    assert result.market_data["MKT1"] == sample_market_data_1
+    assert any(m.instrument_id == "MKT1" for m in result.market_data)
+    assert result.market_data[0] == sample_market_data_1
 
     # Check external data
     assert len(result.external_data) == 1
@@ -250,7 +250,10 @@ def test_fetch_all_data_multiple_providers(
     engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[external_provider_1, external_provider_2],
-        market_ids=["MKT1", "MKT2"],
+        subscriptions=[
+            MarketDataRequest(instrument_id="MKT1", interval="1d"),
+            MarketDataRequest(instrument_id="MKT2", interval="1d"),
+        ],
     )
 
     # When
@@ -259,8 +262,8 @@ def test_fetch_all_data_multiple_providers(
     # Then
     # Check market data
     assert len(result.market_data) == 2
-    assert "MKT1" in result.market_data
-    assert "MKT2" in result.market_data
+    assert any(m.instrument_id == "MKT1" for m in result.market_data)
+    assert any(m.instrument_id == "MKT2" for m in result.market_data)
 
     # Check external data
     assert len(result.external_data) == 2
@@ -288,7 +291,10 @@ def test_fetch_market_data_partial_failure(
     engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[external_provider],
-        market_ids=["MKT1", "MKT_FAIL"],  # We ask for both
+        subscriptions=[
+            MarketDataRequest(instrument_id="MKT1", interval="1d"),
+            MarketDataRequest(instrument_id="MKT_FAIL", interval="1d"),
+        ],  # We ask for both
     )
 
     # When
@@ -298,8 +304,8 @@ def test_fetch_market_data_partial_failure(
     # Then
     # Check market data (only MKT1 should be present)
     assert len(result.market_data) == 1
-    assert "MKT1" in result.market_data
-    assert "MKT_FAIL" not in result.market_data
+    assert any(m.instrument_id == "MKT1" for m in result.market_data)
+    assert not any(m.instrument_id == "MKT_FAIL" for m in result.market_data)
 
     # Check external data (should be unaffected)
     assert len(result.external_data) == 1
@@ -331,7 +337,7 @@ def test_fetch_external_data_partial_failure(
     engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[external_provider_1, external_provider_2],
-        market_ids=["MKT1"],
+        subscriptions=[MarketDataRequest(instrument_id="MKT1", interval="1d")],
     )
 
     # When
@@ -341,7 +347,7 @@ def test_fetch_external_data_partial_failure(
     # Then
     # Check market data (should be unaffected)
     assert len(result.market_data) == 1
-    assert "MKT1" in result.market_data
+    assert any(m.instrument_id == "MKT1" for m in result.market_data)
 
     # Check external data (should only have data from the good provider)
     assert len(result.external_data) == 1
@@ -362,7 +368,7 @@ def test_fetch_market_data_returns_none(sample_market_data_1, caplog):
     engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[],
-        market_ids=["MKT_NONE"],
+        subscriptions=[MarketDataRequest(instrument_id="MKT_NONE", interval="1d")],
     )
 
     # When

@@ -24,7 +24,7 @@ def main() -> None:
     parser.add_argument(
         "--provider",
         "-p",
-        choices=["yfinance", "ccxt"],
+        choices=["yfinance", "ccxt", "tiered"],
         required=True,
         help="The data source provider to use (yfinance or ccxt).",
     )
@@ -126,11 +126,17 @@ def main() -> None:
         # 2. Instantiate correct provider
         logger.info(f"Initializing provider '{args.provider}'...")
         try:
-            provider_class = MarketDataProviderRegistry.get_provider_class(
-                args.provider
-            )
+            if args.provider == "tiered":
+                from quant_data.providers import TieredDataProvider
 
-            provider = provider_class.from_args(args)
+                provider = TieredDataProvider.create_default(
+                    db_session=db, failing_tickers={"TSLA"}
+                )
+            else:
+                provider_class = MarketDataProviderRegistry.get_provider_class(
+                    args.provider
+                )
+                provider = provider_class.from_args(args)
         except ImportError:
             sys.exit(1)
         except ValueError as e:
@@ -144,14 +150,20 @@ def main() -> None:
         logger.info(f"Market '{details.instrument_id}' registered in DB.")
 
         # 4. Fetch candles/bars
-        logger.info(f"Downloading historical bars for '{args.ticker}'...")
-        fetch_kwargs = {"count": args.limit}
-        if until_dt is not None:
-            fetch_kwargs["until"] = until_dt
-        if since_dt is not None:
-            fetch_kwargs["since"] = since_dt
+        from quant_core.models import MarketDataRequest
 
-        bars = provider.get_bars(args.ticker, **fetch_kwargs)
+        logger.info(f"Downloading historical bars for '{args.ticker}'...")
+        request = MarketDataRequest(
+            instrument_id=args.ticker,
+            interval=args.timeframe,
+            count=args.limit,
+            start_date=since_dt,
+            end_date=until_dt,
+            include_order_book=False,
+            include_trades=False,
+        )
+
+        bars = provider.get_bars(request)
 
         if not bars:
             logger.warning(f"No bars returned by provider for symbol '{args.ticker}'")

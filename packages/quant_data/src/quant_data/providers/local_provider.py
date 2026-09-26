@@ -1,7 +1,7 @@
 from typing import Any, Sequence
 
 from quant_core.interfaces import BaseMarketDataProvider
-from quant_core.models import BarData, Instrument, OrderBook, Trade
+from quant_core.models import BarData, Instrument, MarketDataRequest, OrderBook, Trade
 
 
 class LocalCSVMarketDataProvider(BaseMarketDataProvider):
@@ -21,5 +21,5 @@ class LocalCSVMarketDataProvider(BaseMarketDataProvider):
     def get_trade_history(self, instrument_id: str) -> Sequence[Trade]:
         return []
 
-    def get_bars(self, instrument_id: str, count: int = 100) -> Sequence[BarData]:
+    def get_bars(self, request: MarketDataRequest) -> Sequence[BarData]:
         return []

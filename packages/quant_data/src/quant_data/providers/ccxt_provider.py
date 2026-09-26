@@ -9,6 +9,7 @@ from quant_core.models import (
     BarData,
     Instrument,
     MarketData,
+    MarketDataRequest,
     OrderBook,
     PriceLevel,
     Trade,
@@ -32,23 +33,23 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
         """
         Creates an instance of the provider from parsed command-line arguments.
         """
-        return cls(exchange_id=args.exchange, timeframe=args.timeframe)
+        return cls(exchange_id=args.exchange, default_interval=args.timeframe)
 
     def __init__(
         self,
         exchange_id: str = "binance",
-        timeframe: str = "1m",
+        default_interval: str = "1m",
         config: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Initializes the CCXT exchange integration.
 
         :param exchange_id: The identifier of the exchange in CCXT (e.g. 'binance', 'coinbase').
-        :param timeframe: The candle interval timeframe (e.g. '1m', '5m', '1h', '1d').
+        :param default_interval: The default candle interval timeframe (e.g. '1m', '5m', '1h', '1d').
         :param config: Dictionary of configuration settings to pass to CCXT (e.g., API keys, rateLimit).
         """
         self.exchange_id = exchange_id.lower()
-        self.timeframe = timeframe
+        self.default_interval = default_interval
         self.config = config or {}
 
         # Instantiate CCXT exchange class dynamically
@@ -163,38 +164,30 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             )
             return []
 
-    def get_bars(
-        self,
-        instrument_id: str,
-        count: int = 100,
-        until: Optional[datetime] = None,
-        since: Optional[datetime] = None,
-    ) -> Sequence[BarData]:
+    def get_bars(self, request: MarketDataRequest) -> Sequence[BarData]:
         """
         Downloads historical candlesticks (OHLCV) from the exchange in batches.
-
-        :param instrument_id: Symbol identifier (e.g. 'BTC/USDT').
-        :param count: Total number of bars requested.
-        :param until: Optional cutoff datetime (inclusive end).
-        :param since: Optional starting datetime (inclusive start).
         """
         try:
+            interval = request.interval or self.default_interval
+            start, end = request.resolve_bounds()
+
             # Determine timeframe duration in milliseconds
             if hasattr(self.exchange, "parse_timeframe"):
-                tf_sec = self.exchange.parse_timeframe(self.timeframe)
+                tf_sec = self.exchange.parse_timeframe(interval)
             else:
                 tf_sec = 1800  # Default to 30m if unknown
             tf_ms = tf_sec * 1000
 
             until_utc = (
-                until.astimezone(timezone.utc)
-                if until and until.tzinfo
-                else (until.replace(tzinfo=timezone.utc) if until else None)
+                end.astimezone(timezone.utc)
+                if end and end.tzinfo
+                else (end.replace(tzinfo=timezone.utc) if end else None)
             )
             since_utc = (
-                since.astimezone(timezone.utc)
-                if since and since.tzinfo
-                else (since.replace(tzinfo=timezone.utc) if since else None)
+                start.astimezone(timezone.utc)
+                if start and start.tzinfo
+                else (start.replace(tzinfo=timezone.utc) if start else None)
             )
 
             until_ms = int(until_utc.timestamp() * 1000) if until_utc else None
@@ -202,15 +195,15 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
             if since_utc is not None:
                 since_ms = int(since_utc.timestamp() * 1000)
             elif until_ms is not None:
-                since_ms = until_ms - (count * tf_ms)
+                since_ms = until_ms - (request.count * tf_ms)
             else:
                 since_ms = None
 
             # Single-batch optimization for small non-time-bounded queries
-            if count <= 1000 and since_ms is None and until_ms is None:
+            if request.count <= 1000 and since_ms is None and until_ms is None:
                 ohlcv_data = [
                     self.exchange.fetch_ohlcv(
-                        instrument_id, timeframe=self.timeframe, limit=count
+                        request.instrument_id, timeframe=interval, limit=request.count
                     )
                 ]
             else:
@@ -219,17 +212,19 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
                 current_since = since_ms
                 last_fetched_ts = -1
 
-                while sum(len(b) for b in ohlcv_data) < count:
-                    batch_limit = min(1000, count - sum(len(b) for b in ohlcv_data))
+                while sum(len(b) for b in ohlcv_data) < request.count:
+                    batch_limit = min(
+                        1000, request.count - sum(len(b) for b in ohlcv_data)
+                    )
                     fetch_kwargs: Dict[str, Any] = {"limit": batch_limit}
                     if current_since is not None:
                         fetch_kwargs["since"] = current_since
 
                     logger.info(
-                        f"Fetching CCXT batch: symbol={instrument_id}, since={current_since}, limit={batch_limit}"
+                        f"Fetching CCXT batch: symbol={request.instrument_id}, since={current_since}, limit={batch_limit}"
                     )
                     batch = self.exchange.fetch_ohlcv(
-                        instrument_id, timeframe=self.timeframe, **fetch_kwargs
+                        request.instrument_id, timeframe=interval, **fetch_kwargs
                     )
 
                     if not batch:
@@ -285,18 +280,18 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
                             close=cl,
                             volume=vol,
                             bar_type=BarType.TIME,
-                            interval=self.timeframe,
+                            interval=interval,
                             ticks_count=1,
                             dollar_volume=cl * vol,
                         )
                     )
 
-            if len(bars) > count:
-                bars = bars[-count:]
+            if len(bars) > request.count:
+                bars = bars[-request.count :]
 
             return bars
         except Exception as e:
             logger.error(
-                f"Failed to fetch bars for {instrument_id} from {self.exchange_id}: {e}"
+                f"Failed to fetch bars for {request.instrument_id} from {self.exchange_id}: {e}"
             )
             return []

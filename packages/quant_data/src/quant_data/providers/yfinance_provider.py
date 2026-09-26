@@ -10,6 +10,7 @@ from quant_core.models import (
     BarData,
     Instrument,
     MarketData,
+    MarketDataRequest,
     OrderBook,
     Trade,
     TradFiDetails,
@@ -32,17 +33,15 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
         """
         Creates an instance of the provider from parsed command-line arguments.
         """
-        return cls(period=args.period, interval=args.timeframe)
+        return cls(default_interval=args.timeframe)
 
-    def __init__(self, period: str = "5d", interval: str = "1m") -> None:
+    def __init__(self, default_interval: str = "1d") -> None:
         """
         Initializes the Yahoo Finance data provider.
 
-        :param period: The historical time period to download (e.g. '5d', '1mo').
-        :param interval: The frequency interval (e.g. '1m', '5m', '1h', '1d').
+        :param default_interval: The default frequency interval (e.g. '1d').
         """
-        self.period = period
-        self.interval = interval
+        self.default_interval = default_interval
 
     def list_tradable_markets(self) -> Sequence[Instrument]:
         """
@@ -90,16 +89,25 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
         )
         return []
 
-    def get_bars(self, instrument_id: str, count: int = 100) -> Sequence[BarData]:
+    def get_bars(self, request: MarketDataRequest) -> Sequence[BarData]:
         """
         Downloads the latest bars from yfinance and parses them into BarData.
         """
+        interval = request.interval or self.default_interval
+        start, end = request.resolve_bounds()
+
         # Download data using yfinance
         df = yf.download(
-            instrument_id, period=self.period, interval=self.interval, progress=False
+            request.instrument_id,
+            start=start,
+            end=end,
+            interval=interval,
+            progress=False,
         )
         if df.empty:
-            logger.warning(f"No data returned from yfinance for market {instrument_id}")
+            logger.warning(
+                f"No data returned from yfinance for market {request.instrument_id}"
+            )
             return []
 
         # Flatten MultiIndex columns if present (common in newer yfinance versions)
@@ -107,7 +115,7 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
             df.columns = df.columns.get_level_values(0)
 
         # Ensure we are looking at the last 'count' rows
-        df_subset = df.tail(count)
+        df_subset = df.tail(request.count)
         bars = []
 
         for ts, row in df_subset.iterrows():
@@ -143,7 +151,7 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
                     close=cl,
                     volume=vol,
                     bar_type=BarType.TIME,
-                    interval=self.interval,
+                    interval=interval,
                     ticks_count=1,
                     dollar_volume=cl * vol,
                 )

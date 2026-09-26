@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Sequence
 
-from .models import BarData, Instrument, MarketData, OrderBook, Trade
+from .models import BarData, Instrument, MarketData, MarketDataRequest, OrderBook, Trade
 
 
 class BaseMarketDataProvider(ABC):
@@ -26,26 +26,33 @@ class BaseMarketDataProvider(ABC):
         pass
 
     @abstractmethod
-    def get_bars(self, instrument_id: str, count: int = 100) -> Sequence[BarData]:
+    def get_bars(self, request: MarketDataRequest) -> Sequence[BarData]:
         pass
 
-    def get_market_data(self, instrument_id: str) -> MarketData:
-        details = self.get_market_details(instrument_id)
-        bars = list(self.get_bars(instrument_id))
-        try:
-            ob = self.get_order_book(instrument_id)
-        except Exception:
-            ob = None
-        try:
-            trades = list(self.get_trade_history(instrument_id))
-        except Exception:
-            trades = None
+    def get_market_data(self, request: MarketDataRequest) -> MarketData:
+        details = self.get_market_details(request.instrument_id)
+        bars = list(self.get_bars(request))
+
+        ob = None
+        if request.include_order_book:
+            try:
+                ob = self.get_order_book(request.instrument_id)
+            except Exception:
+                pass
+
+        trades = None
+        if request.include_trades:
+            try:
+                trades = list(self.get_trade_history(request.instrument_id))
+            except Exception:
+                pass
+
         has_ob = ob is not None and (
             len(getattr(ob, "bids", [])) > 0 or len(getattr(ob, "asks", [])) > 0
         )
         has_trades = trades is not None and len(trades) > 0
         return MarketData(
-            instrument_id=instrument_id,
+            instrument_id=request.instrument_id,
             details=details,
             recent_bars=bars,
             order_book=ob if has_ob else None,

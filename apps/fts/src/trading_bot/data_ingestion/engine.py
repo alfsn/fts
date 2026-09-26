@@ -2,7 +2,9 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence
+from typing import List, Optional, Sequence
+
+from quant_core.models import MarketDataRequest
 
 from ..core.schemas import ExternalData, IngestionEngineOutput, MarketData
 from .abc import BaseExternalDataProvider, BaseMarketDataProvider
@@ -29,23 +31,23 @@ class DataIngestionEngine:
         self,
         market_provider: Optional[BaseMarketDataProvider],
         external_providers: Sequence[BaseExternalDataProvider],
-        market_ids: Sequence[str],
+        subscriptions: Sequence[MarketDataRequest],
     ) -> None:
         """
         Initializes the engine using Dependency Injection.
 
         :param market_provider: A concrete implementation of
-                                BaseMarketDataProvider (e.g., PolymarketClient).
+                                BaseMarketDataProvider (e.g., CCXTMarketDataProvider).
         :param external_providers: A sequence of concrete external data
                                    providers (e.g., TwitterSentimentProvider).
-        :param market_ids: The specific sequence of market IDs this engine
-                           should poll from the `market_provider`.
+        :param subscriptions: The specific sequence of explicit data requests this
+                              engine should route to the `market_provider`.
         """
         self.market_provider = market_provider
         self.external_providers = external_providers
-        self.instrument_ids = market_ids
+        self.subscriptions = subscriptions
         logger.info(
-            f"DataIngestionEngine initialized with {len(self.instrument_ids)} markets "
+            f"DataIngestionEngine initialized with {len(self.subscriptions)} subscriptions "
             f"and {len(self.external_providers)} external providers."
         )
 
@@ -68,7 +70,7 @@ class DataIngestionEngine:
         timestamp = datetime.now(timezone.utc)
 
         # 2. Fetch all market data
-        market_data_map: Dict[str, MarketData] = self._fetch_market_data()
+        market_data_list: List[MarketData] = self._fetch_market_data()
 
         # 3. Fetch all external data
         all_external_data: List[ExternalData] = self._fetch_external_data()
@@ -76,7 +78,7 @@ class DataIngestionEngine:
         # 4. Assemble and return
         output = IngestionEngineOutput(
             timestamp=timestamp,
-            market_data=market_data_map,
+            market_data=market_data_list,
             external_data=all_external_data,
         )
 
@@ -86,29 +88,31 @@ class DataIngestionEngine:
         )
         return output
 
-    def _fetch_market_data(self) -> Dict[str, MarketData]:
+    def _fetch_market_data(self) -> List[MarketData]:
         """
-        Helper method to poll the market provider for all market IDs.
+        Helper method to poll the market provider for all subscriptions.
         """
         if not self.market_provider:
             logger.warning("No market provider configured. Skipping market data fetch.")
-            return {}
+            return []
 
-        market_data_map: Dict[str, MarketData] = {}
-        for instrument_id in self.instrument_ids:
+        market_data_list: List[MarketData] = []
+        for sub in self.subscriptions:
             try:
-                market_data = self.market_provider.get_market_data(instrument_id)
+                market_data = self.market_provider.get_market_data(sub)
                 if market_data:
-                    market_data_map[instrument_id] = market_data
+                    market_data_list.append(market_data)
                 else:
-                    logger.warning(f"No market data returned for {instrument_id}")
+                    logger.warning(
+                        f"No market data returned for {sub.instrument_id} ({sub.interval})"
+                    )
             except Exception as e:
                 # Log the error but continue the loop
                 logger.error(
-                    f"Failed to fetch market data for {instrument_id}: {e}",
+                    f"Failed to fetch market data for {sub.instrument_id} ({sub.interval}): {e}",
                     exc_info=True,  # Includes stack trace in log
                 )
-        return market_data_map
+        return market_data_list
 
     def _fetch_external_data(self) -> List[ExternalData]:
         """
