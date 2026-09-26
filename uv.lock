@@ -25,6 +25,7 @@ members = [
     "portfolio-analyser",
     "quant-core",
     "quant-data",
+    "quant-ui",
 ]
 
 [[package]]
@@ -989,6 +990,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "quant-core" },
     { name = "quant-data" },
+    { name = "quant-ui" },
     { name = "sqlalchemy" },
     { name = "streamlit" },
 ]
@@ -1001,6 +1003,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "quant-core", editable = "packages/quant_core" },
     { name = "quant-data", editable = "packages/quant_data" },
+    { name = "quant-ui", editable = "packages/quant_ui" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
     { name = "streamlit" },
 ]
@@ -2791,6 +2794,22 @@ wheels = [
 name = "portfolio-analyser"
 version = "0.1.0"
 source = { virtual = "apps/portfolio_analyser" }
+dependencies = [
+    { name = "click" },
+    { name = "quant-core" },
+    { name = "quant-data" },
+    { name = "quant-ui" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click" },
+    { name = "quant-core", editable = "packages/quant_core" },
+    { name = "quant-data", editable = "packages/quant_data" },
+    { name = "quant-ui", editable = "packages/quant_ui" },
+    { name = "rich" },
+]
 
 [[package]]
 name = "pre-commit"
@@ -3428,15 +3447,21 @@ name = "quant-core"
 version = "0.1.0"
 source = { editable = "packages/quant_core" }
 dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "scipy" },
     { name = "typing-extensions" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "numpy", specifier = ">=1.24.0" },
+    { name = "pandas", specifier = ">=2.0.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "scipy", specifier = ">=1.10.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
 ]
 
@@ -3447,6 +3472,7 @@ source = { editable = "packages/quant_data" }
 dependencies = [
     { name = "ccxt" },
     { name = "pandas" },
+    { name = "pyyaml" },
     { name = "quant-core" },
     { name = "sqlalchemy" },
     { name = "yfinance" },
@@ -3456,9 +3482,27 @@ dependencies = [
 requires-dist = [
     { name = "ccxt", specifier = ">=4.0.0" },
     { name = "pandas", specifier = ">=2.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "quant-core", editable = "packages/quant_core" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "yfinance", specifier = ">=0.2.0" },
+]
+
+[[package]]
+name = "quant-ui"
+version = "0.1.0"
+source = { editable = "packages/quant_ui" }
+dependencies = [
+    { name = "ipywidgets" },
+    { name = "pandas" },
+    { name = "plotly" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ipywidgets" },
+    { name = "pandas" },
+    { name = "plotly" },
 ]
 
 [[package]]

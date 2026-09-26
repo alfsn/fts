@@ -79,3 +79,22 @@ class SizingStrategyType(str, Enum):
     KELLY_CRITERION = "kelly_criterion"
     FIXED_AMOUNT = "fixed_amount"
     FIXED_PERCENTAGE = "fixed_percentage"
+
+
+class Currency(str, Enum):
+    USD = "USD"
+    ARS = "ARS"
+    EUR = "EUR"
+
+
+class RateType(str, Enum):
+    MEP = "MEP"
+    CCL = "CCL"
+    OFFICIAL = "OFFICIAL"
+
+
+class CorporateActionType(str, Enum):
+    SPLIT = "split"
+    DIVIDEND = "dividend"
+    MERGER = "merger"
+    SPINOFF = "spinoff"

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from quant_core.enums import BarType
+from quant_core.enums import BarType, CorporateActionType, Currency, RateType
 from sqlalchemy import (
     DateTime,
     Enum,
@@ -69,3 +69,59 @@ class BarDataLog(Base):
     dollar_volume: Mapped[float] = mapped_column(nullable=False)
 
     market: Mapped["Market"] = relationship("Market", back_populates="bars")
+
+
+class FXRateRecord(Base):
+    __tablename__ = "fx_rates"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "base_currency",
+            "quote_currency",
+            "rate_type",
+            "timestamp",
+            name="uq_fx_rate",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    base_currency: Mapped[Currency] = mapped_column(
+        Enum(Currency), index=True, nullable=False
+    )
+    quote_currency: Mapped[Currency] = mapped_column(
+        Enum(Currency), index=True, nullable=False
+    )
+    rate_type: Mapped[RateType] = mapped_column(
+        Enum(RateType), index=True, nullable=False
+    )
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+    rate: Mapped[float] = mapped_column(nullable=False)
+
+
+class CorporateActionRecord(Base):
+    __tablename__ = "corporate_actions"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "instrument_id", "action_type", "ex_date", name="uq_corporate_action"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    instrument_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    action_type: Mapped[CorporateActionType] = mapped_column(
+        Enum(CorporateActionType), index=True, nullable=False
+    )
+    ex_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )
+    record_date: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    payable_date: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    amount: Mapped[Optional[float]] = mapped_column(nullable=True)
+    ratio: Mapped[Optional[float]] = mapped_column(nullable=True)

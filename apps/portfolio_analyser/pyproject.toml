@@ -2,4 +2,15 @@
 name = "portfolio-analyser"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "click",
+    "quant_core",
+    "quant_data",
+    "quant-ui",
+    "rich",
+]
+
+[tool.uv.sources]
+quant_core = { workspace = true }
+quant_data = { workspace = true }
+quant-ui = { workspace = true }
