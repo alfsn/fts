@@ -1,0 +1,42 @@
+name: "LSTM BTC/USDT Backtest"
+market_ids:
+  - "BTC/USDT"
+strategies:
+  - class_path: "nets.strategies.nets_strategy.NetsStrategy"
+    params:
+      lookback_period: 20
+      allow_in_sample: true
+      predictor:
+        class_path: "nets.inference.inference.ONNXPredictor"
+        params:
+          model_path: "models/registry/2f0ef321ee03.onnx"
+      output_selector:
+        class_path: "nets.output_selectors.SimpleThresholdClassifier"
+        params:
+          threshold: 0.001
+sizing_strategy:
+  class_path: "trading_bot.risk_management.sizing.fixed_amount.FixedAmountSizer"
+  params:
+    default_amount_quote: 1000.0
+execution_handler:
+  class_path: "trading_bot.execution.handlers.simulated_handler.SimulatedExecutionHandler"
+  params:
+    delay_model:
+      class_path: "trading_bot.execution.delay.KBarExecuteDelay"
+      params:
+        k: 1
+    slippage_model:
+      class_path: "trading_bot.execution.slippage.FlatPriceSlip"
+      params:
+        slippage_pct: 0.0
+loop_driver:
+  class_path: "trading_bot.core.loop.HistoricalReplayLoop"
+  params:
+    save_backtest_report: true
+    backtest_report_dir: "runs/reports"
+    data_reader:
+      class_path: "trading_bot.backtesting.readers.SQLBacktestDataReader"
+      params:
+        instrument_id: "BTC/USDT"
+        warmup_bars: 20
+        lookback_limit: 100

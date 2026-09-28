@@ -2,6 +2,10 @@
 
 *This is the complete, unfiltered backlog translating every single feature from our original brainstorming session into vertical-slice Pull Requests. It adheres to Clean Architecture (`quant_core` for math, `quant_data` for DB/API, `portfolio_analyser` for orchestration).*
 
+For each PR: search:
+1. is this (loosely) implemented in fts already? Or something similar? If so, we must extract and generalize usage for both apps.
+2. Is this something we could apply in fts? If so, how?
+
 ---
 
 ## Epic 1: Core Architecture & Tiered Data Engine
