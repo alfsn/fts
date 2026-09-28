@@ -61,6 +61,7 @@ For every user prompt, you must follow this internal monologue pattern:
 
 ### 4.1. Abstraction: Pydantic (Mandatory)
 * **All data is Pydantic.** All tool definitions, inputs, outputs, and internal state representations *must* be defined as `pydantic.BaseModel`.
+* **No Manual ORM Mapping.** When mapping between database ORMs (like SQLAlchemy) and Pydantic DTOs, NEVER write manual field-by-field translation code. Always set `model_config = ConfigDict(from_attributes=True)` on the Pydantic schema and instantiate it using `MySchema.model_validate(orm_object)`. Only use manual mapping if the DTO aggregates multiple distinct tables or performs complex mathematical transformations.
 * You must validate your inputs *before* calling a tool and validate the output *after* receiving it.
 * Your reasoning must be based on these validated models.
 

@@ -11,7 +11,7 @@ ensures that all data is validated, typed, and well-documented.
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from quant_core.models import (
     BarData,
     CashBalance,
@@ -188,6 +188,8 @@ class ModelCatalogItem(BaseModel):
     Lightweight summary contract for model registry listing in data catalog.
     """
 
+    model_config = ConfigDict(from_attributes=True)
+
     model_id: str = Field(..., description="Unique model identifier.")
     run_id: Optional[str] = Field(None, description="Linked training run ID.")
     model_type: str = Field(..., description="Algorithm/architecture type.")
@@ -212,6 +214,8 @@ class ModelDetailDTO(BaseModel):
     """
     Detailed contract for single model deep-dive and inspection.
     """
+
+    model_config = ConfigDict(from_attributes=True)
 
     model_id: str = Field(..., description="Unique model identifier.")
     run_id: Optional[str] = Field(None, description="Linked training run ID.")
@@ -240,6 +244,8 @@ class BacktestRunCatalogItem(BaseModel):
     Lightweight summary contract for backtest run catalog listing.
     """
 
+    model_config = ConfigDict(from_attributes=True)
+
     run_id: str = Field(..., description="Unique backtest simulation run ID.")
     strategy_name: str = Field("unknown", description="Strategy algorithm name.")
     instrument_id: str = Field(
@@ -264,6 +270,8 @@ class BacktestDetailDTO(BaseModel):
     """
     Detailed contract for backtest run analysis including time-series equity and trades.
     """
+
+    model_config = ConfigDict(from_attributes=True)
 
     run_id: str = Field(..., description="Unique backtest simulation run ID.")
     strategy_name: str = Field("unknown", description="Strategy algorithm name.")

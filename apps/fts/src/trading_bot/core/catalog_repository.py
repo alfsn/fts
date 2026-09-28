@@ -61,37 +61,7 @@ class ModelCatalogRepository:
             stmt = stmt.order_by(ModelRegistryLog.created_at.desc())
             records = session.scalars(stmt).all()
 
-            items = []
-            for r in records:
-                metrics_dict = r.metrics if isinstance(r.metrics, dict) else {}
-                # Ensure values are floats
-                clean_metrics = {}
-                for k, v in metrics_dict.items():
-                    try:
-                        clean_metrics[k] = float(v)
-                    except (ValueError, TypeError):
-                        pass
-
-                items.append(
-                    ModelCatalogItem(
-                        model_id=r.model_id,
-                        run_id=r.run_id,
-                        model_type=r.model_type,
-                        instrument_id=r.instrument_id,
-                        interval=r.interval,
-                        horizon=r.horizon,
-                        dataset_id=r.dataset_id,
-                        status=r.status,
-                        onnx_path=r.onnx_path,
-                        hyperparameters=(
-                            r.hyperparameters
-                            if isinstance(r.hyperparameters, dict)
-                            else {}
-                        ),
-                        metrics=clean_metrics,
-                        created_at=r.created_at,
-                    )
-                )
+            items = [ModelCatalogItem.model_validate(r) for r in records]
             return items
 
     def get_model_details(self, model_id: str) -> Optional[ModelDetailDTO]:
@@ -106,26 +76,9 @@ class ModelCatalogRepository:
                 os.path.exists(record.onnx_path) if record.onnx_path else False
             )
 
-            return ModelDetailDTO(
-                model_id=record.model_id,
-                run_id=record.run_id,
-                model_type=record.model_type,
-                instrument_id=record.instrument_id,
-                interval=record.interval,
-                horizon=record.horizon,
-                dataset_id=record.dataset_id,
-                status=record.status,
-                onnx_path=record.onnx_path,
-                hyperparameters=(
-                    record.hyperparameters
-                    if isinstance(record.hyperparameters, dict)
-                    else {}
-                ),
-                metrics=record.metrics if isinstance(record.metrics, dict) else {},
-                created_at=record.created_at,
-                updated_at=record.updated_at,
-                onnx_exists=onnx_exists,
-            )
+            dto = ModelDetailDTO.model_validate(record)
+            dto.onnx_exists = onnx_exists
+            return dto
 
     def update_model_status(self, model_id: str, new_status: str) -> bool:
         """
