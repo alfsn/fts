@@ -81,7 +81,8 @@ class NetsStrategy(BaseStrategy):
 
         signals = []
 
-        for instrument_id, market_data in data.market_data.items():
+        for market_data in data.market_data:
+            instrument_id = market_data.instrument_id
             bars = market_data.recent_bars
             if len(bars) < self.lookback_period + 1:
                 continue

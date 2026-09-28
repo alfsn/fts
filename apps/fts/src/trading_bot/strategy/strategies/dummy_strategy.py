@@ -18,7 +18,8 @@ class DummyStrategy(BaseStrategy):
 
     def evaluate(self, data: IngestionEngineOutput) -> Sequence[TradeSignal]:
         signals = []
-        for instrument_id, market_data in data.market_data.items():
+        for market_data in data.market_data:
+            instrument_id = market_data.instrument_id
             # Simply check if we have any price data
             if market_data.recent_bars:
                 signals.append(

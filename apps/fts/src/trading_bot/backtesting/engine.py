@@ -158,7 +158,14 @@ class BacktestEngine:
                         pos_size = pos.quantity
 
                     # Retrieve last close price for equity calculation
-                    market_data = tick_data.market_data.get(self.instrument_id)
+                    market_data = next(
+                        (
+                            m
+                            for m in tick_data.market_data
+                            if m.instrument_id == self.instrument_id
+                        ),
+                        None,
+                    )
                     if market_data and market_data.recent_bars:
                         close_price = market_data.recent_bars[-1].close
 

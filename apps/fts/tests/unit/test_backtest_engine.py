@@ -94,7 +94,7 @@ def create_mock_tick(
     )
     return IngestionEngineOutput(
         timestamp=timestamp,
-        market_data={instrument_id: market_data},
+        market_data=[market_data],
         external_data=[],
         bars={instrument_id: [bar]},
     )

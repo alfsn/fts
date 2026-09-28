@@ -190,6 +190,7 @@ def run_hparam_search(
         registry_dir = os.path.join(settings.MODELS_DIR, "registry", "trials")
         os.makedirs(registry_dir, exist_ok=True)
         model_id = generate_model_id(onnx_bytes)
+        print(f"\n---> [TRIAL {trial.number}] Generated Model ID: {model_id}\n")
         onnx_filename = os.path.join(registry_dir, f"{model_id}.onnx")
         with open(onnx_filename, "wb") as f:
             f.write(onnx_bytes)

@@ -638,7 +638,7 @@ def test_onnx_metadata_serialization_and_guardrails(tmp_path):
     )
     tick_in_sample = IngestionEngineOutput(
         timestamp=bars[11].timestamp,  # <= train_end_date
-        market_data={"mock-market": mdata_in_sample},
+        market_data=[mdata_in_sample],
         external_data=[],
     )
 
@@ -676,7 +676,7 @@ def test_onnx_metadata_serialization_and_guardrails(tmp_path):
     )
     tick_out_of_sample = IngestionEngineOutput(
         timestamp=bars[47].timestamp,  # > train_end_date (bars[40])
-        market_data={"mock-market": mdata_out_of_sample},
+        market_data=[mdata_out_of_sample],
         external_data=[],
     )
     signals = strategy.evaluate(tick_out_of_sample)

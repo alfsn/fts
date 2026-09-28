@@ -1,5 +1,3 @@
-# src/trading_bot/__main__.py
-
 import argparse
 import hashlib
 import logging
@@ -8,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
+from quant_core.models import MarketDataRequest
 from trading_bot.config import PluginLoader, TaskConfig, settings
 from trading_bot.core.database import SessionLocal, init_db
 from trading_bot.core.loop import (
@@ -24,6 +23,9 @@ from trading_bot.monitoring.prediction_logger import DatabasePredictionLogger
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.strategy.engine import StrategyEngine
+
+# src/trading_bot/__main__.py
+
 
 # Setup logging
 setup_logging()
@@ -118,7 +120,10 @@ def main() -> None:
         ingestion_engine = DataIngestionEngine(
             market_provider=market_provider,
             external_providers=external_providers,
-            market_ids=task_config.instrument_ids,
+            subscriptions=[
+                MarketDataRequest(instrument_id=m, interval="1m")
+                for m in task_config.market_ids
+            ],
         )
 
         strategy_engine = StrategyEngine(strategies=strategies)

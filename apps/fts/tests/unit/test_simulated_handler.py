@@ -103,7 +103,7 @@ def test_simulated_handler_delay_and_price_source():
     )
     tick1 = IngestionEngineOutput(
         timestamp=bar1.timestamp,
-        market_data={"GGAL": mdata1},
+        market_data=[mdata1],
         external_data=[],
         bars={"GGAL": [bar1]},
     )
@@ -134,7 +134,7 @@ def test_simulated_handler_delay_and_price_source():
     )
     tick2 = IngestionEngineOutput(
         timestamp=bar2.timestamp,
-        market_data={"GGAL": mdata2},
+        market_data=[mdata2],
         external_data=[],
         bars={"GGAL": [bar2]},
     )
@@ -189,7 +189,7 @@ def test_simulated_handler_slippage():
     )
     tick1 = IngestionEngineOutput(
         timestamp=bar1.timestamp,
-        market_data={"GGAL": mdata1},
+        market_data=[mdata1],
         external_data=[],
         bars={"GGAL": [bar1]},
     )
@@ -225,7 +225,7 @@ def test_simulated_handler_slippage():
     )
     tick2 = IngestionEngineOutput(
         timestamp=bar2.timestamp,
-        market_data={"GGAL": mdata2},
+        market_data=[mdata2],
         external_data=[],
         bars={"GGAL": [bar2]},
     )
@@ -267,7 +267,7 @@ def test_simulated_handler_slippage():
     )
     tick3 = IngestionEngineOutput(
         timestamp=bar3.timestamp,
-        market_data={"GGAL": mdata3},
+        market_data=[mdata3],
         external_data=[],
         bars={"GGAL": [bar3]},
     )
@@ -367,7 +367,7 @@ def test_execution_engine_integration():
     )
     tick1 = IngestionEngineOutput(
         timestamp=bar1.timestamp,
-        market_data={"GGAL": mdata1},
+        market_data=[mdata1],
         external_data=[],
         bars={"GGAL": [bar1]},
     )

@@ -40,7 +40,9 @@ class SimpleBuyStrategy(BaseStrategy):
 
     def evaluate(self, data: IngestionEngineOutput) -> List[TradeSignal]:
         signals = []
-        market_data = data.market_data.get("MKT-01")
+        market_data = next(
+            (m for m in data.market_data if m.instrument_id == "MKT-01"), None
+        )
 
         if not market_data or not market_data.order_book.asks:
             return []
@@ -122,7 +124,7 @@ def test_strategy_generates_buy_signal_and_risk_manager_creates_order(
     # (The default fixture `mock_market_data` has ask price 0.49)
     ingestion_data = IngestionEngineOutput(
         timestamp=datetime.now(timezone.utc),
-        market_data={"MKT-01": mock_market_data},
+        market_data=[mock_market_data],
         external_data=[],
     )
 
@@ -135,7 +137,9 @@ def test_strategy_generates_buy_signal_and_risk_manager_creates_order(
     assert signals[0].instrument_id == "MKT-01"
 
     # 4. ACT (Module 3): Run the Risk Manager
-    order_request = risk_manager.process_signal(signals[0], ingestion_data.market_data)
+    order_request = risk_manager.process_signal(
+        signals[0], {m.instrument_id: m for m in ingestion_data.market_data}
+    )
 
     # 5. ASSERT (Module 3 Output): Check that an OrderRequest was created
     assert order_request is not None
@@ -153,7 +157,7 @@ def test_strategy_generates_hold_signal_and_risk_manager_does_nothing(
     mock_market_data.order_book.asks = [PriceLevel(price=0.51, quantity=100)]
     ingestion_data = IngestionEngineOutput(
         timestamp=datetime.now(timezone.utc),
-        market_data={"MKT-01": mock_market_data},
+        market_data=[mock_market_data],
         external_data=[],
     )
 
@@ -165,7 +169,9 @@ def test_strategy_generates_hold_signal_and_risk_manager_does_nothing(
     assert signals[0].signal_type == SignalType.HOLD
 
     # 4. ACT (Module 3): Run the Risk Manager
-    order_request = risk_manager.process_signal(signals[0], ingestion_data.market_data)
+    order_request = risk_manager.process_signal(
+        signals[0], {m.instrument_id: m for m in ingestion_data.market_data}
+    )
 
     # 5. ASSERT (Module 3 Output): Check that NO order was created
     assert order_request is None

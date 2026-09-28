@@ -11,7 +11,7 @@ from quant_core.enums import (
     PositionStatus,
     SignalType,
 )
-from quant_core.models import Instrument, TradFiDetails
+from quant_core.models import Instrument, MarketDataRequest, TradFiDetails
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.core.database import Base
@@ -50,22 +50,22 @@ class FakeMarketProvider(BaseMarketDataProvider):
     def __init__(self, data: Dict[str, MarketData]):
         self.data_to_return = data
 
-    def get_market_data(self, instrument_id: str) -> MarketData | None:
-        return self.data_to_return.get(instrument_id)
+    def get_market_data(self, request) -> MarketData | None:
+        return self.data_to_return.get(request.instrument_id)
 
     def list_tradable_markets(self) -> Sequence[Instrument]:
         return [md.details for md in self.data_to_return.values()]
 
     def get_market_details(self, instrument_id: str) -> Instrument:
-        return self.data_to_return.get(instrument_id).details
+        return self.data_to_return.get(request.instrument_id).details
 
     def get_order_book(self, instrument_id: str) -> OrderBook:
-        return self.data_to_return.get(instrument_id).order_book
+        return self.data_to_return.get(request.instrument_id).order_book
 
     def get_trade_history(self, instrument_id: str) -> List:
         return []
 
-    def get_bars(self, instrument_id: str, count: int = 100) -> List[BarData]:
+    def get_bars(self, request) -> List[BarData]:
         return getattr(self.data_to_return.get(instrument_id), "recent_bars", [])
 
 
@@ -186,7 +186,7 @@ def test_pipeline_e2e_flow_buy_and_sell_with_db(db_session: Session):
     ingestion_engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[],
-        market_ids=[instrument_id],
+        subscriptions=[MarketDataRequest(instrument_id=instrument_id, interval="1d")],
     )
 
     strategy_engine = StrategyEngine(strategies=[fake_strategy])

@@ -138,7 +138,8 @@ class SimulatedExecutionHandler(BaseExecutionHandler):
         Advances the state of markets and executes any due orders.
         """
         # 1. Update tick counters and latest bars
-        for instrument_id, market_data in ingestion_output.market_data.items():
+        for market_data in ingestion_output.market_data:
+            instrument_id = market_data.instrument_id
             if market_data.recent_bars:
                 latest_bar = market_data.recent_bars[-1]
                 self._latest_bars[instrument_id] = latest_bar

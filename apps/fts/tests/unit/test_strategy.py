@@ -116,7 +116,7 @@ def mock_data_tick() -> IngestionEngineOutput:
     )
     return IngestionEngineOutput(
         timestamp=datetime.now(timezone.utc),
-        market_data={"MKT1": market_data},
+        market_data=[market_data],
         external_data=[external_data],
     )
 

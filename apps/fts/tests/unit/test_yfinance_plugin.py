@@ -1,12 +1,13 @@
-# tests/unit/test_yfinance_plugin.py
-
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 from quant_core.enums import BarType
+from quant_core.models import MarketDataRequest
 from quant_data.providers.yfinance_provider import YFinanceMarketDataProvider
+
+# tests/unit/test_yfinance_plugin.py
 
 
 def test_yfinance_market_details():
@@ -31,8 +32,15 @@ def test_yfinance_get_bars(mock_download):
     mock_df = pd.DataFrame(data, index=dates)
     mock_download.return_value = mock_df
 
-    provider = YFinanceMarketDataProvider(period="5d", interval="1m")
-    bars = provider.get_bars("AAPL", count=2)
+    provider = YFinanceMarketDataProvider()
+    bars = provider.get_bars(
+        MarketDataRequest(
+            instrument_id="AAPL",
+            interval="1d",
+            count=2,
+            start_date=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
 
     # We requested count=2, so it should return the last 2 items
     assert len(bars) == 2
@@ -59,7 +67,13 @@ def test_yfinance_get_bars_handles_zeros(mock_download):
     mock_download.return_value = mock_df
 
     provider = YFinanceMarketDataProvider()
-    bars = provider.get_bars("AAPL")
+    bars = provider.get_bars(
+        MarketDataRequest(
+            instrument_id="AAPL",
+            interval="1m",
+            start_date=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
 
     # The first row with Open=0.0 should be filtered out
     assert len(bars) == 1

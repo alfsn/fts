@@ -82,8 +82,11 @@ class TradingPipeline:
                 return
 
             # Step 3: Process Signals through Risk & Route for Execution
+            market_data_map = {
+                md.instrument_id: md for md in ingestion_output.market_data
+            }
             for signal in signals:
-                market_data = ingestion_output.market_data.get(signal.instrument_id)
+                market_data = market_data_map.get(signal.instrument_id)
                 if not market_data:
                     logger.warning(
                         f"Skipping signal for {signal.instrument_id}: no market data "
@@ -94,7 +97,7 @@ class TradingPipeline:
                 # Run risk analysis and position sizing
                 order_request = self.risk.process_signal(
                     signal=signal,
-                    market_data_map=ingestion_output.market_data,
+                    market_data_map=market_data_map,
                 )
 
                 if order_request:

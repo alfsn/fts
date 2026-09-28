@@ -68,9 +68,9 @@ def test_csv_backtest_data_reader(temp_csv_file):
     tick1 = ticks[0]
     assert isinstance(tick1, IngestionEngineOutput)
     assert tick1.timestamp == datetime.fromisoformat("2026-05-30T12:00:00+00:00")
-    assert "AAPL" in tick1.market_data
+    assert any(m.instrument_id == "AAPL" for m in tick1.market_data)
 
-    mdata1 = tick1.market_data["AAPL"]
+    mdata1 = tick1.market_data[0]
     assert isinstance(mdata1, MarketData)
     assert mdata1.instrument_id == "AAPL"
     assert mdata1.details.name == "AAPL Historical Replay"
@@ -87,7 +87,7 @@ def test_csv_backtest_data_reader(temp_csv_file):
     # Check second tick
     tick2 = ticks[1]
     assert tick2.timestamp == datetime.fromisoformat("2026-05-30T12:01:00+00:00")
-    assert tick2.market_data["AAPL"].recent_bars[-1].close == 101.5
+    assert tick2.market_data[0].recent_bars[-1].close == 101.5
 
 
 def test_historical_replay_loop_dependency_injection():
@@ -113,12 +113,12 @@ def test_historical_replay_loop_dependency_injection():
     )
     tick1 = IngestionEngineOutput(
         timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
-        market_data={"MKT-1": mock_market_data},
+        market_data=[mock_market_data],
         external_data=[],
     )
     tick2 = IngestionEngineOutput(
         timestamp=datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc),
-        market_data={"MKT-1": mock_market_data},
+        market_data=[mock_market_data],
         external_data=[],
     )
 
@@ -156,8 +156,8 @@ def test_historical_replay_loop_backwards_compatibility_fallback(temp_csv_file):
         "ingestion_output"
     ]
     assert isinstance(called_tick, IngestionEngineOutput)
-    assert "mock-btc" in called_tick.market_data
-    assert called_tick.market_data["mock-btc"].recent_bars[0].close == 102.0
+    assert any(m.instrument_id == "mock-btc" for m in called_tick.market_data)
+    assert called_tick.market_data[0].recent_bars[0].close == 102.0
 
 
 @pytest.fixture
@@ -230,9 +230,9 @@ def test_sql_backtest_data_reader(sql_db_session):
     tick1 = ticks[0]
     assert isinstance(tick1, IngestionEngineOutput)
     assert tick1.timestamp == datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc)
-    assert "AAPL" in tick1.market_data
+    assert any(m.instrument_id == "AAPL" for m in tick1.market_data)
 
-    mdata1 = tick1.market_data["AAPL"]
+    mdata1 = tick1.market_data[0]
     assert isinstance(mdata1, MarketData)
     assert mdata1.instrument_id == "AAPL"
     assert mdata1.details.name == "Apple Inc."
@@ -249,7 +249,7 @@ def test_sql_backtest_data_reader(sql_db_session):
     # Check second tick
     tick2 = ticks[1]
     assert tick2.timestamp == datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
-    assert tick2.market_data["AAPL"].recent_bars[-1].close == 101.5
+    assert tick2.market_data[0].recent_bars[-1].close == 101.5
 
 
 def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
@@ -300,7 +300,7 @@ def test_sql_backtest_data_reader_fallback_market(sql_db_session):
     reader = SQLBacktestDataReader(session=sql_db_session, instrument_id="GOOG")
     ticks = list(reader.read_data())
     assert len(ticks) == 1
-    assert ticks[0].market_data["GOOG"].details.name == "GOOG Historical Replay"
+    assert ticks[0].market_data[0].details.name == "GOOG Historical Replay"
 
 
 def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
@@ -388,7 +388,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
 
     # Tick 1: should contain: warmup1, warmup2, actual1
     tick1 = ticks[0]
-    bars_t1 = tick1.market_data["AAPL"].recent_bars
+    bars_t1 = tick1.market_data[0].recent_bars
     assert len(bars_t1) == 3
     assert bars_t1[0].timestamp == warmup_time1
     assert bars_t1[1].timestamp == warmup_time2
@@ -396,7 +396,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
 
     # Tick 2: should contain: warmup2, actual1, actual2 (warmup1 is dropped due to lookback_limit=3)
     tick2 = ticks[1]
-    bars_t2 = tick2.market_data["AAPL"].recent_bars
+    bars_t2 = tick2.market_data[0].recent_bars
     assert len(bars_t2) == 3
     assert bars_t2[0].timestamp == warmup_time2
     assert bars_t2[1].timestamp == actual_time1

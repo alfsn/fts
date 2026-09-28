@@ -1,15 +1,16 @@
-# tests/unit/test_ccxt_plugin.py
-
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from quant_core.enums import BarType, OrderSide
+from quant_core.models import MarketDataRequest
 from quant_data.providers.ccxt_provider import CCXTMarketDataProvider
+
+# tests/unit/test_ccxt_plugin.py
 
 
 def test_ccxt_market_details():
-    provider = CCXTMarketDataProvider(exchange_id="binance")
+    provider = CCXTMarketDataProvider()
     details = provider.get_market_details("BTC/USDT")
 
     assert details.instrument_id == "BTC/USDT"
@@ -21,6 +22,7 @@ def test_ccxt_get_bars(mock_binance):
     # Setup mock exchange instance
     mock_exchange = MagicMock()
     mock_binance.return_value = mock_exchange
+    mock_exchange.parse_timeframe.return_value = 60
 
     # Mock fetch_ohlcv returning: [[timestamp, open, high, low, close, volume]]
     mock_exchange.fetch_ohlcv.return_value = [
@@ -28,8 +30,14 @@ def test_ccxt_get_bars(mock_binance):
         [1781568060000, 50050.0, 50200.0, 50000.0, 50150.0, 15.0],
     ]
 
-    provider = CCXTMarketDataProvider(exchange_id="binance", timeframe="1m")
-    bars = provider.get_bars("BTC/USDT")
+    provider = CCXTMarketDataProvider()
+    bars = provider.get_bars(
+        MarketDataRequest(
+            instrument_id="BTC/USDT",
+            interval="1m",
+            start_date=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
 
     assert len(bars) == 2
     assert bars[0].close == 50050.0
@@ -43,6 +51,7 @@ def test_ccxt_get_bars(mock_binance):
 def test_ccxt_get_order_book(mock_binance):
     mock_exchange = MagicMock()
     mock_binance.return_value = mock_exchange
+    mock_exchange.parse_timeframe.return_value = 60
 
     mock_exchange.fetch_order_book.return_value = {
         "timestamp": 1781568060000,
@@ -50,7 +59,7 @@ def test_ccxt_get_order_book(mock_binance):
         "asks": [[50050.0, 0.8], [50100.0, 1.2]],
     }
 
-    provider = CCXTMarketDataProvider(exchange_id="binance")
+    provider = CCXTMarketDataProvider()
     ob = provider.get_order_book("BTC/USDT")
 
     assert len(ob.bids) == 2
@@ -64,6 +73,7 @@ def test_ccxt_get_order_book(mock_binance):
 def test_ccxt_get_trade_history(mock_binance):
     mock_exchange = MagicMock()
     mock_binance.return_value = mock_exchange
+    mock_exchange.parse_timeframe.return_value = 60
 
     mock_exchange.fetch_trades.return_value = [
         {
@@ -82,7 +92,7 @@ def test_ccxt_get_trade_history(mock_binance):
         },
     ]
 
-    provider = CCXTMarketDataProvider(exchange_id="binance")
+    provider = CCXTMarketDataProvider()
     trades = provider.get_trade_history("BTC/USDT")
 
     assert len(trades) == 2
@@ -95,6 +105,7 @@ def test_ccxt_get_trade_history(mock_binance):
 def test_ccxt_get_bars_paginated(mock_binance):
     mock_exchange = MagicMock()
     mock_binance.return_value = mock_exchange
+    mock_exchange.parse_timeframe.return_value = 60
     mock_exchange.parse_timeframe.return_value = 1800  # 30m in seconds
 
     # Simulate two batches returned by fetch_ohlcv
@@ -108,11 +119,15 @@ def test_ccxt_get_bars_paginated(mock_binance):
     ]
     mock_exchange.fetch_ohlcv.side_effect = [batch1, batch2]
 
-    provider = CCXTMarketDataProvider(exchange_id="binance", timeframe="30m")
+    provider = CCXTMarketDataProvider()
     until_dt = datetime.fromtimestamp(
         (1700000000000 + 1500 * 1800000) / 1000.0, tz=timezone.utc
     )
-    bars = provider.get_bars("BTC/USDT", count=1500, until=until_dt)
+    bars = provider.get_bars(
+        MarketDataRequest(
+            instrument_id="BTC/USDT", interval="30m", count=1500, end_date=until_dt
+        )
+    )
 
     assert len(bars) == 1500
     assert mock_exchange.fetch_ohlcv.call_count == 2

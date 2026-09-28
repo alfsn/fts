@@ -212,7 +212,9 @@ class HistoricalReplayLoop(BaseEventLoop):
                 if not run_id:
                     logger.warning("No run_id available to export backtest reports.")
                 else:
-                    for instrument_id in pipeline.ingestion.instrument_ids:
+                    for instrument_id in [
+                        s.instrument_id for s in pipeline.ingestion.subscriptions
+                    ]:
                         for strategy in pipeline.strategy.strategies:
                             try:
                                 exporter.export(

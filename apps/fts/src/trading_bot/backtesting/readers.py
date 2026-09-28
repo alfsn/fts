@@ -95,7 +95,7 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
 
                 yield IngestionEngineOutput(
                     timestamp=timestamp,
-                    market_data={self.instrument_id: market_data},
+                    market_data=[market_data],
                     external_data=[],
                     bars={self.instrument_id: list(recent_bars)},
                 )
@@ -109,8 +109,8 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
 
     def __init__(
         self,
-        session: Session,
         instrument_id: str,
+        session: Optional[Session] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         warmup_bars: int = 100,
@@ -126,7 +126,12 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
         :param warmup_bars: Number of prior historical bars to query for strategy warm-up.
         :param lookback_limit: Maximum number of recent bars to retain in lookback window.
         """
-        self.session = session
+        if session is None:
+            from trading_bot.core.database import SessionLocal
+
+            self.session = SessionLocal()
+        else:
+            self.session = session
         self.instrument_id = instrument_id
         self.start_date = start_date
         self.end_date = end_date
@@ -251,7 +256,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
 
             yield IngestionEngineOutput(
                 timestamp=timestamp,
-                market_data={self.instrument_id: market_data},
+                market_data=[market_data],
                 external_data=[],
                 bars={self.instrument_id: list(recent_bars)},
             )

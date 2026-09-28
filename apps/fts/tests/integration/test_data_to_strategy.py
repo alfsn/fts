@@ -6,7 +6,7 @@ from quant_core.enums import (
     Geography,
     SignalType,
 )
-from quant_core.models import Instrument, TradFiDetails
+from quant_core.models import Instrument, MarketDataRequest, TradFiDetails
 
 # --- Schemas & Enums (Data Contracts) ---
 from trading_bot.core.schemas import (
@@ -45,24 +45,24 @@ class FakeMarketProvider(BaseMarketDataProvider):
     def __init__(self, data: Dict[str, MarketData]):
         self.data_to_return = data
 
-    def get_market_data(self, instrument_id: str) -> MarketData | None:
+    def get_market_data(self, request) -> MarketData | None:
         """Returns pre-canned data."""
-        return self.data_to_return.get(instrument_id)
+        return self.data_to_return.get(request.instrument_id)
 
     # --- Other ABC methods (not used by the engine) ---
     def list_tradable_markets(self) -> List[Instrument]:
         return [md.details for md in self.data_to_return.values()]
 
     def get_market_details(self, instrument_id: str) -> Instrument:
-        return self.data_to_return.get(instrument_id).details
+        return self.data_to_return.get(request.instrument_id).details
 
     def get_order_book(self, instrument_id: str) -> OrderBook:
-        return self.data_to_return.get(instrument_id).order_book
+        return self.data_to_return.get(request.instrument_id).order_book
 
     def get_trade_history(self, instrument_id: str) -> List[Trade]:
-        return self.data_to_return.get(instrument_id).recent_trades
+        return self.data_to_return.get(request.instrument_id).recent_trades
 
-    def get_bars(self, instrument_id: str, count: int = 100) -> List[BarData]:
+    def get_bars(self, request) -> List[BarData]:
         return getattr(self.data_to_return.get(instrument_id), "recent_bars", [])
 
 
@@ -101,7 +101,9 @@ class SimpleBuyStrategy(BaseStrategy):
     def evaluate(self, data: IngestionEngineOutput) -> List[TradeSignal]:
         signals = []
         # Check the market data for "MKT1"
-        market_data = data.market_data.get("MKT1")
+        market_data = next(
+            (m for m in data.market_data if m.instrument_id == "MKT1"), None
+        )
 
         if not market_data:
             return []
@@ -199,7 +201,7 @@ def test_pipeline_generates_buy_signal_on_low_ask(
     data_engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[],
-        market_ids=["MKT1"],
+        subscriptions=[MarketDataRequest(instrument_id="MKT1", interval="1d")],
     )
 
     # 3. Instantiate the REAL StrategyEngine
@@ -235,7 +237,7 @@ def test_pipeline_generates_no_signal_on_high_ask(
     data_engine = DataIngestionEngine(
         market_provider=market_provider,
         external_providers=[],
-        market_ids=["MKT1"],
+        subscriptions=[MarketDataRequest(instrument_id="MKT1", interval="1d")],
     )
 
     # 3. Instantiate the REAL StrategyEngine

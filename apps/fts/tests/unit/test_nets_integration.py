@@ -80,7 +80,7 @@ def test_plugin_component_loading():
     )
     tick_data = IngestionEngineOutput(
         timestamp=datetime.now(),
-        market_data={"GGAL": market_data},
+        market_data=[market_data],
         external_data=[],
         bars={"GGAL": bars},
     )

@@ -293,10 +293,10 @@ def test_ingestion_engine_output_valid(
     )
     output = IngestionEngineOutput(
         timestamp=sample_datetime,
-        market_data={"market-123": valid_market_data},
+        market_data=[valid_market_data],
         external_data=[ext_data],
     )
-    assert output.market_data["market-123"] == valid_market_data
+    assert output.market_data[0] == valid_market_data
     assert output.external_data[0] == ext_data
 
 
