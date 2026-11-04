@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Literal, Mapping, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Annotated
 
 from .enums import (
@@ -230,3 +230,44 @@ class CorporateAction(BaseModel):
     payable_date: Optional[datetime] = None
     amount: Optional[float] = None
     ratio: Optional[float] = None
+
+
+class DrawdownEpisode(BaseModel):
+    """A peak-to-recovery excursion below the high-water mark."""
+
+    peak: datetime
+    trough: datetime
+    recovery: Optional[datetime] = Field(
+        None, description="First new high after the trough; None if still underwater."
+    )
+    depth: float = Field(..., le=0, description="Trough drawdown as a fraction (<= 0).")
+    duration_days: float = Field(
+        ..., ge=0, description="Peak to recovery (or to last observation)."
+    )
+
+
+class PerformanceMetrics(BaseModel):
+    """
+    Backward-looking KPIs. Returns are decimal fractions (0.05 == 5%);
+    percentage formatting is a presentation concern. Statistics that are
+    undefined for the input (e.g. Sharpe on < 2 daily returns) are NaN, never 0.0.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_return: float = Field(float("nan"), description="Cumulative TWR.")
+    cagr: float = Field(float("nan"), description="Annualised TWR.")
+    volatility: float = Field(float("nan"), description="Annualised volatility.")
+    sharpe_ratio: float = Field(float("nan"), description="Annualised Sharpe ratio.")
+    sortino_ratio: float = Field(float("nan"), description="Annualised Sortino ratio.")
+    calmar_ratio: float = Field(float("nan"), description="CAGR / |max drawdown|.")
+    max_drawdown: float = Field(
+        float("nan"), description="Maximum peak-to-trough drawdown (<= 0)."
+    )
+    time_underwater_days: float = Field(
+        float("nan"), description="Longest time below the high-water mark (days)."
+    )
+    win_rate: float = Field(
+        float("nan"), description="Fraction of closed round trips with positive PnL."
+    )
+    total_trades: int = Field(0, description="Total filled trade executions count.")
