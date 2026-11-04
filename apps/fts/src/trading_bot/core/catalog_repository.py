@@ -7,12 +7,10 @@ Provides SOLID-compliant abstractions for retrieving models, backtest runs,
 computing performance metrics dynamically, and managing model promotion lifecycles.
 """
 
-import math
 import os
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-import numpy as np
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -25,6 +23,7 @@ from .models import (
     OrderLog,
     TradeLog,
 )
+from .performance import build_performance_metrics
 from .schemas import (
     BacktestDetailDTO,
     BacktestRunCatalogItem,
@@ -132,73 +131,6 @@ class BacktestCatalogRepository:
         self.session_factory = session_factory
         self.backtest_session_factory = backtest_session_factory or session_factory
 
-    def _compute_metrics(
-        self, equity_records: List[BacktestEquityLog], trade_records: List[TradeLog]
-    ) -> Tuple[float, float, float, float, int]:
-        """
-        Computes Total Return (%), Sharpe Ratio (annualized), Max Drawdown (%),
-        Win Rate (%), and Total Trades.
-        """
-        if not equity_records:
-            return 0.0, 0.0, 0.0, 0.0, len(trade_records)
-
-        equities = [e.equity for e in equity_records]
-        initial_eq = equities[0]
-        final_eq = equities[-1]
-
-        total_return = (
-            ((final_eq - initial_eq) / initial_eq * 100.0) if initial_eq > 0 else 0.0
-        )
-
-        # Max Drawdown
-        peak = equities[0]
-        max_dd = 0.0
-        for eq in equities:
-            if eq > peak:
-                peak = eq
-            dd = (peak - eq) / peak * 100.0 if peak > 0 else 0.0
-            if dd > max_dd:
-                max_dd = dd
-
-        # Sharpe ratio (assuming daily / tick returns)
-        eq_arr = np.array(equities)
-        if len(eq_arr) > 1:
-            returns = np.diff(eq_arr) / eq_arr[:-1]
-            std_ret = np.std(returns)
-            mean_ret = np.mean(returns)
-            if std_ret > 1e-9:
-                # Annualization factor approximation (252 periods)
-                sharpe_ratio = float((mean_ret / std_ret) * math.sqrt(252))
-            else:
-                sharpe_ratio = 0.0
-        else:
-            sharpe_ratio = 0.0
-
-        # Win rate from trades
-        total_trades = len(trade_records)
-        win_rate = 0.0
-        if total_trades > 0:
-            # Check pnl from fills if paired or estimate by trade size/outcome
-            # Standard heuristic: filled trades with positive outcome or sell price > buy price
-            wins = 0
-            for t in trade_records:
-                if t.outcome and (
-                    "win" in t.outcome.lower() or "profit" in t.outcome.lower()
-                ):
-                    wins += 1
-                elif t.fill_price > 0 and t.fill_size > 0:
-                    # Generic positive trade check fallback
-                    wins += 1
-            win_rate = (wins / total_trades) * 100.0 if total_trades > 0 else 0.0
-
-        return (
-            round(total_return, 2),
-            round(sharpe_ratio, 2),
-            round(max_dd, 2),
-            round(win_rate, 2),
-            total_trades,
-        )
-
     def list_runs(
         self, instrument_id: Optional[str] = None, min_sharpe: Optional[float] = None
     ) -> List[BacktestRunCatalogItem]:
@@ -290,11 +222,10 @@ class BacktestCatalogRepository:
             start_time = equity_records[0].timestamp
             end_time = equity_records[-1].timestamp
 
-            tot_ret, sharpe, max_dd, win_rate, total_trades = self._compute_metrics(
-                equity_records, trade_records
-            )
+            metrics = build_performance_metrics(equity_records, trade_records)
 
-            if min_sharpe is not None and sharpe < min_sharpe:
+            # NaN Sharpe (too short to annualise) never satisfies a minimum.
+            if min_sharpe is not None and not metrics.sharpe_ratio >= min_sharpe:
                 continue
 
             # Resolve associated model registry log
@@ -358,11 +289,7 @@ class BacktestCatalogRepository:
                     hyperparameters=hparams,
                     start_time=start_time,
                     end_time=end_time,
-                    total_return=tot_ret,
-                    sharpe_ratio=sharpe,
-                    max_drawdown=max_dd,
-                    win_rate=win_rate,
-                    total_trades=total_trades,
+                    metrics=metrics,
                 )
             )
 
@@ -438,9 +365,7 @@ class BacktestCatalogRepository:
             else "ALL"
         )
 
-        tot_ret, sharpe, max_dd, win_rate, total_trades = self._compute_metrics(
-            equity_records, trade_records
-        )
+        metrics = build_performance_metrics(equity_records, trade_records)
 
         equity_curve = [
             {
@@ -485,11 +410,7 @@ class BacktestCatalogRepository:
             instrument_id=m_id,
             start_time=equity_records[0].timestamp,
             end_time=equity_records[-1].timestamp,
-            total_return=tot_ret,
-            sharpe_ratio=sharpe,
-            max_drawdown=max_dd,
-            win_rate=win_rate,
-            total_trades=total_trades,
+            metrics=metrics,
             equity_curve=equity_curve,
             trades=trades_list,
             predictions=predictions_list,

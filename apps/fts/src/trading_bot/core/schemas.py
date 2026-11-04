@@ -20,6 +20,7 @@ from quant_core.models import (
     MarketData,
     OrderBook,
     OrderRequest,
+    PerformanceMetrics,
     Portfolio,
     Position,
     PriceLevel,
@@ -259,11 +260,9 @@ class BacktestRunCatalogItem(BaseModel):
         None, description="Simulation start timestamp."
     )
     end_time: Optional[datetime] = Field(None, description="Simulation end timestamp.")
-    total_return: float = Field(0.0, description="Total cumulative percentage return.")
-    sharpe_ratio: float = Field(0.0, description="Annualized Sharpe ratio.")
-    max_drawdown: float = Field(0.0, description="Maximum peak-to-trough drawdown.")
-    win_rate: float = Field(0.0, description="Percentage of profitable trades.")
-    total_trades: int = Field(0, description="Total filled trade executions count.")
+    metrics: PerformanceMetrics = Field(
+        default_factory=PerformanceMetrics, description="Performance metrics."
+    )
 
 
 class BacktestDetailDTO(BaseModel):
@@ -280,11 +279,9 @@ class BacktestDetailDTO(BaseModel):
         None, description="Simulation start timestamp."
     )
     end_time: Optional[datetime] = Field(None, description="Simulation end timestamp.")
-    total_return: float = Field(0.0, description="Total percentage return.")
-    sharpe_ratio: float = Field(0.0, description="Annualized Sharpe ratio.")
-    max_drawdown: float = Field(0.0, description="Maximum peak-to-trough drawdown.")
-    win_rate: float = Field(0.0, description="Percentage of winning trades.")
-    total_trades: int = Field(0, description="Total filled trade count.")
+    metrics: PerformanceMetrics = Field(
+        default_factory=PerformanceMetrics, description="Performance metrics."
+    )
     equity_curve: List[Dict] = Field(
         default_factory=list, description="Time-series tick equity logs."
     )

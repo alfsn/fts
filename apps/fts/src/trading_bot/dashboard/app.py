@@ -409,11 +409,12 @@ with tab_backtests:
                         "Model Params": num_params,
                         "Strategy": r.strategy_name,
                         "Market": r.instrument_id,
-                        "Total Return (%)": r.total_return,
-                        "Sharpe Ratio": r.sharpe_ratio,
-                        "Max Drawdown (%)": r.max_drawdown,
-                        "Win Rate (%)": r.win_rate,
-                        "Total Trades": r.total_trades,
+                        "Total Return (%)": r.metrics.total_return * 100,
+                        "Sharpe Ratio": r.metrics.sharpe_ratio,
+                        "Sortino Ratio": r.metrics.sortino_ratio,
+                        "Max Drawdown (%)": r.metrics.max_drawdown * 100,
+                        "Win Rate (%)": r.metrics.win_rate * 100,
+                        "Total Trades": r.metrics.total_trades,
                         "Start Time": (
                             r.start_time.strftime("%Y-%m-%d %H:%M")
                             if r.start_time
@@ -441,15 +442,15 @@ with tab_backtests:
                 if run_detail:
                     # Key performance metric cards
                     m1, m2, m3, m4, m5 = st.columns(5)
-                    m1.metric("Total Return", f"{run_detail.total_return:+.2f}%")
-                    m2.metric("Sharpe Ratio", f"{run_detail.sharpe_ratio:.2f}")
+                    m1.metric("Total Return", f"{run_detail.metrics.total_return:+.2%}")
+                    m2.metric("Sharpe Ratio", f"{run_detail.metrics.sharpe_ratio:.2f}")
                     m3.metric(
                         "Max Drawdown",
-                        f"{run_detail.max_drawdown:.2f}%",
+                        f"{run_detail.metrics.max_drawdown:.2%}",
                         delta_color="inverse",
                     )
-                    m4.metric("Win Rate", f"{run_detail.win_rate:.1f}%")
-                    m5.metric("Total Trades", run_detail.total_trades)
+                    m4.metric("Win Rate", f"{run_detail.metrics.win_rate:.1%}")
+                    m5.metric("Total Trades", run_detail.metrics.total_trades)
 
                     norm_toggle = st.checkbox(
                         "Normalize Equity Curve to Percentage Return (%)", value=True

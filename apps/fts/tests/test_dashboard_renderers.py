@@ -2,6 +2,7 @@
 
 
 import plotly.graph_objects as go
+from quant_core.models import PerformanceMetrics
 from trading_bot.core.schemas import BacktestDetailDTO
 from trading_bot.dashboard.renderers import (
     render_backtest_comparison,
@@ -16,11 +17,13 @@ def test_render_equity_curve():
         run_id="run_001",
         strategy_name="TestStrategy",
         instrument_id="AAPL",
-        total_return=15.0,
-        sharpe_ratio=1.8,
-        max_drawdown=4.5,
-        win_rate=60.0,
-        total_trades=10,
+        metrics=PerformanceMetrics(
+            total_return=0.15,
+            sharpe_ratio=1.8,
+            max_drawdown=-0.045,
+            win_rate=0.6,
+            total_trades=10,
+        ),
         equity_curve=[
             {
                 "timestamp": "2026-01-01T00:00:00",

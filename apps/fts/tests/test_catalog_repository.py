@@ -191,9 +191,9 @@ def test_backtest_catalog_repository_metrics(db_session_factory):
     assert run.run_id == "run_test"
     assert run.strategy_name == "TrendStrategy"
     assert run.instrument_id == "AAPL"
-    assert run.total_return == 20.0  # (120 - 100)/100 * 100%
-    assert run.max_drawdown > 0  # 110 -> 105 is DD
-    assert run.total_trades == 1
+    assert run.metrics.total_return == pytest.approx(0.20)  # (120 - 100)/100
+    assert run.metrics.max_drawdown == pytest.approx(105 / 110 - 1)
+    assert run.metrics.total_trades == 1
 
     detail = repo.get_run_details("run_test")
     assert detail is not None
