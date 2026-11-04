@@ -1,5 +1,4 @@
 import click
-from quant_core.calculator import PortfolioCalculator
 from quant_core.enums import Currency
 from quant_core.models import FXContext
 from quant_data.providers.brokers import (
@@ -129,31 +128,25 @@ def analyze(broker, file_path):
 def client_review(broker, file_path):
     """Generate a client review dashboard"""
     click.echo(f"Generating client review for {broker}...")
-    from datetime import datetime
-
     import numpy as np
     import pandas as pd
-    from quant_ui.plots.performance import plot_backtest_performance
+    from visualization.plot_factory import backward_analytics_figures, write_report
 
-    # Mock a PnL dataframe for demonstration
-    dates = pd.date_range(end=datetime.today(), periods=100, freq="D")
-    df_pnl = pd.DataFrame(
-        {
-            "timestamp": dates,
-            "open": np.random.normal(100, 2, 100).cumprod(),
-        }
+    # TODO(PR 2): replace with broker-snapshot valuations from SmartDataFetcher.
+    rng = np.random.default_rng()
+    dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=756)
+    portfolio = pd.Series(
+        100 * np.cumprod(1 + rng.normal(0.0004, 0.01, len(dates))), index=dates
     )
-    df_pnl["high"] = df_pnl["open"] + np.random.uniform(0, 2, 100)
-    df_pnl["low"] = df_pnl["open"] - np.random.uniform(0, 2, 100)
-    df_pnl["close"] = df_pnl["open"] + np.random.normal(0, 1, 100)
-    df_pnl["cum_strat_return"] = (
-        df_pnl["close"].pct_change().fillna(0) + np.random.normal(0.001, 0.005, 100)
-    ).cumsum()
-    df_pnl["cum_baseline_return"] = df_pnl["close"].pct_change().fillna(0).cumsum()
+    baseline = pd.Series(
+        100 * np.cumprod(1 + rng.normal(0.0003, 0.012, len(dates))), index=dates
+    )
 
-    fig = plot_backtest_performance(df_pnl, f"{broker.upper()} PORTFOLIO")
     output_file = f"client_review_{broker}.html"
-    fig.write_html(output_file)
+    write_report(
+        backward_analytics_figures(portfolio, baseline=baseline, baseline_name="SPY"),
+        output_file,
+    )
     click.echo(f"Client review dashboard generated at {output_file}")
 
 
