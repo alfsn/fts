@@ -137,7 +137,7 @@ graph TD
 
 ### [BacktestEngine](file:///home/alfred/github/fts/src/trading_bot/backtesting/engine.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)
-* **Quant Business Logic:** Orchestration facade for single backtest execution. Assembles the replay loop, pipeline, strategy engine, risk manager, and execution handler, and calculates overall strategy statistics (Sharpe Ratio, Max Drawdown, Win Rate, CAGR).
+* **Quant Business Logic:** Orchestration facade for single backtest execution. Assembles the replay loop, pipeline, strategy engine, risk manager, and execution handler, and reports overall strategy statistics (Sharpe Ratio, Max Drawdown, Win Rate, CAGR). These KPIs are not computed in fts: `quant_core.analytics` is the only home for performance and risk maths, composed by `quant_core.metrics.compute_performance_metrics` and reached from fts through `trading_bot/core/performance.py`.
 
 ### [BacktestVisualizer](file:///home/alfred/github/fts/src/trading_bot/backtesting/visualizer.py) & [HTMLBacktestExporter](file:///home/alfred/github/fts/src/trading_bot/backtesting/exporter.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)

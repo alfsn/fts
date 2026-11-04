@@ -9,7 +9,7 @@ For each PR: search:
 ---
 
 ## Epic 1: Core Architecture & Tiered Data Engine
-**PR 1: Provider Evaluation & Tiered Requesting Engine (`quant_data`)**
+**PR 1: Provider Evaluation & Tiered Requesting Engine (`quant_data`)** :done
 *   **Goal:** Build `quant_data.engine.SmartDataFetcher` with a resilient, multi-provider waterfall.
 *   **Action:** Move away from relying solely on `yfinance`. Evaluate institutional-grade SSOTs (e.g., Tiingo, EODHD, or the IBKR Advisor Historical API). Implement a Tiered Fallback pattern: check DB -> check Tier 1 (e.g., IBKR API) -> fallback to Tier 2 (e.g., Tiingo) -> fallback to `yfinance`.
 
@@ -20,21 +20,23 @@ For each PR: search:
 ---
 
 ## Epic 2: Backward Analytics - Return & Risk Basics
-**PR 3: Core Returns (TWR & MWR)**
+**PR 3: Core Returns (TWR & MWR)** :done
 *   **Math (`quant_core`):** Implement `compute_twr(df)` and `compute_mwr(cashflows, values)`.
 *   **UI (`quant_ui`):** Add Cumulative Return vs Baseline line chart.
 
-**PR 4: Rolling Volatility**
+**PR 4: Rolling Volatility** :done
 *   **Math (`quant_core`):** `compute_rolling_vol(df, window)` using `pandas.DataFrame.rolling`.
 *   **UI (`quant_ui`):** Add 30d, 90d, and 252d rolling volatility sub-charts.
 
-**PR 5: Drawdown Analytics**
+**PR 5: Drawdown Analytics** :done
 *   **Math (`quant_core`):** Calculate High-Water Marks, Maximum Drawdown (MDD), and "Time Underwater".
 *   **UI (`quant_ui`):** Create the red-shaded underwater plot highlighting the top 5 historic drawdowns.
 
-**PR 6: Risk-Adjusted Ratios**
+**PR 6: Risk-Adjusted Ratios** :done
 *   **Math (`quant_core`):** `compute_sharpe`, `compute_sortino`, `compute_calmar`, and `compute_information_ratio`.
 *   **App Integration:** Surface these metrics in a "Risk KPIs" summary table.
+
+> **Epic 2 notes.** Math lives in `quant_core.analytics` (returns / drawdown / ratios / trades), composed by `quant_core.metrics.compute_performance_metrics`, which both fts (`trading_bot.core.performance`) and the analyser (`visualization.plot_factory`) use. Conventions: fractions not percents, NaN for undefined stats, ddof=1, periods-per-year inferred from the data, ratios on daily closes. **Open:** `client-review` still runs on mock valuations until PR 2 provides real history; `compute_information_ratio` has no UI consumer until PR 7 brings in a benchmark.
 
 ---
 

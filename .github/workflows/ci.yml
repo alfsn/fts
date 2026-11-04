@@ -32,3 +32,6 @@ jobs:
 
       - name: Run Portfolio Analyser Tests
         run: uv run pytest apps/portfolio_analyser/tests/ -v
+
+      - name: Run Shared Package Tests
+        run: uv run pytest packages/ -v
