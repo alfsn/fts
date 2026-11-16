@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from typing import List, Literal, Mapping, Optional, Union
+from datetime import date, datetime, timezone
+from typing import Dict, Iterable, List, Literal, Mapping, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Annotated
@@ -99,12 +99,50 @@ class OrderRequest(BaseModel):
     outcome: Optional[str] = None
 
 
+# A listing is one instrument in one currency: YPF in ARS and YPF in USD are
+# different holdings with different prices (PR 2b, D13).
+Listing = Tuple[str, Currency]
+
+
+def listing_symbols(items: Iterable["Position | Transaction"]) -> Dict[Listing, str]:
+    """One market symbol per listing across positions and ledger lines."""
+    symbols: Dict[Listing, str] = {}
+    for item in items:
+        if item.instrument_id is None:
+            continue
+        key = (item.instrument_id, item.currency)
+        symbol = item.market_symbol
+        if symbols.setdefault(key, symbol) != symbol:
+            raise ValueError(
+                f"Listing {key[0]} in {key[1].value} maps to two market symbols: "
+                f"{symbols[key]} and {symbol}."
+            )
+    return symbols
+
+
 class Portfolio(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     base_currency: Currency = Field(default=Currency.USD)
     positions: List[Position]
     cash_balances: List[CashBalance]
     open_orders: List[OrderRequest] = Field(default_factory=list)
+    # Hand-written ledger (PR 2b). Empty means "snapshot only".
+    transactions: List["Transaction"] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _ledger_is_consistent(self) -> "Portfolio":
+        listing_symbols([*self.positions, *self.transactions])
+        if self.transactions:
+            first_day = min(t.date for t in self.transactions)
+            opening = {TransactionType.DEPOSIT, TransactionType.TRANSFER_IN}
+            if not any(
+                t.type in opening for t in self.transactions if t.date == first_day
+            ):
+                raise ValueError(
+                    "The ledger must start with a deposit or transfer_in: the first "
+                    "valued day needs something to value."
+                )
+        return self
 
     def total_value(self, fx_context: "FXContext") -> float:
         val = 0.0
@@ -120,14 +158,74 @@ class Portfolio(BaseModel):
 # --- 3. Ledger & Operational Logs ---
 
 
+_TRADES = {TransactionType.BUY, TransactionType.SELL}
+_TRANSFERS = {TransactionType.TRANSFER_IN, TransactionType.TRANSFER_OUT}
+_CASH_ONLY = {TransactionType.DEPOSIT, TransactionType.WITHDRAWAL}
+
+
 class Transaction(BaseModel):
-    transaction_id: str
-    instrument_id: str
-    related_instrument_id: Optional[str] = None
-    transaction_type: TransactionType
-    quantity: float
-    price: float = Field(..., ge=0)
-    timestamp: datetime
+    """
+    One hand-typed ledger line (PR 2b). Every number is positive; ``type``
+    gives the direction. ``date`` is the exchange's local trade date (the pay
+    date for a dividend); the event is in that day's close.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    type: TransactionType
+    currency: Currency
+    instrument_id: Optional[str] = None
+    # Market-data symbol when it differs from the broker's id (as Position).
+    provider_symbol: Optional[str] = None
+    quantity: Optional[float] = Field(None, gt=0)  # shares
+    price: Optional[float] = Field(None, gt=0)  # raw, per share, in `currency`
+    amount: Optional[float] = Field(None, gt=0)  # cash, in `currency`
+    fees: float = Field(0.0, ge=0)  # commission on a trade, in `currency`
+    note: Optional[str] = None
+
+    @property
+    def market_symbol(self) -> str:
+        return self.provider_symbol or self.instrument_id
+
+    @property
+    def listing(self) -> "Listing":
+        return (self.instrument_id, self.currency)
+
+    @model_validator(mode="after")
+    def _fields_per_type(self) -> "Transaction":
+        t = self.type
+        if t is TransactionType.SPLIT:
+            raise ValueError(
+                "split lines are not accepted: splits come from the cached corporate "
+                "actions (PR 2a), so typing them would count them twice."
+            )
+        if t is TransactionType.COUPON:
+            raise ValueError(
+                "coupon lines are not accepted yet: bonds have no price source (PR 2c)."
+            )
+        if t in _TRADES:
+            required, forbidden = ("instrument_id", "quantity", "price"), ("amount",)
+        elif t in _TRANSFERS:
+            required, forbidden = ("instrument_id", "quantity"), ("price", "amount")
+        elif t in _CASH_ONLY:
+            required = ("amount",)
+            forbidden = ("instrument_id", "quantity", "price")
+        elif t is TransactionType.DIVIDEND:
+            required, forbidden = ("instrument_id", "amount"), ("quantity", "price")
+        else:  # FEE: may name the instrument it relates to
+            required, forbidden = ("amount",), ("quantity", "price")
+        for field in required:
+            if getattr(self, field) is None:
+                raise ValueError(f"{t.value} needs {field}.")
+        for field in forbidden:
+            if getattr(self, field) is not None:
+                raise ValueError(f"{t.value} must not have {field}.")
+        if t not in _TRADES and self.fees:
+            raise ValueError(f"{t.value} must not have fees; type a fee line instead.")
+        if self.provider_symbol and self.instrument_id is None:
+            raise ValueError("provider_symbol needs instrument_id.")
+        return self
 
 
 class ExecutionResult(BaseModel):

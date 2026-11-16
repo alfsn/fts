@@ -4,11 +4,14 @@ from enum import Enum
 class TransactionType(str, Enum):
     BUY = "buy"
     SELL = "sell"
+    TRANSFER_IN = "transfer_in"  # shares moved in kind: an external flow
+    TRANSFER_OUT = "transfer_out"
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"
-    DIVIDEND = "dividend"
-    SPLIT = "split"
-    COUPON = "coupon"
+    DIVIDEND = "dividend"  # internal: part of the return
+    FEE = "fee"  # custody, taxes, withholding: internal
+    SPLIT = "split"  # rejected in a ledger: splits come from corporate actions
+    COUPON = "coupon"  # rejected in a ledger until a bond data source exists
 
 
 class AssetType(str, Enum):
