@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import numpy as np
@@ -9,6 +10,8 @@ import onnxruntime as ort
 import pytest
 from nets.models import NNTrainingConfig, RNNConfig
 from nets.training import RNNTrainer, ValidationEvaluator
+from quant_core.enums import BarType
+from quant_data.db.models import BarDataLog, Market
 from quant_data.db.repositories import MarketDataRepository
 from sqlalchemy import create_engine
 from trading_bot.config import settings
@@ -17,29 +20,55 @@ from trading_bot.core.schemas import BarData
 
 
 @pytest.fixture(scope="module")
-def e2e_db_session():
+def e2e_db_session(tmp_path_factory):
     """
-    Swaps the default database to tests/test_persistence.db during the E2E test,
-    ensuring other unit/integration tests are not impacted.
+    Swaps the default database to an isolated temporary SQLite database seeded
+    with 1000 BTC/USDT bars during the E2E test.
     """
     original_db_url = settings.DATABASE_URL
-    # 1. Update settings to point to tests/test_persistence.db
-    settings.DATABASE_URL = "sqlite+pysqlite:///apps/fts/tests/test_persistence.db"
+    db_path = tmp_path_factory.mktemp("nets_e2e") / "test_persistence.db"
+    settings.DATABASE_URL = f"sqlite+pysqlite:///{db_path}"
 
-    # 2. Configure SessionLocal to bind to tests/test_persistence.db
     engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
     SessionLocal.configure(bind=engine)
-
-    # 3. Ensure database is fully initialized
-    init_db()
+    init_db(bind_engine=engine)
 
     db = SessionLocal()
     try:
+        db.add(
+            Market(
+                instrument_id="BTC/USDT",
+                name="BINANCE BTC/USDT",
+                resolution_source="BINANCE",
+            )
+        )
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        closes = 30000.0 * np.exp(
+            np.cumsum(0.0005 + 0.004 * np.sin(np.arange(1000) * 0.2))
+        )
+        db.add_all(
+            [
+                BarDataLog(
+                    instrument_id="BTC/USDT",
+                    timestamp=start + timedelta(hours=i),
+                    open=float(c * 0.999),
+                    high=float(c * 1.002),
+                    low=float(c * 0.998),
+                    close=float(c),
+                    volume=100.0,
+                    bar_type=BarType.TIME,
+                    interval="1h",
+                    ticks_count=10,
+                    dollar_volume=float(c * 100.0),
+                )
+                for i, c in enumerate(closes)
+            ]
+        )
+        db.commit()
         yield db
     finally:
         db.close()
 
-        # 4. Restore original configuration
         settings.DATABASE_URL = original_db_url
         dev_engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
         SessionLocal.configure(bind=dev_engine)

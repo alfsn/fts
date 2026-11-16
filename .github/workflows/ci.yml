@@ -21,13 +21,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: ".python-version"
+          python-version: "3.12"
 
       - name: Install Dependencies
-        run: uv sync --all-extras --dev
+        run: uv sync --all-extras --dev --all-packages
 
       - name: Run FTS App Tests
-        run: uv run pytest apps/fts/tests/ -v
+        working-directory: apps/fts
+        run: uv run pytest tests/ -v
 
       - name: Run Portfolio Analyser Tests
         run: uv run pytest apps/portfolio_analyser/tests/ -v

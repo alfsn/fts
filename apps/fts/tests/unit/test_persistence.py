@@ -1,6 +1,5 @@
 # tests/unit/test_persistence.py
 
-import os
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -15,15 +14,10 @@ from trading_bot.core.models import BarDataLog, Market
 
 
 @pytest.fixture(scope="module", autouse=True)
-def setup_db():
-    # Use a separate temp test database file so we don't delete/overwrite test_persistence.db
-    test_db = "apps/fts/tests/temp_persistence.db"
+def setup_db(tmp_path_factory):
+    # Use an isolated temporary database so tests work from any working directory.
+    test_db = tmp_path_factory.mktemp("persistence") / "temp_persistence.db"
     test_db_url = f"sqlite+pysqlite:///{test_db}"
-    if os.path.exists(test_db):
-        try:
-            os.remove(test_db)
-        except PermissionError:
-            pass
 
     test_engine = create_engine(test_db_url)
     Base.metadata.create_all(bind=test_engine)
@@ -32,12 +26,6 @@ def setup_db():
         SessionLocal.configure(bind=test_engine)
         yield
         SessionLocal.configure(bind=dev_engine)
-
-    if os.path.exists(test_db):
-        try:
-            os.remove(test_db)
-        except PermissionError:
-            pass
 
 
 def test_bar_data_log_persistence():
