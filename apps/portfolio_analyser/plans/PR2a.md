@@ -57,6 +57,8 @@ Stacked on `feature/PR-epic-3`. Each PR targets the branch below it.
 | 2a-2 | `feature/PR-2a-2-corporate-actions` | §3 Yahoo adapter (raw + `CorporateActionProvider`), §7 rate limits, `fetch_corporate_actions`, mocks to tests (D12). | 2a-1 |
 | 2a-3 | `feature/PR-2a-3-cache-integrity` | §4 cache rules (`source`, single-source, gaps, upserts), corporate-action cache, §6 CCL on split-adjusted closes (D13), reset script, chores. | 2a-2 |
 
+Each PR's tests pass on their own (2a-2 mocks `yf`). But the **running app is only right once 2a-3 is in**: after 2a-2 alone, Yahoo bars are raw while the cache still holds split-adjusted rows (mixed basis until the reset), and `analyze`'s CCL runs `ccl_from_pairs` on raw closes, which is NaN before 2026-08-03 (YPF pair 10× off). §6 can't move into 2a-2 because it needs the cached actions. So 2a-2's PR body says so, and 2a-2 and 2a-3 are merged together.
+
 ## Design
 
 ### 1. Contract (`quant_core.interfaces`)
@@ -82,16 +84,23 @@ class CorporateActionProvider(ABC):
 |---|---|
 | `split_factor(index, splits) -> Series` | For each date t, the product of `ratio` over splits with `ex_date > t`. Dates are compared in the **exchange's local date** (see §3). That many of today's shares equal one share held at t. |
 | `unadjust_splits(df, splits) -> df` | Undoes the vendor's adjustment. Raw OHLC = adjusted × factor; raw volume = adjusted ÷ factor. Used only inside adapters. |
-| `adjust(closes, actions, mode)` | `mode` ∈ {`RAW`, `SPLIT`, `TOTAL_RETURN`}. `SPLIT`: raw ÷ factor. `TOTAL_RETURN`: also multiplies every price before an ex-date by `1 − D / P_prev`, CRSP-style, where `D` and `P_prev` are both raw. Charts, CCL, benchmarks and model features use this. |
+| `adjust(closes, actions, mode)` | `mode` ∈ {`RAW`, `SPLIT`, `TOTAL_RETURN`}. `SPLIT`: raw ÷ factor. `TOTAL_RETURN`: split-adjust first, then multiply every price before a dividend's ex-date by `1 − D / P_prev`, CRSP-style, with `D` and `P_prev` **both split-adjusted** (`D_raw ÷ factor at the ex-date`, and the previous session's split-adjusted close). Charts, CCL, benchmarks and model features use this. |
+
+- **Dates are compared as calendar dates in the exchange's local frame.** `split_factor` drops any tz (`tz_localize(None)`) and normalises both the bar index and `ex_date` before comparing. The adapter (§3) and the cache (§4) guarantee both sides are local dates.
+- Doing the dividend step on split-adjusted numbers avoids the one edge case where raw `D` and raw `P_prev` are in different share bases: a split and a dividend with the same ex-date (`P_prev` pre-split, `D` post-split). It also reproduces Yahoo exactly (see the verification table).
 
 Add an enum `PriceAdjustment` in `quant_core.enums`.
 
 ### 3. Yahoo adapter (`quant_data.providers.yfinance_provider`)
 
 - Implements `BaseMarketDataProvider` and `CorporateActionProvider`.
-- In `get_bars`, fetch the split history once per symbol per adapter instance, then run `unadjust_splits` on the downloaded frame. This applies to every interval (D14). `dollar_volume = raw close × raw volume` (a split doesn't change it).
-- In `get_corporate_actions`, splits come from `Ticker.splits`. Dividends come from `Ticker.dividends`, **un-adjusted** (amount × `split_factor` at the ex-date), because Yahoo split-adjusts dividends too.
+- In `get_bars`, fetch the split history once per symbol per adapter instance, then run `unadjust_splits` on the downloaded frame **before** the index is converted to UTC, while it is still in the exchange's local frame. This applies to every interval (D14). `dollar_volume = raw close × raw volume` (a split doesn't change it).
+- In `get_corporate_actions`, one `yf.Ticker` per symbol gives both `.splits` and `.dividends` from a **single** `history(period="max")` call (`_get_history_cache` in yfinance 1.7.0), so it is one request per symbol, not two. Dividends are **un-adjusted** (amount × `split_factor` at the ex-date), because Yahoo split-adjusts dividends too. `ex_date` is stored as the **local ex-date at 00:00 UTC**, the same key daily bars use (next bullet).
 - Fix the misleading comment at `yfinance_provider.py:105`.
+
+**Bar timestamps, verified on yfinance 1.7.0 (2026-11-16).** `yf.download(interval="1d")` returns a **tz-naive date index** (midnight, local trading date), and the adapter stamps it 00:00 UTC. So a BYMA daily bar is cached at `2026-08-03 00:00 UTC`, not 14:00 UTC as PR 2 assumed (`Ticker.history` returns `00:00-03:00`, same date). Intraday frames are tz-aware in the exchange zone (`2026-11-06 11:00-03:00`) and the adapter converts them to UTC. Consequences:
+  - For every interval, "local date" = the yfinance index with its tz dropped and normalised. That is what `unadjust_splits` compares with the split's local date, and why it runs before the UTC conversion.
+  - The `fetch_daily_closes` index (UTC date) therefore equals the local trading date, which PR 2b D14 relies on.
 
 **`yf.Ticker(s).splits` verified on yfinance 1.7.0 (2026-11-16):**
 
@@ -161,9 +170,13 @@ Yahoo publishes **no** limit. yfinance scrapes unofficial endpoints, and Yahoo t
 | Call | Intended | Verified / risk |
 |---|---|---|
 | `yf.download(auto_adjust=False)` `Close` | raw close | **No.** It's split-adjusted (NVDA 2024-06-06 = 121.00). Hence `unadjust_splits`. |
-| `yf.download` `Adj Close` | split + dividend adjusted | Yes (NVDA 2024-06-06 = 120.65 vs 121.00). Used as the **test oracle** for `adjust(..., TOTAL_RETURN)`. |
+| `yf.download` `Adj Close` | split + dividend adjusted | Yes (NVDA 2024-06-06 = 120.65 vs 121.00). Used as the **test oracle** for `adjust(..., TOTAL_RETURN)`. **Formula verified 2026-11-16:** `Close × Π_{ex > t} (1 − D_ex / Close_prev)` with Yahoo's split-adjusted `D` and `Close_prev` (previous session) reproduces `Adj Close` over all 56 NVDA dividends since 2012 with max relative error 9e-7. Using the previous *adjusted* close instead gives 2.5e-5, so the denominator is the split-adjusted (not total-return) close. |
 | `yf.Ticker(s).splits` | full split history, new/old ratio | **Yes**, verified 2026-11-16 (table in §3). The index is local-tz at the open, so compare on local dates. |
-| `yf.Ticker(s).dividends` | as paid | Full history, yes. Amounts are **split-adjusted** (NVDA 2023: 0.004 vs 0.04 paid), so un-adjust them. |
+| `yf.Ticker(s).dividends` | as paid | Full history, yes. Amounts are **split-adjusted** (NVDA 2024-03-05: 0.004 vs 0.04 paid; 2024-06-11, after the split: 0.01, as paid), so un-adjust with the product of ratios of splits *strictly after* the dividend's ex-date. ARS listings pay in ARS (GGAL.BA 8.30 on 2026-08-03). |
+| `yf.Ticker(s).splits` + `.dividends` | two requests | **One.** Both read `_get_history_cache(period="max")` on the same `Ticker` instance. |
+| `yf.download(interval="1d")` index | bar timestamp | **Tz-naive local date** (see §3). Intraday is tz-aware local. |
+| `yfinance.exceptions.YFRateLimitError` | the 429 signal | Exists in 1.7.0. |
+| `yf.download` `Volume` | raw | **Split-adjusted** too (NVDA 2024-06-06: 665M, about 10× the pre-split daily volume; YPFD.BA pre-split days show the same magnitude as post-split). Hence volume ÷ factor. |
 | `ccl_from_pairs` on raw closes | ARS per USD | **Wrong before 2026-08-03** (YPF pair 10× off, so the divergence check NaNs every day). Feed it split-adjusted closes. |
 | `Base.metadata.create_all` | adds the new column | No, it never alters existing tables. Hence the reset (D10). |
 | Yahoo rate limit | known quota | **None published.** Hence our own conservative `RateLimit` plus backoff (§7). |
@@ -189,9 +202,10 @@ Only the **market-data cache** is wiped. fts `dev.db` also holds things that are
 - **2a-1:**
   - `split_factor` / `unadjust_splits` reproduce NVDA 2024-06-06: 121.00 → 1,210.0, with volume ÷10.
   - A reverse split (ratio 0.1).
-  - A split exactly on a bar's date leaves that bar unadjusted.
-  - Comparison uses the local date (a YPFD.BA-style 11:00-03:00 ex-date vs a 14:00 UTC bar).
-  - `adjust(raw, actions, TOTAL_RETURN)` ≈ Yahoo `Adj Close` within 1e-3 relative, using a recorded NVDA fixture with no network.
+  - A split exactly on a bar's date leaves that bar unadjusted (YPFD.BA 2026-08-03 close 8,105 is post-split; 2026-07-31 is ×10).
+  - Comparison uses the local date: a tz-aware intraday bar at `2026-08-03 11:00-03:00` is post-split, and a tz-naive daily bar dated `2026-07-31` is pre-split, against the `2026-08-03 11:00-03:00` ex-date.
+  - Dividend un-adjustment: NVDA 2024-03-05 0.004 → 0.04; 2024-06-11 0.01 stays 0.01.
+  - `adjust(raw, actions, TOTAL_RETURN)` ≈ Yahoo `Adj Close` within 1e-5 relative, using a recorded NVDA fixture with no network.
 - **2a-2:**
   - The adapter returns raw for `1d` and an intraday interval (mocked `yf`).
   - Dividends are un-adjusted.
@@ -207,7 +221,7 @@ Only the **market-data cache** is wiped. fts `dev.db` also holds things that are
 
 ## fts (backlog questions 1 and 2)
 
-1. **Prior art:** `source_name` (reused). fts `CCLProvider` (unchanged, live). No split handling, gap detection or rate limiting exists in fts.
+1. **Prior art:** `source_name` exists on fts's `BaseExternalDataProvider` (`data_ingestion/abc.py:31`) and the Argentina `CCLProvider`, not on market-data providers; the name is reused so both hierarchies agree. fts registers quant_data's `YFinanceMarketDataProvider` directly (`data_ingestion/factory.py:34`), so the raw contract reaches fts with no fts change. The only retry logic in fts is the execution engine's `max_retry_attempts` (order submission), nothing for data. No split handling or gap detection. `--provider tiered` is referenced only in `ingest_historical.py`; no fts test uses it, so D12 touches no test.
 2. **Applies to fts:**
    - fts's Yahoo plugin goes through the same adapter, so its equity bars become raw at every interval. Any fts feature built from equity bars must call `adjust(..., SPLIT or TOTAL_RETURN)`, or a model will learn fake −90% returns (new AGENTS.md rule).
    - BTC via CCXT has no splits, so nothing changes there.

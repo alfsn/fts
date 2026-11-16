@@ -78,13 +78,14 @@ class Transaction(BaseModel):
 
 | Function | Returns |
 |---|---|
-| `holdings(transactions, splits, dates) -> DataFrame` | Share count per listing per date. Cumulative signed buys, sells and transfers. On a split's ex-date, quantity held × ratio. Splits are keyed by `market_symbol`, so the YPFD.BA split hits YPF-in-ARS only. |
+| `holdings(transactions, splits, dates) -> DataFrame` | Share count per listing per date. Cumulative signed buys, sells and transfers. On a split's ex-date, the quantity held **at the previous close** × ratio, then that day's trades are added (a trade dated on the ex-date is already in new shares). Splits are keyed by `market_symbol`, so the YPFD.BA split hits YPF-in-ARS only. |
 | `cash(transactions, dates) -> DataFrame` | Cash per currency per date. Deposits +, withdrawals −, buys −(q·p + fees), sells +(q·p − fees), dividends +amount, fees −amount. Transfers don't touch cash. |
-| `external_flows(transactions, closes, fx) -> Series` | Deposits (+), withdrawals (−), transfers in (+ q × raw close) and out (−), converted to base currency at the flow date's FX. These are the `cash_flows` that `compute_performance_metrics` takes. |
+| `external_flows(transactions, closes, fx) -> Series` | Deposits (+), withdrawals (−), transfers in (+ q × raw close) and out (−), converted to base currency at the flow date's FX. These are the `cash_flows` that `compute_performance_metrics` takes. A transfer whose listing has no (forward-filled) close on its date raises: a flow without a valuation. |
 | `portfolio_values(holdings, cash, closes, fx) -> Series` | Σ q·P·FX + Σ cash·FX in base currency, NaN where any held listing or needed FX rate is missing. |
 | `reconcile(holdings_at, cash_at, portfolio) -> Breaks` | Per-listing quantity differences (tolerance 1e-9, an **error**) and per-currency cash differences (a **warning**, D7). |
 
 - **Calendar:** union of the close dates of the held listings and of the FX series, from the first transaction up to the snapshot date.
+- **The ledger must start with a `deposit` or `transfer_in`** (validator), so the first value is positive. `period_returns` divides by `V_{t−1}`, and `compute_mwr` takes the first value as the initial contribution.
 - **Prices and FX are forward-filled across local holidays with a limit** (D9): 5 sessions, the same constant as PR 2a's `MAX_CALENDAR_GAP`. Beyond that a price is NaN, not stale. The CCL series itself is filled, not its inputs: filling a stale local close against a fresh ADR close would make up a rate.
 - **Days with a NaN value are dropped, with a warning that lists them** (D10). If a deposit falls on a dropped day, `_aligned_flows` already raises, and that's what we want: a flow without a valuation is an error, not something to skip.
 - FX is daily CCL from PR 2a: `ccl_from_pairs(adjust(closes, actions, SPLIT), pairs)`, in ARS per USD, inverted to USD per ARS.
@@ -120,9 +121,12 @@ transactions:
 |---|---|---|
 | `compute_performance_metrics(values, cash_flows)` | TWR immune to deposits | Yes: `period_returns` = (V_t − CF_t) / V_{t−1} − 1. It needs CF in base currency on a valued date. |
 | `compute_mwr(values, cash_flows)` | XIRR | Uses the same flows. The first value is treated as the initial contribution, so a ledger starting from a deposit must start `values` on that deposit's date. |
-| `wealth_index` with a NaN value | — | NaN poisons the cumprod. That's why NaN days are dropped *before* the call. |
+| `wealth_index` with a NaN value | — | **Worse than poisoning** (checked 2026-11-16): pandas `cumprod` skips NaN, so a NaN value gives two NaN returns and the return *across* the hole is silently lost (100, 110, NaN, 121 ends at 1.21 instead of 1.331). Dropping NaN days *before* the call keeps that return (110 → 121). |
+| `_aligned_flows` | a flow on a dropped day | Raises `Cash flows without a valuation`, which is what D10 wants. |
 | Splits from PR 2a | ratio = new shares per old share | Defined that way in PR 2a §1. Test the YPFD.BA 10:1 split on 2026-08-03 end to end: value continuous across the ex-date. |
-| `ccl_from_pairs` | ARS per USD | Only on split-adjusted closes (PR 2a §6). |
+| `fetch_daily_closes` index | local trade date | Yes: daily bars are cached at 00:00 UTC on the local date (PR 2a §3), so the UTC date equals `Transaction.date` (D14). |
+| `ccl_from_pairs` | ARS per USD | Only on split-adjusted closes (PR 2a §6). Forward-fill the resulting CCL series, not its inputs (D9). |
+| `Position.current_price` | — | Ignored for valuation after this PR; the `or 0.0` at `models.py`, `risk.py` and `rebalance.py` becomes NaN. |
 
 ## Tests
 
@@ -133,7 +137,8 @@ transactions:
   - A dividend raises TWR and is not a flow; a deposit leaves TWR unchanged; a fee lowers TWR.
   - A 2-currency portfolio at a CCL that jumps.
   - Forward-fill limit; a NaN day is dropped; a flow on a dropped day raises.
-- **Model:** `extra="forbid"` rejects a typo (`quantitiy`); `split` and `coupon` are rejected; a sell without `price` is rejected; a `transfer_in` with a `price` is rejected.
+- **Model:** `extra="forbid"` rejects a typo (`quantitiy`); `split` and `coupon` are rejected; a sell without `price` is rejected; a `transfer_in` with a `price` is rejected; a ledger that starts with a `buy` is rejected.
+- **Ex-date ordering:** a buy dated on the split's ex-date is not multiplied.
 - **Reconciliation:** a missing trade → a quantity break naming the listing (error); a missing fee → a cash break (warning).
 - **Analyser:** `analyze` uses the market close and prints the as-of date; `client-review` produces a report from a fixture ledger with no network (cached DB fixture).
 
