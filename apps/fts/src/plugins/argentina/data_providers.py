@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Sequence
 
+from quant_core.analytics import implied_ccl
 from trading_bot.core.schemas import ExternalData
 from trading_bot.data_ingestion.abc import (
     BaseExternalDataProvider,
@@ -47,9 +48,7 @@ class CCLProvider(BaseExternalDataProvider):
             local_mid = (local_ob.bids[0].price + local_ob.asks[0].price) / 2
             adr_mid = (adr_ob.bids[0].price + adr_ob.asks[0].price) / 2
 
-            # CCL = (Local Price * Ratio) / ADR Price (in USD)
-            # Result is ARS/USD
-            ccl_rate = (local_mid * self.ratio) / adr_mid
+            ccl_rate = implied_ccl(local_mid, adr_mid, self.ratio)  # ARS per USD
 
             return [
                 ExternalData(
