@@ -84,3 +84,30 @@ def test_portfolio_total_value_missing_rate():
 
     with pytest.raises(MissingFXRateError):
         portfolio.total_value(fx_context)
+
+
+def test_portfolio_total_value_is_nan_with_an_unpriced_position():
+    """PR 2b: a missing price is undefined, never 0 (which hid the hole)."""
+    import math
+
+    portfolio = Portfolio(
+        positions=[
+            Position(
+                instrument_id="AAPL",
+                currency=Currency.USD,
+                quantity=10.0,
+                cost_basis=1.0,
+            ),
+            Position(
+                instrument_id="MSFT",
+                currency=Currency.USD,
+                quantity=1.0,
+                cost_basis=1.0,
+                current_price=100.0,
+            ),
+        ],
+        cash_balances=[
+            CashBalance(currency=Currency.USD, total=500.0, available=500.0)
+        ],
+    )
+    assert math.isnan(portfolio.total_value(FXContext(base_currency=Currency.USD)))

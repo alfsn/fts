@@ -42,9 +42,14 @@ class MaxAssetWeight(PortfolioRule):
 
         for p in portfolio.positions:
             if p.instrument_id == self.instrument_id:
-                rate = fx_context.get_rate(p.currency)
-                weight = ((p.current_price or 0.0) * p.quantity * rate) / total_val
-                if weight > self.max_weight:
+                weight = p.market_value(fx_context) / total_val
+                # Written so that NaN (an unpriced position, or an unpriced
+                # total) fails: an unknown weight is a violation, not weight 0.
+                if not weight <= self.max_weight:
+                    if weight != weight:  # NaN
+                        return RuleViolation(
+                            self.name, f"{p.instrument_id} is unpriced: weight unknown"
+                        )
                     return RuleViolation(
                         self.name,
                         f"Weight {weight:.2%} exceeds max {self.max_weight:.2%}",

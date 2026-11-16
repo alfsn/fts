@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-from data_layer.market_history import ccl_series, history_symbols, latest_usd_per_unit
+import pytest
+from data_layer.market_history import (
+    ccl_series,
+    fx_context_at,
+    history_symbols,
+    usd_per_unit,
+    valuation_date,
+)
 from quant_core.enums import CorporateActionType, Currency
 from quant_core.models import CashBalance, CorporateAction, Portfolio
 
@@ -54,10 +61,43 @@ def test_ccl_from_raw_closes_is_nan_before_the_split():
     assert ccl.loc["2026-08-03":].notna().all()
 
 
-def test_latest_usd_per_unit_uses_the_adjusted_series():
-    rate, as_of = latest_usd_per_unit(RAW_CLOSES, ACTIONS)[Currency.ARS]
+def test_valuation_date_and_fx_share_one_as_of_date():
+    portfolio = Portfolio(
+        positions=[],
+        cash_balances=[CashBalance(currency=Currency.ARS, total=1, available=1)],
+    )
+    fx = usd_per_unit(ccl_series(RAW_CLOSES, ACTIONS), INDEX)
+    as_of = valuation_date(portfolio, RAW_CLOSES, fx)
     assert as_of == INDEX[-1]
-    assert 1 / rate == ccl_series(RAW_CLOSES, ACTIONS).iloc[-1]
+    context = fx_context_at(portfolio, fx, as_of)
+    assert (
+        1 / context.get_rate(Currency.ARS) == ccl_series(RAW_CLOSES, ACTIONS).iloc[-1]
+    )
+
+
+def test_valuation_date_is_the_last_day_every_held_listing_has_a_price():
+    from quant_core.models import Position
+
+    portfolio = Portfolio(
+        positions=[
+            Position(
+                instrument_id="YPF",
+                provider_symbol="YPFD.BA",
+                currency=Currency.ARS,
+                quantity=1,
+                cost_basis=1,
+            )
+        ],
+        cash_balances=[],
+    )
+    closes = RAW_CLOSES.copy()
+    closes.loc["2026-08-04", "YPFD.BA"] = np.nan  # not traded yet on the last day
+    fx = usd_per_unit(ccl_series(closes, ACTIONS), INDEX)
+    # Forward-filled within 5 sessions, so the last day still counts.
+    assert valuation_date(portfolio, closes, fx) == INDEX[-1]
+    closes["YPFD.BA"] = np.nan
+    with pytest.raises(ValueError, match="YPFD.BA"):
+        valuation_date(portfolio, closes, fx)
 
 
 def test_history_symbols_include_the_ccl_pairs_for_ars():

@@ -1,10 +1,15 @@
 import click
+from data_layer.ledger_binding import reconcile_snapshot
 from data_layer.market_history import (
-    build_fx_context,
+    ccl_series,
+    fx_context_at,
     history_symbols,
     history_window,
-    latest_usd_per_unit,
+    price_positions,
+    usd_per_unit,
+    valuation_date,
 )
+from quant_core.enums import Currency
 from quant_core.models import MissingFXRateError
 from quant_data.providers.brokers import (
     IBKRConnector,
@@ -20,25 +25,47 @@ def cli():
     pass
 
 
+def _broker_options(command):
+    """`--broker`, `--file` and `--db-url`, shared by analyze and client-review."""
+    for option in reversed(
+        [
+            click.option(
+                "--broker",
+                type=click.Choice(["ibkr", "inviu", "iol", "yaml"]),
+                required=True,
+            ),
+            click.option(
+                "--file",
+                "file_path",
+                default="portfolio.yaml",
+                help="Path to YAML file when broker=yaml",
+            ),
+            click.option(
+                "--db-url",
+                envvar="PA_DATABASE_URL",
+                default="sqlite:///portfolio_analyser.db",
+                show_default=True,
+                help="Market-data cache database",
+            ),
+        ]
+    ):
+        command = option(command)
+    return command
+
+
+def _connector(broker, file_path):
+    return {
+        "ibkr": IBKRConnector,
+        "inviu": InviuConnector,
+        "iol": IOLConnector,
+        "yaml": lambda: LocalYamlConnector(file_path=file_path),
+    }[broker]()
+
+
 @cli.command()
-@click.option(
-    "--broker", type=click.Choice(["ibkr", "inviu", "iol", "yaml"]), required=True
-)
-@click.option(
-    "--file",
-    "file_path",
-    default="portfolio.yaml",
-    help="Path to YAML file when broker=yaml",
-)
-@click.option(
-    "--db-url",
-    envvar="PA_DATABASE_URL",
-    default="sqlite:///portfolio_analyser.db",
-    show_default=True,
-    help="Market-data cache database",
-)
+@_broker_options
 def analyze(broker, file_path, db_url):
-    """Analyze a portfolio from a broker"""
+    """Analyze a portfolio from a broker, valued at the latest market close."""
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
@@ -48,17 +75,8 @@ def analyze(broker, file_path, db_url):
         f"[bold blue]Analyzing portfolio from {broker.upper()}...[/bold blue]"
     )
 
-    if broker == "ibkr":
-        connector = IBKRConnector()
-    elif broker == "inviu":
-        connector = InviuConnector()
-    elif broker == "iol":
-        connector = IOLConnector()
-    elif broker == "yaml":
-        connector = LocalYamlConnector(file_path=file_path)
-
     try:
-        portfolio = connector.get_portfolio()
+        portfolio = _connector(broker, file_path).get_portfolio()
     except Exception as e:
         console.print(f"[bold red]Error fetching portfolio:[/bold red] {e}")
         return
@@ -66,15 +84,38 @@ def analyze(broker, file_path, db_url):
     closes, actions = prefetch_history(portfolio, db_url)
     console.print(history_table(portfolio, closes))
 
+    fx = usd_per_unit(ccl_series(closes, actions), closes.index)
     try:
-        fx_context = build_fx_context(portfolio, closes, actions)
+        as_of = valuation_date(portfolio, closes, fx)
+        fx_context = fx_context_at(portfolio, fx, as_of)
     except MissingFXRateError as e:
         console.print(f"[bold red]FX error:[/bold red] {e}")
         return
-    for currency, (rate, as_of) in latest_usd_per_unit(closes, actions).items():
+    except ValueError as e:
+        console.print(f"[bold red]Price error:[/bold red] {e}")
+        return
+    price_positions(portfolio, closes, as_of)
+    console.print(f"Valued at market close {as_of.date()}")
+    if Currency.ARS in fx_context.rates:
         console.print(
-            f"FX {currency.value}: {1 / rate:,.2f} per USD (CCL, close {as_of.date()})"
+            f"FX ARS: {1 / fx_context.rates[Currency.ARS]:,.2f} per USD (CCL, close {as_of.date()})"
         )
+
+    if portfolio.transactions:
+        breaks = reconcile_snapshot(portfolio, closes, actions, as_of)
+        for line in breaks.describe().splitlines():
+            style = "bold red" if line.startswith("quantity") else "yellow"
+            console.print(f"[{style}]{line}[/{style}]")
+        if not breaks.ok:
+            raise click.ClickException(
+                "Ledger and snapshot disagree on share counts: a trade or a split is missing."
+            )
+        if breaks.ok and not breaks.cash:
+            console.print("[green]Reconciliation: OK[/green]")
+        elif breaks.ok:
+            console.print(
+                "[green]Reconciliation: OK[/green] (cash breaks are warnings)"
+            )
 
     # Print Cash Balances
     cash_table = Table(
@@ -104,20 +145,17 @@ def analyze(broker, file_path, db_url):
     pos_table.add_column("Currency")
     pos_table.add_column("Quantity", justify="right")
     pos_table.add_column("Cost Basis", justify="right")
-    pos_table.add_column("Current Price", justify="right")
+    pos_table.add_column(f"Close {as_of.date()}", justify="right")
     pos_table.add_column(f"Value in {portfolio.base_currency.value}", justify="right")
 
     for p in portfolio.positions:
-        rate = fx_context.get_rate(p.currency)
-        price = p.current_price or 0.0
-        val_in_base = price * p.quantity * rate
         pos_table.add_row(
             p.instrument_id,
             p.currency.value,
             f"{p.quantity:,.4f}",
             f"{p.cost_basis:,.2f}",
-            f"{price:,.2f}",
-            f"{val_in_base:,.2f}",
+            f"{p.current_price:,.2f}",
+            f"{p.market_value(fx_context):,.2f}",
         )
     console.print(pos_table)
 
@@ -132,7 +170,7 @@ def analyze(broker, file_path, db_url):
 
 def prefetch_history(portfolio, db_url):
     """Cache-backed raw daily closes and corporate actions for everything the
-    snapshot needs valuing (PR 2a: prices stay raw, `adjust` happens on read)."""
+    snapshot and ledger need valuing (PR 2a: prices stay raw, `adjust` on read)."""
     from quant_data.db import Base, create_db_session
     from quant_data.history import fetch_corporate_actions, fetch_daily_closes
     from quant_data.providers import TieredDataProvider, YFinanceMarketDataProvider
@@ -141,7 +179,7 @@ def prefetch_history(portfolio, db_url):
     with create_db_session(db_url) as session:
         Base.metadata.create_all(session.get_bind())
         provider = TieredDataProvider(session, [YFinanceMarketDataProvider()])
-        closes = fetch_daily_closes(provider, symbols, *history_window())
+        closes = fetch_daily_closes(provider, symbols, *history_window(portfolio))
         return closes, fetch_corporate_actions(provider, symbols)
 
 
@@ -182,7 +220,7 @@ def client_review(broker, file_path):
     import pandas as pd
     from visualization.plot_factory import backward_analytics_figures, write_report
 
-    # TODO(PR 2b): replace with real holdings history from the transaction ledger.
+    # TODO(PR 2b-3): replace with real holdings history from the transaction ledger.
     rng = np.random.default_rng()
     dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=756)
     portfolio = pd.Series(

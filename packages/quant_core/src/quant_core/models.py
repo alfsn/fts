@@ -83,6 +83,11 @@ class Position(BaseModel):
     def market_symbol(self) -> str:
         return self.provider_symbol or self.instrument_id
 
+    def market_value(self, fx_context: "FXContext") -> float:
+        """In the base currency. An unpriced position is NaN, never 0."""
+        price = float("nan") if self.current_price is None else self.current_price
+        return price * self.quantity * fx_context.get_rate(self.currency)
+
 
 class CashBalance(BaseModel):
     currency: Currency
@@ -145,10 +150,10 @@ class Portfolio(BaseModel):
         return self
 
     def total_value(self, fx_context: "FXContext") -> float:
+        """Market value in the base currency; NaN if any position is unpriced."""
         val = 0.0
         for p in self.positions:
-            rate = fx_context.get_rate(p.currency)
-            val += (p.current_price or 0.0) * p.quantity * rate
+            val += p.market_value(fx_context)
         for cb in self.cash_balances:
             rate = fx_context.get_rate(cb.currency)
             val += cb.total * rate

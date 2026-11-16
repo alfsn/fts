@@ -1,5 +1,9 @@
+"""`analyze` values the snapshot at the latest market close (PR 2b-2), not at
+the YAML `current_price`, and reconciles the ledger against it."""
+
 from datetime import timedelta
 
+import pytest
 from click.testing import CliRunner
 from main import cli
 from quant_core.enums import BarType
@@ -14,11 +18,16 @@ positions:
     currency: ARS
     quantity: 100.0
     cost_basis: 12000.0
-    current_price: 15500.0
 cash_balances:
   - currency: ARS
     total: 250000.0
     available: 250000.0
+"""
+
+LEDGER = """
+transactions:
+  - {date: 2024-01-02, type: deposit, currency: ARS, amount: 1450000}
+  - {date: 2024-01-03, type: buy, currency: ARS, instrument_id: YPF, provider_symbol: YPFD.BA, quantity: %s, price: 12000}
 """
 
 # Both pairs imply 1666.67 ARS per USD (ratio 10).
@@ -50,33 +59,80 @@ def _stub_get_bars(closes):
     return get_bars
 
 
-def _analyze(monkeypatch, tmp_path, closes, actions=None):
+def _analyze(monkeypatch, tmp_path, closes, yaml=PORTFOLIO, actions=None):
     monkeypatch.setattr(YFinanceMarketDataProvider, "get_bars", _stub_get_bars(closes))
+    monkeypatch.setattr(
+        YFinanceMarketDataProvider, "rate_limit", None
+    )  # no real sleeps
     monkeypatch.setattr(
         YFinanceMarketDataProvider,
         "get_corporate_actions",
         lambda self, symbol: (actions or {}).get(symbol, []),
     )
     path = tmp_path / "portfolio.yaml"
-    path.write_text(PORTFOLIO)
+    path.write_text(yaml)
     args = ["analyze", "--broker", "yaml", "--file", str(path), "--db-url", "sqlite://"]
     return CliRunner().invoke(cli, args, terminal_width=200)
 
 
-def test_analyze_values_ars_at_market_ccl(monkeypatch, tmp_path):
-    result = _analyze(monkeypatch, tmp_path, CLOSES)
+def test_analyze_values_at_the_market_close_not_the_yaml_price(monkeypatch, tmp_path):
+    result = _analyze(
+        monkeypatch,
+        tmp_path,
+        CLOSES,
+        yaml=PORTFOLIO.replace(
+            "cost_basis: 12000.0", "cost_basis: 12000.0\n    current_price: 15500.0"
+        ),
+    )
 
     assert result.exit_code == 0, result.output
     assert "1,666.67 per USD" in result.output
+    assert "Valued at market close" in result.output
+    assert "7,500.00" in result.output  # the close, not 15,500
     assert "150.00" in result.output  # 250,000 ARS cash / 1666.67
-    assert "930.00" in result.output  # 100 x 15,500 ARS / 1666.67
-    assert "1,080.00" in result.output  # total
+    assert "450.00" in result.output  # 100 x 7,500 ARS / 1666.67
+    assert "600.00" in result.output  # total
+    assert "930.00" not in result.output
 
 
 def test_analyze_reports_missing_fx_instead_of_guessing(monkeypatch, tmp_path):
     result = _analyze(monkeypatch, tmp_path, {"YPFD.BA": 7500.0})
 
     assert result.exit_code == 0, result.output
-    assert "FX error" in result.output
     assert "No market FX rate for ARS" in result.output
     assert "Total Portfolio Value" not in result.output
+
+
+def test_analyze_reports_a_listing_without_prices(monkeypatch, tmp_path):
+    closes = {k: v for k, v in CLOSES.items() if k != "YPFD.BA"}
+    result = _analyze(monkeypatch, tmp_path, closes)
+
+    assert "YPFD.BA" in result.output and "no market price" in result.output.lower()
+    assert "Total Portfolio Value" not in result.output
+
+
+def test_analyze_reconciles_a_matching_ledger(monkeypatch, tmp_path):
+    result = _analyze(monkeypatch, tmp_path, CLOSES, yaml=PORTFOLIO + LEDGER % 100)
+
+    assert result.exit_code == 0, result.output
+    assert "Reconciliation: OK" in result.output
+    assert "Total Portfolio Value" in result.output
+
+
+def test_analyze_stops_on_a_quantity_break(monkeypatch, tmp_path):
+    result = _analyze(monkeypatch, tmp_path, CLOSES, yaml=PORTFOLIO + LEDGER % 90)
+
+    assert result.exit_code != 0
+    assert "quantity break YPF (ARS): ledger 90, snapshot 100" in result.output
+    assert "Total Portfolio Value" not in result.output
+
+
+def test_analyze_warns_on_a_cash_break_and_continues(monkeypatch, tmp_path):
+    yaml = PORTFOLIO.replace("total: 250000.0", "total: 240000.0") + LEDGER % 100
+    result = _analyze(monkeypatch, tmp_path, CLOSES, yaml=yaml)
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "cash break ARS" in result.output and "unexplained -10,000.00" in result.output
+    )
+    assert "Total Portfolio Value" in result.output

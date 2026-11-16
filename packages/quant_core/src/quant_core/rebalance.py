@@ -54,12 +54,10 @@ class DeviationRebalanceStrategy(RebalanceStrategy):
             return False
 
         for position in portfolio.positions:
-            rate = fx_context.get_rate(position.currency)
-            current_weight = (
-                (position.current_price or 0.0) * position.quantity * rate
-            ) / total_value
+            current_weight = position.market_value(fx_context) / total_value
             target = self.target_weights.get(position.instrument_id, 0.0)
-            if abs(current_weight - target) > self.max_deviation:
+            # NaN (unpriced) fails the check and counts as a deviation.
+            if not abs(current_weight - target) <= self.max_deviation:
                 return True
         return False
 

@@ -69,3 +69,24 @@ def test_max_asset_weight_with_fx():
     rule_fail = MaxAssetWeight("GGAL", 0.40)
     violation = rule_fail.evaluate(portfolio, fx_context)
     assert violation is not None
+
+
+def test_unpriced_position_is_a_violation_not_weight_zero():
+    portfolio = Portfolio(
+        positions=[
+            Position(
+                instrument_id="AAPL",
+                currency=Currency.USD,
+                quantity=10.0,
+                cost_basis=1.0,
+            ),
+        ],
+        cash_balances=[
+            CashBalance(currency=Currency.USD, total=3000.0, available=3000.0)
+        ],
+    )
+    violation = MaxAssetWeight("AAPL", 0.99).evaluate(
+        portfolio, FXContext(base_currency=Currency.USD, rates={})
+    )
+    assert violation is not None
+    assert "unpriced" in violation.message
