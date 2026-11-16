@@ -18,6 +18,7 @@ class IOLConnector(BrokerConnector):
             positions=[
                 Position(
                     instrument_id="YPFD",
+                    provider_symbol="YPFD.BA",
                     currency=Currency.ARS,
                     quantity=200.0,
                     cost_basis=15000.0,

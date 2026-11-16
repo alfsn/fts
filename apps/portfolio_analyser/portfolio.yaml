@@ -6,6 +6,7 @@ positions:
     cost_basis: 150.0
     current_price: 175.50
   - instrument_id: YPF
+    provider_symbol: YPFD.BA
     currency: ARS
     quantity: 100.0
     cost_basis: 12000.0

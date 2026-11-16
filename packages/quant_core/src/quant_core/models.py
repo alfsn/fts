@@ -76,6 +76,12 @@ class Position(BaseModel):
     quantity: float
     cost_basis: float = Field(..., ge=0)
     current_price: Optional[float] = Field(None, ge=0)
+    # Market-data symbol when it differs from the broker's id (e.g. YPF in ARS -> YPFD.BA).
+    provider_symbol: Optional[str] = None
+
+    @property
+    def market_symbol(self) -> str:
+        return self.provider_symbol or self.instrument_id
 
 
 class CashBalance(BaseModel):

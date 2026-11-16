@@ -1,6 +1,11 @@
 import click
-from quant_core.enums import Currency
-from quant_core.models import FXContext
+from data_layer.market_history import (
+    build_fx_context,
+    history_symbols,
+    history_window,
+    latest_usd_per_unit,
+)
+from quant_core.models import MissingFXRateError
 from quant_data.providers.brokers import (
     IBKRConnector,
     InviuConnector,
@@ -25,7 +30,14 @@ def cli():
     default="portfolio.yaml",
     help="Path to YAML file when broker=yaml",
 )
-def analyze(broker, file_path):
+@click.option(
+    "--db-url",
+    envvar="PA_DATABASE_URL",
+    default="sqlite:///portfolio_analyser.db",
+    show_default=True,
+    help="Market-data cache database",
+)
+def analyze(broker, file_path, db_url):
     """Analyze a portfolio from a broker"""
     from rich.console import Console
     from rich.panel import Panel
@@ -51,15 +63,18 @@ def analyze(broker, file_path):
         console.print(f"[bold red]Error fetching portfolio:[/bold red] {e}")
         return
 
-    # Example FX Context
-    fx_context = FXContext(
-        base_currency=portfolio.base_currency,
-        rates={
-            Currency.ARS: 0.001,
-            Currency.EUR: 1.1,
-            Currency.USD: 1.0,
-        },
-    )
+    closes = prefetch_history(portfolio, db_url)
+    console.print(history_table(portfolio, closes))
+
+    try:
+        fx_context = build_fx_context(portfolio, closes)
+    except MissingFXRateError as e:
+        console.print(f"[bold red]FX error:[/bold red] {e}")
+        return
+    for currency, (rate, as_of) in latest_usd_per_unit(closes).items():
+        console.print(
+            f"FX {currency.value}: {1 / rate:,.2f} per USD (CCL, close {as_of.date()})"
+        )
 
     # Print Cash Balances
     cash_table = Table(
@@ -115,6 +130,41 @@ def analyze(broker, file_path):
     )
 
 
+def prefetch_history(portfolio, db_url):
+    """Cache-backed daily closes for everything the snapshot needs valuing."""
+    from quant_data.db import Base, create_db_session
+    from quant_data.history import fetch_daily_closes
+    from quant_data.providers import TieredDataProvider, YFinanceMarketDataProvider
+
+    with create_db_session(db_url) as session:
+        Base.metadata.create_all(session.get_bind())
+        # A real chain: create_default() puts mock tiers first.
+        provider = TieredDataProvider(session, [YFinanceMarketDataProvider()])
+        return fetch_daily_closes(
+            provider, history_symbols(portfolio), *history_window()
+        )
+
+
+def history_table(portfolio, closes):
+    from rich.table import Table
+
+    table = Table(title="Daily History", show_header=True, header_style="bold cyan")
+    for col in ("Symbol", "First", "Last", "Bars"):
+        table.add_column(col)
+    for symbol in sorted(history_symbols(portfolio)):
+        series = closes[symbol].dropna() if symbol in closes else None
+        if series is None or series.empty:
+            table.add_row(f"[red]{symbol}[/red]", "-", "-", "[red]missing[/red]")
+        else:
+            table.add_row(
+                symbol,
+                str(series.index[0].date()),
+                str(series.index[-1].date()),
+                str(len(series)),
+            )
+    return table
+
+
 @cli.command()
 @click.option(
     "--broker", type=click.Choice(["ibkr", "inviu", "iol", "yaml"]), required=True
@@ -132,7 +182,7 @@ def client_review(broker, file_path):
     import pandas as pd
     from visualization.plot_factory import backward_analytics_figures, write_report
 
-    # TODO(PR 2): replace with broker-snapshot valuations from SmartDataFetcher.
+    # TODO(PR 2b): replace with real holdings history from the transaction ledger.
     rng = np.random.default_rng()
     dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=756)
     portfolio = pd.Series(

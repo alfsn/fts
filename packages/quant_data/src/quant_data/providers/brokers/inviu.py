@@ -18,6 +18,7 @@ class InviuConnector(BrokerConnector):
             positions=[
                 Position(
                     instrument_id="GGAL",
+                    provider_symbol="GGAL.BA",
                     currency=Currency.ARS,
                     quantity=500.0,
                     cost_basis=2000.0,
