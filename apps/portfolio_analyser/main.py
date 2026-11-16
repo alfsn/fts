@@ -1,5 +1,5 @@
 import click
-from data_layer.ledger_binding import reconcile_snapshot
+from data_layer.ledger_binding import reconcile_snapshot, replay_ledger
 from data_layer.market_history import (
     ccl_series,
     fx_context_at,
@@ -204,38 +204,55 @@ def history_table(portfolio, closes):
 
 
 @cli.command()
-@click.option(
-    "--broker", type=click.Choice(["ibkr", "inviu", "iol", "yaml"]), required=True
-)
-@click.option(
-    "--file",
-    "file_path",
-    default="portfolio.yaml",
-    help="Path to YAML file when broker=yaml",
-)
-def client_review(broker, file_path):
-    """Generate a client review dashboard"""
-    click.echo(f"Generating client review for {broker}...")
-    import numpy as np
-    import pandas as pd
+@_broker_options
+def client_review(broker, file_path, db_url):
+    """Client review dashboard from the ledger, valued at market (PR 2b)."""
+    from rich.console import Console
     from visualization.plot_factory import backward_analytics_figures, write_report
 
-    # TODO(PR 2b-3): replace with real holdings history from the transaction ledger.
-    rng = np.random.default_rng()
-    dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=756)
-    portfolio = pd.Series(
-        100 * np.cumprod(1 + rng.normal(0.0004, 0.01, len(dates))), index=dates
-    )
-    baseline = pd.Series(
-        100 * np.cumprod(1 + rng.normal(0.0003, 0.012, len(dates))), index=dates
+    console = Console()
+    console.print(f"[bold blue]Generating client review for {broker}...[/bold blue]")
+    try:
+        portfolio = _connector(broker, file_path).get_portfolio()
+    except Exception as e:
+        raise click.ClickException(f"Error fetching portfolio: {e}")
+    if not portfolio.transactions:
+        raise click.ClickException(
+            "client-review needs a transactions ledger: performance is rebuilt "
+            "day by day from it, never back-cast from today's holdings."
+        )
+
+    closes, actions = prefetch_history(portfolio, db_url)
+    fx = usd_per_unit(ccl_series(closes, actions), closes.index)
+    try:
+        as_of = valuation_date(portfolio, closes, fx)
+    except (MissingFXRateError, ValueError) as e:
+        raise click.ClickException(str(e))
+    _print_reconciliation(
+        console, reconcile_snapshot(portfolio, closes, actions, as_of)
     )
 
+    result = replay_ledger(portfolio, closes, actions, fx, as_of)
     output_file = f"client_review_{broker}.html"
-    write_report(
-        backward_analytics_figures(portfolio, baseline=baseline, baseline_name="SPY"),
-        output_file,
+    write_report(backward_analytics_figures(result.values, result.flows), output_file)
+    console.print(
+        f"Valued from {result.values.index[0].date()} to {as_of.date()}: "
+        f"{len(result.values)} valued days, {len(result.dropped)} dropped."
     )
-    click.echo(f"Client review dashboard generated at {output_file}")
+    console.print(f"Client review dashboard generated at {output_file}")
+
+
+def _print_reconciliation(console, breaks):
+    """Quantity breaks stop the run; cash breaks are warnings (D7)."""
+    for line in breaks.describe().splitlines():
+        style = "bold red" if line.startswith("quantity") else "yellow"
+        console.print(f"[{style}]{line}[/{style}]")
+    if not breaks.ok:
+        raise click.ClickException(
+            "Ledger and snapshot disagree on share counts: a trade or a split is missing."
+        )
+    suffix = " (cash breaks are warnings)" if breaks.cash else ""
+    console.print(f"[green]Reconciliation: OK[/green]{suffix}")
 
 
 if __name__ == "__main__":

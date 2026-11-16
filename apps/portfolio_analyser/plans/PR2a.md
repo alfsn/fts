@@ -1,6 +1,6 @@
 # PR 2a: Market-Data Integrity (raw prices, corporate actions, provenance)
 
-**Status:** planned · **Blocks:** PR 2b (ledger), PR 7 (total-return benchmark)
+**Status:** done (PRs #42, #43, #44; 2026-11-16) · **Blocks:** PR 2b (ledger), PR 7 (total-return benchmark)
 **Packages:** `quant_core` (interfaces + pure maths), `quant_data` (adapters + cache), analyser (wiring)
 
 ## Why
