@@ -67,6 +67,9 @@ class BarDataLog(Base):
     interval: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     ticks_count: Mapped[int] = mapped_column(nullable=False)
     dollar_volume: Mapped[float] = mapped_column(nullable=False)
+    # Vendor that produced the bar (provider.source_name). One source per
+    # symbol and interval: a series never mixes vendors' conventions (PR 2a, D4).
+    source: Mapped[str] = mapped_column(String, nullable=False)
 
     market: Mapped["Market"] = relationship("Market", back_populates="bars")
 
@@ -125,3 +128,5 @@ class CorporateActionRecord(Base):
     )
     amount: Mapped[Optional[float]] = mapped_column(nullable=True)
     ratio: Mapped[Optional[float]] = mapped_column(nullable=True)
+    # Same vendor as the symbol's bars, so splits and prices agree (PR 2a, D8).
+    source: Mapped[str] = mapped_column(String, nullable=False)

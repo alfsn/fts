@@ -53,6 +53,7 @@ def test_bar_data_log_persistence():
         # 2. Create a BarDataLog
         now = datetime.now(timezone.utc)
         bar = BarDataLog(
+            source="test",
             instrument_id=instrument_id,
             timestamp=now,
             open=100.0,

@@ -188,3 +188,233 @@ def test_rate_limited_tier_falls_through_after_retries(db_session):
 
 def test_create_default_is_gone():
     assert not hasattr(TieredDataProvider, "create_default")
+
+
+# --- PR 2a-3: cache rules (D4 single source, D9 gaps, revisions, D8 actions) ---
+
+
+def _seed(db_session, symbol, days, source, close=1.0):
+    """Puts daily bars straight into the cache, as an earlier run would have."""
+    from datetime import datetime, timezone
+
+    from quant_data.db.repositories import MarketDataRepository
+
+    repo = MarketDataRepository(db_session)
+    bars = [_bar(datetime(2021, 1, d, tzinfo=timezone.utc)) for d in days]
+    for b in bars:
+        b.close = close
+    repo.save_bars(symbol, bars, source=source)
+    db_session.commit()
+
+
+def _day(d, month=1):
+    from datetime import datetime, timezone
+
+    return datetime(2021, month, d, tzinfo=timezone.utc)
+
+
+def test_bars_are_cached_with_the_providers_source(db_session):
+    from quant_data.db.repositories import MarketDataRepository
+
+    provider = _RecordingProvider()
+    TieredDataProvider(db_session, [provider]).get_bars(
+        _range_request(_day(1), _day(5))
+    )
+
+    assert (
+        MarketDataRepository(db_session).bar_source("AAPL", "1d")
+        == provider.source_name
+    )
+
+
+def test_provider_switch_refetches_the_full_range_and_never_stitches(db_session):
+    _seed(db_session, "AAPL", range(1, 11), source="OldVendor", close=5.0)
+    provider = _RecordingProvider()  # answers the top-up with a different source
+    tiered = TieredDataProvider(db_session, [provider])
+
+    bars = tiered.get_bars(_range_request(_day(1), _day(20)))
+
+    assert provider.requests[-1].start_date == _day(1)  # full range, not the tail
+    assert len(bars) == 20
+    assert {b.close for b in bars} == {1.0}  # nothing left from OldVendor
+    from quant_data.db.repositories import MarketDataRepository
+
+    assert (
+        MarketDataRepository(db_session).bar_source("AAPL", "1d")
+        == provider.source_name
+    )
+
+
+def test_failed_full_refetch_after_a_switch_serves_the_old_cache(db_session):
+    _seed(db_session, "AAPL", range(1, 11), source="OldVendor", close=5.0)
+
+    class _TailOnly(_RecordingProvider):
+        def get_bars(self, request):
+            if request.start_date == _day(1):
+                raise ValueError("outage on the big request")
+            return super().get_bars(request)
+
+    bars = TieredDataProvider(db_session, [_TailOnly()]).get_bars(
+        _range_request(_day(1), _day(20))
+    )
+    assert len(bars) == 10 and {b.close for b in bars} == {5.0}
+
+
+def test_interior_gap_triggers_exactly_one_full_refetch(db_session):
+    provider = _RecordingProvider()
+    _seed(
+        db_session,
+        "AAPL",
+        list(range(1, 11)) + list(range(20, 32)),
+        source=provider.source_name,
+    )
+    tiered = TieredDataProvider(db_session, [provider])
+
+    bars = tiered.get_bars(_range_request(_day(1), _day(31)))
+
+    assert [(r.start_date, r.end_date) for r in provider.requests] == [
+        (_day(1), _day(31))
+    ]
+    assert len(bars) == 31  # the hole is filled
+
+
+def test_persistent_gap_is_served_with_a_warning(db_session, caplog):
+    class _Gappy(_RecordingProvider):
+        def get_bars(self, request):
+            return [
+                b for b in super().get_bars(request) if not 10 < b.timestamp.day < 20
+            ]
+
+    provider = _Gappy()
+    _seed(
+        db_session,
+        "AAPL",
+        list(range(1, 11)) + list(range(20, 32)),
+        source=provider.source_name,
+    )
+    tiered = TieredDataProvider(db_session, [provider])
+
+    with caplog.at_level("WARNING"):
+        bars = tiered.get_bars(_range_request(_day(1), _day(31)))
+
+    assert len(provider.requests) == 1
+    assert len(bars) == 22
+    assert "gap" in caplog.text.lower()
+
+
+def test_small_gaps_do_not_refetch(db_session):
+    """A long weekend or an Argentine bridge holiday (<= 5 days) is normal."""
+    provider = _RecordingProvider()
+    _seed(
+        db_session, "AAPL", [1, 2, 3, 8, 9, 10], source=provider.source_name
+    )  # 3 -> 8 is 5 days
+    tiered = TieredDataProvider(db_session, [provider])
+
+    tiered.get_bars(_range_request(_day(1), _day(10)))
+
+    assert provider.requests[-1].start_date == _day(10)  # only the usual tail top-up
+
+
+def test_revised_last_bar_is_updated(db_session):
+    provider = _RecordingProvider()
+    tiered = TieredDataProvider(db_session, [provider])
+    tiered.get_bars(_range_request(_day(1), _day(5)))
+
+    original = provider.get_bars
+
+    def revised(request):
+        bars = original(request)
+        bars[0].close = 2.0  # the vendor corrected the last cached bar
+        return bars
+
+    provider.get_bars = revised
+    bars = tiered.get_bars(_range_request(_day(1), _day(6)))
+
+    assert bars[4].timestamp == _day(5) and bars[4].close == 2.0
+
+
+class _ActionsProvider(_RecordingProvider):
+    """Also a CorporateActionProvider; `actions` is what it answers, or raises."""
+
+    def __init__(self, actions=None):
+        super().__init__()
+        self.actions = actions if actions is not None else []
+        self.action_calls = 0
+
+    def get_corporate_actions(self, instrument_id):
+        self.action_calls += 1
+        if isinstance(self.actions, Exception):
+            raise self.actions
+        return self.actions
+
+
+def _split(symbol="AAPL"):
+    from quant_core.enums import CorporateActionType
+    from quant_core.models import CorporateAction
+
+    return CorporateAction(
+        instrument_id=symbol,
+        action_type=CorporateActionType.SPLIT,
+        ex_date=_day(4),
+        ratio=4.0,
+    )
+
+
+def _make_action_provider():
+    from quant_core.interfaces import CorporateActionProvider
+
+    class _P(_ActionsProvider, CorporateActionProvider):
+        pass
+
+    return _P
+
+
+def test_corporate_actions_are_refreshed_every_run_and_cached(db_session):
+    P = _make_action_provider()
+    provider = P([_split()])
+    tiered = TieredDataProvider(db_session, [provider])
+    from quant_core.interfaces import CorporateActionProvider
+
+    assert isinstance(tiered, CorporateActionProvider)
+
+    first = tiered.get_corporate_actions("AAPL")
+    second = tiered.get_corporate_actions("AAPL")
+
+    assert first == second == [_split()]
+    assert provider.action_calls == 2  # D8: every run
+    from quant_data.db.repositories import MarketDataRepository
+
+    assert MarketDataRepository(db_session).load_corporate_actions("AAPL") == [_split()]
+
+
+def test_corporate_actions_are_served_from_cache_when_the_vendor_fails(db_session):
+    P = _make_action_provider()
+    provider = P([_split()])
+    tiered = TieredDataProvider(db_session, [provider])
+    tiered.get_corporate_actions("AAPL")
+
+    provider.actions = ValueError("vendor down")
+    assert tiered.get_corporate_actions("AAPL") == [_split()]
+
+
+def test_corporate_actions_come_from_the_bars_source(db_session):
+    """Bars cached from vendor A: actions are asked from A, not from the first tier."""
+    P = _make_action_provider()
+
+    class VendorA(P):
+        pass
+
+    class VendorB(P):
+        pass
+
+    a, b = VendorA([_split()]), VendorB([])
+    _seed(db_session, "AAPL", [1, 2], source="VendorA")
+    tiered = TieredDataProvider(db_session, [b, a])
+
+    assert tiered.get_corporate_actions("AAPL") == [_split()]
+    assert (b.action_calls, a.action_calls) == (0, 1)
+
+
+def test_corporate_actions_without_any_provider_are_empty(db_session):
+    tiered = TieredDataProvider(db_session, [_RecordingProvider()])  # bars only
+    assert tiered.get_corporate_actions("BTC/USDT") == []

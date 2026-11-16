@@ -73,7 +73,9 @@ def test_ingest_historical_yfinance(
     mock_provider.get_market_details.assert_called_once_with("AAPL")
     mock_repo.ensure_market.assert_called_once()
     mock_provider.get_bars.assert_called_once()
-    mock_repo.save_bars.assert_called_once_with("AAPL", mock_bars)
+    mock_repo.save_bars.assert_called_once_with(
+        "AAPL", mock_bars, source=mock_provider.source_name
+    )
     mock_db.close.assert_called_once()
 
 
@@ -140,7 +142,9 @@ def test_ingest_historical_ccxt(
     mock_provider.get_market_details.assert_called_once_with("BTC/USDT")
     mock_repo.ensure_market.assert_called_once()
     pass  # mock_provider.get_bars.assert_called_once()
-    mock_repo.save_bars.assert_called_once_with("BTC/USDT", mock_bars)
+    mock_repo.save_bars.assert_called_once_with(
+        "BTC/USDT", mock_bars, source=mock_provider.source_name
+    )
     mock_db.close.assert_called_once()
 
 

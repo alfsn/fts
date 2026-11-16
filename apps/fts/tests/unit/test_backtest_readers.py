@@ -183,6 +183,7 @@ def sql_db_session():
 
     # Pre-populate some historical bars
     bar1 = BarDataLog(
+        source="test",
         instrument_id="AAPL",
         timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
         open=100.0,
@@ -195,6 +196,7 @@ def sql_db_session():
         dollar_volume=51000.0,
     )
     bar2 = BarDataLog(
+        source="test",
         instrument_id="AAPL",
         timestamp=datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc),
         open=102.0,
@@ -283,6 +285,7 @@ def test_sql_backtest_data_reader_fallback_market(sql_db_session):
 
     # Add a bar for an unsaved market ID
     bar = BarDataLog(
+        source="test",
         instrument_id="GOOG",
         timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
         open=200.0,
@@ -316,6 +319,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     warmup_time1 = datetime(2026, 5, 30, 11, 0, 0, tzinfo=timezone.utc)
     warmup_time2 = datetime(2026, 5, 30, 11, 30, 0, tzinfo=timezone.utc)
     bar_warmup1 = BarDataLog(
+        source="test",
         instrument_id="AAPL",
         timestamp=warmup_time1,
         open=98.0,
@@ -328,6 +332,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
         dollar_volume=9850.0,
     )
     bar_warmup2 = BarDataLog(
+        source="test",
         instrument_id="AAPL",
         timestamp=warmup_time2,
         open=98.5,
@@ -345,6 +350,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     actual_time1 = start_time
     actual_time2 = datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
     bar_actual1 = BarDataLog(
+        source="test",
         instrument_id="AAPL",
         timestamp=actual_time1,
         open=100.0,
@@ -357,6 +363,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
         dollar_volume=51000.0,
     )
     bar_actual2 = BarDataLog(
+        source="test",
         instrument_id="AAPL",
         timestamp=actual_time2,
         open=102.0,

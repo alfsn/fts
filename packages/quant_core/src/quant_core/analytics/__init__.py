@@ -13,7 +13,7 @@ from .drawdown import (
     max_time_underwater_days,
     top_drawdowns,
 )
-from .fx import ARS_CCL_PAIRS, ccl_from_pairs, implied_ccl
+from .fx import ccl_from_pairs, implied_ccl
 from .ratios import (
     compute_calmar,
     compute_information_ratio,

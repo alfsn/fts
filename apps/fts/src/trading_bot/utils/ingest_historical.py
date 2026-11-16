@@ -167,7 +167,7 @@ def main() -> None:
         )
 
         # 5. Store in SQL database
-        inserted_count = repo.save_bars(args.ticker, bars)
+        inserted_count = repo.save_bars(args.ticker, bars, source=provider.source_name)
         db.commit()
         logger.info(
             f"Successfully stored data. New records added: {inserted_count} / Total fetched: {len(bars)}"

@@ -64,7 +64,7 @@ def temp_db_and_config(tmp_path):
                 dollar_volume=1000.0,
             )
         )
-    market_repo.save_bars("BTC_USD", bars)
+    market_repo.save_bars("BTC_USD", bars, source="test")
     db.commit()
     db.close()
 

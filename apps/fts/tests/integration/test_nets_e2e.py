@@ -60,6 +60,7 @@ def e2e_db_session(tmp_path_factory):
                     interval="1h",
                     ticks_count=10,
                     dollar_volume=float(c * 100.0),
+                    source="test",
                 )
                 for i, c in enumerate(closes)
             ]

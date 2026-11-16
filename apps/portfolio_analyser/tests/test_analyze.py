@@ -50,8 +50,13 @@ def _stub_get_bars(closes):
     return get_bars
 
 
-def _analyze(monkeypatch, tmp_path, closes):
+def _analyze(monkeypatch, tmp_path, closes, actions=None):
     monkeypatch.setattr(YFinanceMarketDataProvider, "get_bars", _stub_get_bars(closes))
+    monkeypatch.setattr(
+        YFinanceMarketDataProvider,
+        "get_corporate_actions",
+        lambda self, symbol: (actions or {}).get(symbol, []),
+    )
     path = tmp_path / "portfolio.yaml"
     path.write_text(PORTFOLIO)
     args = ["analyze", "--broker", "yaml", "--file", str(path), "--db-url", "sqlite://"]

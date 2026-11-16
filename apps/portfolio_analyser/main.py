@@ -63,15 +63,15 @@ def analyze(broker, file_path, db_url):
         console.print(f"[bold red]Error fetching portfolio:[/bold red] {e}")
         return
 
-    closes = prefetch_history(portfolio, db_url)
+    closes, actions = prefetch_history(portfolio, db_url)
     console.print(history_table(portfolio, closes))
 
     try:
-        fx_context = build_fx_context(portfolio, closes)
+        fx_context = build_fx_context(portfolio, closes, actions)
     except MissingFXRateError as e:
         console.print(f"[bold red]FX error:[/bold red] {e}")
         return
-    for currency, (rate, as_of) in latest_usd_per_unit(closes).items():
+    for currency, (rate, as_of) in latest_usd_per_unit(closes, actions).items():
         console.print(
             f"FX {currency.value}: {1 / rate:,.2f} per USD (CCL, close {as_of.date()})"
         )
@@ -131,18 +131,18 @@ def analyze(broker, file_path, db_url):
 
 
 def prefetch_history(portfolio, db_url):
-    """Cache-backed daily closes for everything the snapshot needs valuing."""
+    """Cache-backed raw daily closes and corporate actions for everything the
+    snapshot needs valuing (PR 2a: prices stay raw, `adjust` happens on read)."""
     from quant_data.db import Base, create_db_session
-    from quant_data.history import fetch_daily_closes
+    from quant_data.history import fetch_corporate_actions, fetch_daily_closes
     from quant_data.providers import TieredDataProvider, YFinanceMarketDataProvider
 
+    symbols = history_symbols(portfolio)
     with create_db_session(db_url) as session:
         Base.metadata.create_all(session.get_bind())
-        # A real chain: create_default() puts mock tiers first.
         provider = TieredDataProvider(session, [YFinanceMarketDataProvider()])
-        return fetch_daily_closes(
-            provider, history_symbols(portfolio), *history_window()
-        )
+        closes = fetch_daily_closes(provider, symbols, *history_window())
+        return closes, fetch_corporate_actions(provider, symbols)
 
 
 def history_table(portfolio, closes):

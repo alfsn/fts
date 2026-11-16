@@ -1,9 +1,10 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Sequence
 
 from quant_core.enums import BarType, Currency, RateType
 from quant_core.models import BarData as BarDataSchema
+from quant_core.models import CorporateAction
 from quant_core.models import Instrument as MarketDetailsSchema
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,15 @@ from .models import CorporateActionRecord, FXRateRecord
 from .models import Market as MarketModel
 
 logger = logging.getLogger(__name__)
+
+
+def _naive_utc(ts: datetime) -> datetime:
+    """SQLite stores no tz: every timestamp is kept as naive UTC."""
+    return ts.astimezone(timezone.utc).replace(tzinfo=None) if ts.tzinfo else ts
+
+
+def _as_utc(ts: datetime) -> datetime:
+    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
 
 
 class BaseRepository:
@@ -40,64 +50,96 @@ class MarketDataRepository(BaseRepository):
             logger.error(f"Failed to ensure market {details.instrument_id}: {e}")
             raise e
 
-    def save_bars(self, instrument_id: str, bars: Sequence[BarDataSchema]) -> int:
+    # --- bars ------------------------------------------------------------------
+
+    def bar_source(self, instrument_id: str, interval: Optional[str]) -> Optional[str]:
+        """The vendor the cached series came from, or None if nothing is cached."""
+        sources = [
+            row[0]
+            for row in self.db.query(BarDataLogModel.source)
+            .filter_by(instrument_id=instrument_id, interval=interval)
+            .distinct()
+        ]
+        if len(sources) > 1:  # impossible after the PR 2a reset; loud if it happens
+            logger.error(f"{instrument_id} {interval} bars mix sources {sources}")
+        return sources[0] if sources else None
+
+    def save_bars(
+        self, instrument_id: str, bars: Sequence[BarDataSchema], source: str
+    ) -> int:
+        """
+        Upsert bars from ``source``: new timestamps are inserted, existing ones
+        updated (late vendor corrections get in). Returns the number inserted.
+        Refuses to add to a series cached from another source (D4): switch
+        with ``replace_bars`` instead, never stitch.
+        """
         if not bars:
             return 0
         try:
             bar_type = bars[0].bar_type
             interval = bars[0].interval
-            from datetime import timezone
+            cached_source = self.bar_source(instrument_id, interval)
+            if cached_source is not None and cached_source != source:
+                raise ValueError(
+                    f"{instrument_id} {interval} bars are cached from {cached_source}; "
+                    f"refusing to mix in {source}. Use replace_bars."
+                )
 
-            existing_records = (
-                self.db.query(BarDataLogModel.timestamp)
-                .filter_by(
+            existing = {
+                row.timestamp: row
+                for row in self.db.query(BarDataLogModel).filter_by(
                     instrument_id=instrument_id, bar_type=bar_type, interval=interval
                 )
-                .all()
-            )
-            timestamps = {
-                (
-                    r[0].astimezone(timezone.utc).replace(tzinfo=None)
-                    if r[0].tzinfo
-                    else r[0]
-                )
-                for r in existing_records
             }
-
-            new_logs = []
+            inserted = 0
             for bar in bars:
-                ts = bar.timestamp
-                ts_normalized = (
-                    ts.astimezone(timezone.utc).replace(tzinfo=None)
-                    if ts.tzinfo
-                    else ts
+                ts = _naive_utc(bar.timestamp)
+                values = dict(
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                    ticks_count=bar.ticks_count,
+                    dollar_volume=bar.dollar_volume,
+                    source=source,
                 )
-                if ts_normalized not in timestamps:
-                    log = BarDataLogModel(
+                row = existing.get(ts)
+                if row is None:
+                    row = BarDataLogModel(
                         instrument_id=instrument_id,
-                        timestamp=ts_normalized,
-                        open=bar.open,
-                        high=bar.high,
-                        low=bar.low,
-                        close=bar.close,
-                        volume=bar.volume,
+                        timestamp=ts,
                         bar_type=bar.bar_type,
                         interval=bar.interval,
-                        ticks_count=bar.ticks_count,
-                        dollar_volume=bar.dollar_volume,
+                        **values,
                     )
-                    new_logs.append(log)
-                    timestamps.add(ts_normalized)
-
-            if new_logs:
-                self.db.bulk_save_objects(new_logs)
-                logger.info(
-                    f"Saved {len(new_logs)} new bars for {instrument_id} to SQL."
-                )
-            return len(new_logs)
+                    self.db.add(row)
+                    existing[ts] = row
+                    inserted += 1
+                else:
+                    for key, value in values.items():
+                        setattr(row, key, value)
+            self.db.flush()
+            if inserted:
+                logger.info(f"Saved {inserted} new bars for {instrument_id} to SQL.")
+            return inserted
         except Exception as e:
             logger.error(f"Failed to save bars for {instrument_id}: {e}")
             raise e
+
+    def replace_bars(
+        self,
+        instrument_id: str,
+        interval: Optional[str],
+        bars: Sequence[BarDataSchema],
+        source: str,
+    ) -> int:
+        """Drop the symbol's cached series for ``interval`` and store ``bars``."""
+        self.db.query(BarDataLogModel).filter_by(
+            instrument_id=instrument_id, interval=interval
+        ).delete(synchronize_session=False)
+        self.db.flush()
+        return self.save_bars(instrument_id, bars, source)
 
     def get_bars(
         self,
@@ -127,6 +169,8 @@ class MarketDataRepository(BaseRepository):
             logger.error(f"Failed to load bars for {market_ids}: {e}")
             raise e
 
+    # --- FX --------------------------------------------------------------------
+
     def get_fx_rate(
         self,
         base_currency: Currency,
@@ -153,6 +197,8 @@ class MarketDataRepository(BaseRepository):
             )
             raise e
 
+    # --- corporate actions -----------------------------------------------------
+
     def get_corporate_actions(
         self,
         instrument_id: str,
@@ -172,3 +218,52 @@ class MarketDataRepository(BaseRepository):
         except Exception as e:
             logger.error(f"Failed to load corporate actions for {instrument_id}: {e}")
             raise e
+
+    def load_corporate_actions(self, instrument_id: str) -> List[CorporateAction]:
+        """The cached actions as domain objects, ex-dates in UTC."""
+        actions = []
+        for row in self.get_corporate_actions(instrument_id):
+            action = CorporateAction.model_validate(row, from_attributes=True)
+            action.ex_date = _as_utc(action.ex_date)
+            actions.append(action)
+        return actions
+
+    def save_corporate_actions(
+        self, instrument_id: str, actions: Sequence[CorporateAction], source: str
+    ) -> None:
+        """
+        Upsert on (instrument, type, ex-date). Actions cached from another
+        source are dropped first, so the cache never mixes vendors (D4).
+        """
+        existing = {
+            (row.action_type, row.ex_date): row
+            for row in self.get_corporate_actions(instrument_id)
+        }
+        if any(row.source != source for row in existing.values()):
+            for row in existing.values():
+                self.db.delete(row)
+            self.db.flush()
+            existing = {}
+        for action in actions:
+            key = (action.action_type, _naive_utc(action.ex_date))
+            values = dict(
+                record_date=action.record_date and _naive_utc(action.record_date),
+                payable_date=action.payable_date and _naive_utc(action.payable_date),
+                amount=action.amount,
+                ratio=action.ratio,
+                source=source,
+            )
+            row = existing.get(key)
+            if row is None:
+                self.db.add(
+                    CorporateActionRecord(
+                        instrument_id=instrument_id,
+                        action_type=action.action_type,
+                        ex_date=key[1],
+                        **values,
+                    )
+                )
+            else:
+                for field, value in values.items():
+                    setattr(row, field, value)
+        self.db.flush()

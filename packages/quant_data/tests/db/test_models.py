@@ -24,6 +24,7 @@ def test_fx_rate_record_creation(db_session):
 
 def test_corporate_action_record_creation(db_session):
     record = CorporateActionRecord(
+        source="test",
         instrument_id="AAPL",
         action_type=CorporateActionType.SPLIT,
         ex_date=datetime.now(timezone.utc),

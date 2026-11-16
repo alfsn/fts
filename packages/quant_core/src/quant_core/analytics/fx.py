@@ -10,7 +10,8 @@ def implied_ccl(local_price: PriceT, adr_price: PriceT, ratio: float) -> PriceT:
     """
     CCL ("contado con liquidación") rate implied by a local listing and its ADR,
     in local currency per USD: `local * ratio / adr`, where `ratio` is local shares
-    per ADR (GGAL 10, YPF 1). Series are aligned on their index; non-positive or
+    per ADR *on the date of the prices* (GGAL 10; YPF 1 before its 2026-08-03
+    local split, 10 since). Series are aligned on their index; non-positive or
     missing prices give NaN.
     """
     if isinstance(local_price, pd.Series) or isinstance(adr_price, pd.Series):
@@ -22,26 +23,21 @@ def implied_ccl(local_price: PriceT, adr_price: PriceT, ratio: float) -> PriceT:
     return local_price * ratio / adr_price
 
 
-# (local listing, USD ADR, local shares per ADR) used to imply ARS CCL.
-# Ratios as quoted by Yahoo; checked against each other and the official rate
-# over 2021-2026 (GGAL.BA/GGAL and YPFD.BA/YPF both imply 10:1).
-ARS_CCL_PAIRS: tuple[tuple[str, str, float], ...] = (
-    ("GGAL.BA", "GGAL", 10.0),
-    ("YPFD.BA", "YPF", 10.0),
-)
-
-
 def ccl_from_pairs(
     closes: pd.DataFrame,
-    pairs: tuple[tuple[str, str, float], ...] = ARS_CCL_PAIRS,
+    pairs: tuple[tuple[str, str, float], ...],
     max_divergence: float = 0.05,
 ) -> pd.Series:
     """
-    Daily CCL (local currency per USD) from the pairs available in `closes`
-    (columns = symbols): the mean of the implied rates, or NaN on days where
-    they disagree by more than `max_divergence` (max/min - 1). A disagreement
-    that large means a wrong ratio or bad print, not noise, and averaging it in
-    would be silent. Days with a single pair use it unchecked.
+    Daily CCL (local currency per USD) from the `pairs` (local, ADR, local
+    shares per ADR) available in `closes` (columns = symbols): the mean of the
+    implied rates, or NaN on days where they disagree by more than
+    `max_divergence` (max/min - 1). A disagreement that large means a wrong
+    ratio or bad print, not noise, and averaging it in would be silent. Days
+    with a single pair use it unchecked.
+
+    The pairs' ratios are today's, so pass SPLIT-adjusted closes (`adjust`);
+    the reference pairs live in `quant_data.reference.ARS_CCL_PAIRS`.
     """
     implied = [
         implied_ccl(closes[local], closes[adr], ratio)

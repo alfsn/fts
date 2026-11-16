@@ -173,7 +173,7 @@ def test_market_data_repository(in_memory_db):
     ]
 
     # Save the bars
-    saved_count = repo.save_bars("MSFT", bars)
+    saved_count = repo.save_bars("MSFT", bars, source="test")
     assert saved_count == 2
 
     # Verify records in DB
@@ -183,7 +183,7 @@ def test_market_data_repository(in_memory_db):
     assert len(db_bars) == 2
 
     # Save again with same bars (should prevent duplicates and return 0)
-    saved_count2 = repo.save_bars("MSFT", bars)
+    saved_count2 = repo.save_bars("MSFT", bars, source="test")
     assert saved_count2 == 0
 
     # 3. Test get_bars with filters
@@ -209,7 +209,7 @@ def test_market_data_repository(in_memory_db):
             dollar_volume=50250.0,
         )
     ]
-    repo.save_bars("MSFT", bars_with_interval)
+    repo.save_bars("MSFT", bars_with_interval, source="test")
 
     # get_bars filtering by interval
     hourly_bars = repo.get_bars("MSFT", bar_type=BarType.TIME, interval="1h")

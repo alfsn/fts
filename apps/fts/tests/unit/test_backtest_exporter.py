@@ -35,6 +35,7 @@ def db_session():
         base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
         for i in range(5):
             bar = BarDataLog(
+                source="test",
                 instrument_id="BTC/USDT",
                 timestamp=base_time + timedelta(minutes=i * 5),
                 open=40000.0 + i * 10,
