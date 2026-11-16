@@ -98,3 +98,16 @@ class CorporateActionType(str, Enum):
     DIVIDEND = "dividend"
     MERGER = "merger"
     SPINOFF = "spinoff"
+
+
+class PriceAdjustment(str, Enum):
+    """How a stored raw (as-traded) price series is presented on read.
+
+    RAW: as traded; valuation (price x share count).
+    SPLIT: in today's share units; charts, CCL, model features.
+    TOTAL_RETURN: split-adjusted and dividends reinvested; benchmarks.
+    """
+
+    RAW = "raw"
+    SPLIT = "split"
+    TOTAL_RETURN = "total_return"

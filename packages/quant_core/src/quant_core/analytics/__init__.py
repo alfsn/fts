@@ -1,3 +1,11 @@
+from .corporate_actions import (
+    adjust,
+    adjust_frame,
+    local_dates,
+    split_factor,
+    unadjust_dividends,
+    unadjust_splits,
+)
 from .drawdown import (
     compute_max_drawdown,
     drawdown_episodes,

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Literal, Mapping, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import Annotated
 
 from .enums import (
@@ -229,13 +229,33 @@ class FXRate(BaseModel):
 
 
 class CorporateAction(BaseModel):
+    """
+    A split or dividend as the vendor reports it, in raw (as-paid) terms.
+
+    ``ex_date``: the first session on which the shares trade without the
+    entitlement. Only its calendar date in the exchange's local zone matters;
+    bars on or after it are in new share units. ``ratio``: new shares per old
+    share (10:1 split -> 10.0; 1:10 reverse split -> 0.1), as ``yf.Ticker.splits``
+    reports it. ``amount``: cash per *old* share, before any later split.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     instrument_id: str
     action_type: CorporateActionType
     ex_date: datetime
     record_date: Optional[datetime] = None
     payable_date: Optional[datetime] = None
-    amount: Optional[float] = None
-    ratio: Optional[float] = None
+    amount: Optional[float] = Field(None, ge=0)
+    ratio: Optional[float] = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def _required_fields_per_type(self) -> "CorporateAction":
+        if self.action_type is CorporateActionType.SPLIT and self.ratio is None:
+            raise ValueError("A split needs a ratio (new shares per old share).")
+        if self.action_type is CorporateActionType.DIVIDEND and self.amount is None:
+            raise ValueError("A dividend needs an amount per share.")
+        return self
 
 
 class DrawdownEpisode(BaseModel):
