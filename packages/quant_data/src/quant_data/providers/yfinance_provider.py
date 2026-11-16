@@ -102,6 +102,7 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
             start=start,
             end=end,
             interval=interval,
+            auto_adjust=False,  # raw prices: adjusted history is rewritten after each dividend
             progress=False,
         )
         if df.empty:
@@ -114,8 +115,8 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        # Ensure we are looking at the last 'count' rows
-        df_subset = df.tail(request.count)
+        # A count applies only when no explicit range was requested.
+        df_subset = df if request.start_date else df.tail(request.count)
         bars = []
 
         for ts, row in df_subset.iterrows():

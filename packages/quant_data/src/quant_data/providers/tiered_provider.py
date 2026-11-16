@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
 from quant_core.interfaces import BaseMarketDataProvider
@@ -8,6 +8,13 @@ from quant_data.db.repositories import MarketDataRepository
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+# Longest gap between `start` and the first trading day (long weekends, holidays).
+START_COVERAGE_TOLERANCE = timedelta(days=5)
+
+
+def _as_utc(ts: datetime) -> datetime:
+    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
 
 
 class TieredDataProvider(BaseMarketDataProvider):
@@ -49,23 +56,24 @@ class TieredDataProvider(BaseMarketDataProvider):
         self.repo = MarketDataRepository(db_session)
         self.provider_chain = provider_chain
 
-    def _is_data_complete(
-        self,
-        cached_data: Sequence[BarData],
-        count: int,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> bool:
-        """
-        Determines if the cached data satisfies the request requirements.
-        """
-        if not cached_data:
-            return False
+    def _cached_bars(
+        self, request: MarketDataRequest, start: datetime, end: datetime
+    ) -> list[BarData]:
+        rows = self.repo.get_bars(
+            request.instrument_id,
+            start_date=start,
+            end_date=end,
+            interval=request.interval,
+        )
+        bars = [BarData.model_validate(r, from_attributes=True) for r in rows]
+        for bar in bars:  # SQLite drops tzinfo; timestamps are stored as UTC.
+            bar.timestamp = _as_utc(bar.timestamp)
+        return bars
 
-        if len(cached_data) >= count:
-            return True
-
-        return False
+    @staticmethod
+    def _covers_start(cached: Sequence[BarData], start: datetime) -> bool:
+        """True if the cache reaches back to `start` (within a weekend/holiday gap)."""
+        return cached[0].timestamp <= _as_utc(start) + START_COVERAGE_TOLERANCE
 
     def list_tradable_markets(self) -> Sequence[Instrument]:
         for provider in self.provider_chain:
@@ -118,20 +126,54 @@ class TieredDataProvider(BaseMarketDataProvider):
         )
 
     def get_bars(self, request: MarketDataRequest) -> Sequence[BarData]:
+        """
+        Range requests (`start_date` set) are served from the DB cache and topped
+        up incrementally: only bars after the last cached one are fetched.
+        Count requests (no `start_date`) keep the "last `count` bars" semantics.
+        """
         start, end = request.resolve_bounds()
+        cached = self._cached_bars(request, start, end)
 
-        # 1. Check DB Cache
-        cached_data = self.repo.get_bars(
-            request.instrument_id,
-            start_date=start,
-            end_date=end,
-            interval=request.interval,
+        if request.start_date is None:
+            if len(cached) >= request.count:
+                logger.info(f"Serving {request.instrument_id} bars from DB Cache.")
+                return cached[-request.count :]
+            data = self._fetch_and_cache(request)
+            if not data:
+                raise self._all_failed(request)
+            return data
+
+        if cached and self._covers_start(cached, start):
+            # Top up: only bars from the last cached one onwards.
+            request_tail = request.model_copy(
+                update={"start_date": cached[-1].timestamp}
+            )
+            if self._fetch_and_cache(request_tail):
+                cached = self._cached_bars(request, start, end)
+            else:
+                logger.info(f"Serving {request.instrument_id} bars from DB Cache.")
+            return cached
+
+        if not self._fetch_and_cache(request):
+            if not cached:
+                raise self._all_failed(request)
+            return cached
+        return self._cached_bars(request, start, end)
+
+    def _fetch_and_cache(self, request: MarketDataRequest) -> Sequence[BarData]:
+        data = self._fetch_from_chain(request)
+        if data:
+            self.repo.save_bars(request.instrument_id, data)
+            self.repo.db.commit()
+        return data
+
+    @staticmethod
+    def _all_failed(request: MarketDataRequest) -> ValueError:
+        return ValueError(
+            f"All providers in the waterfall failed to get bars for {request.instrument_id}"
         )
-        if self._is_data_complete(cached_data, request.count, start, end):
-            logger.info(f"Serving {request.instrument_id} bars from DB Cache.")
-            return cached_data[-request.count :] if request.count else cached_data
 
-        # 2. Tiered Fallback
+    def _fetch_from_chain(self, request: MarketDataRequest) -> Sequence[BarData]:
         for provider in self.provider_chain:
             try:
                 data = provider.get_bars(request)
@@ -139,16 +181,9 @@ class TieredDataProvider(BaseMarketDataProvider):
                     logger.info(
                         f"Serving {request.instrument_id} bars from {provider.__class__.__name__}."
                     )
-                    # Cache in DB for next time
-                    self.repo.save_bars(request.instrument_id, data)
-                    self.repo.db.commit()
                     return data
             except Exception as e:
                 logger.warning(
                     f"Provider {provider.__class__.__name__} failed get_bars for {request.instrument_id}: {e}"
                 )
-                continue
-
-        raise ValueError(
-            f"All providers in the waterfall failed to get bars for {request.instrument_id}"
-        )
+        return []
