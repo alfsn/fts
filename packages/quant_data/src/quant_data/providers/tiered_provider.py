@@ -7,6 +7,8 @@ from quant_core.models import BarData, Instrument, MarketDataRequest, OrderBook,
 from quant_data.db.repositories import MarketDataRepository
 from sqlalchemy.orm import Session
 
+from .throttle import Throttle
+
 logger = logging.getLogger(__name__)
 
 # Longest gap between `start` and the first trading day (long weekends, holidays).
@@ -29,32 +31,16 @@ class TieredDataProvider(BaseMarketDataProvider):
             "TieredDataProvider must be initialized with a db_session and provider_chain."
         )
 
-    @classmethod
-    def create_default(
-        cls, db_session: Session, failing_tickers: Optional[set] = None
-    ) -> "TieredDataProvider":
-        """
-        Builds the default tiered data provider waterfall.
-        Tier 1: MockIBKR
-        Tier 2: MockTiingo
-        Tier 3: YFinance
-        """
-        from .mock_providers import MockIBKRProvider, MockTiingoProvider
-        from .yfinance_provider import YFinanceMarketDataProvider
-
-        failing_tickers = failing_tickers or set()
-        chain = [
-            MockIBKRProvider(failing_tickers=failing_tickers),
-            MockTiingoProvider(failing_tickers=failing_tickers),
-            YFinanceMarketDataProvider(),
-        ]
-        return cls(db_session, chain)
-
     def __init__(
-        self, db_session: Session, provider_chain: Sequence[BaseMarketDataProvider]
+        self,
+        db_session: Session,
+        provider_chain: Sequence[BaseMarketDataProvider],
+        throttle: Optional[Throttle] = None,
     ):
         self.repo = MarketDataRepository(db_session)
         self.provider_chain = provider_chain
+        # Every vendor call goes through here, so a refetch can't burst (D11).
+        self.throttle = throttle or Throttle()
 
     def _cached_bars(
         self, request: MarketDataRequest, start: datetime, end: datetime
@@ -176,7 +162,7 @@ class TieredDataProvider(BaseMarketDataProvider):
     def _fetch_from_chain(self, request: MarketDataRequest) -> Sequence[BarData]:
         for provider in self.provider_chain:
             try:
-                data = provider.get_bars(request)
+                data = self.throttle.call(provider, provider.get_bars, request)
                 if data:
                     logger.info(
                         f"Serving {request.instrument_id} bars from {provider.__class__.__name__}."

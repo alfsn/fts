@@ -1,60 +1,65 @@
 import logging
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any, Dict, Sequence
 
 import pandas as pd
 import yfinance as yf
-from quant_core.enums import AssetType, BarType, Geography
-from quant_core.interfaces import BaseMarketDataProvider
+from quant_core.analytics import local_dates, unadjust_dividends, unadjust_splits
+from quant_core.enums import AssetType, BarType, CorporateActionType, Geography
+from quant_core.interfaces import (
+    BaseMarketDataProvider,
+    CorporateActionProvider,
+    RateLimitedError,
+)
 from quant_core.models import (
     BarData,
+    CorporateAction,
     Instrument,
-    MarketData,
     MarketDataRequest,
     OrderBook,
+    RateLimit,
     Trade,
     TradFiDetails,
 )
-
-# src/plugins/yfinance/data_providers.py
-
+from yfinance.exceptions import YFRateLimitError
 
 logger = logging.getLogger(__name__)
 
 
-class YFinanceMarketDataProvider(BaseMarketDataProvider):
+def _utc_midnight(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Local calendar dates keyed at 00:00 UTC, the same key daily bars use."""
+    return local_dates(index).tz_localize("UTC")
+
+
+class YFinanceMarketDataProvider(BaseMarketDataProvider, CorporateActionProvider):
     """
-    Concrete market data provider that fetches OHLCV candles
-    from Yahoo Finance (yfinance) for stocks, ETFs, indices, etc.
+    OHLCV bars and corporate actions from Yahoo Finance (yfinance).
+
+    Yahoo rewrites history: ``Close``, ``Volume`` and dividend amounts are all
+    split-adjusted retroactively, even with ``auto_adjust=False``. This adapter
+    undoes that with the symbol's full split history, so ``get_bars`` returns
+    prices as traded for every interval and ``get_corporate_actions`` returns
+    dividends as paid (PR 2a, D2/D14).
     """
+
+    # Yahoo publishes no quota and blocks bursts with HTTP 429 (yfinance #2422).
+    rate_limit = RateLimit(min_interval_s=1.0, max_retries=3, backoff_s=30.0)
 
     @classmethod
     def from_args(cls, args: Any) -> "YFinanceMarketDataProvider":
-        """
-        Creates an instance of the provider from parsed command-line arguments.
-        """
         return cls(default_interval=args.timeframe)
 
     def __init__(self, default_interval: str = "1d") -> None:
-        """
-        Initializes the Yahoo Finance data provider.
-
-        :param default_interval: The default frequency interval (e.g. '1d').
-        """
         self.default_interval = default_interval
+        self._tickers: Dict[str, Any] = {}
+        self._splits: Dict[str, list[CorporateAction]] = {}
 
     def list_tradable_markets(self) -> Sequence[Instrument]:
-        """
-        Lists some default example tickers.
-        Yahoo Finance doesn't have a list of all tickers.
-        """
+        """Yahoo has no symbol directory; a few well-known tickers."""
         default_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "SPY"]
         return [self.get_market_details(ticker) for ticker in default_tickers]
 
     def get_market_details(self, instrument_id: str) -> Instrument:
-        """
-        Returns static information for the stock ticker.
-        """
         return Instrument(
             instrument_id=instrument_id,
             name=f"{instrument_id} Stock",
@@ -67,43 +72,71 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
         )
 
     def get_order_book(self, instrument_id: str) -> OrderBook:
-        """
-        Yahoo Finance REST API does not support L2 order books.
-        Returns a dummy empty order book.
-        """
         logger.warning(
             f"get_order_book not supported by Yahoo Finance for {instrument_id}"
         )
-        return OrderBook(
-            bids=[],
-            asks=[],
-            timestamp=datetime.now(timezone.utc),
-        )
+        return OrderBook(bids=[], asks=[], timestamp=datetime.now(timezone.utc))
 
     def get_trade_history(self, instrument_id: str) -> Sequence[Trade]:
-        """
-        Yahoo Finance REST API does not support real-time tick trade logs.
-        """
         logger.warning(
             f"get_trade_history not supported by Yahoo Finance for {instrument_id}"
         )
         return []
 
+    # --- corporate actions -------------------------------------------------
+
+    def _ticker(self, symbol: str):
+        """One ``yf.Ticker`` per symbol: ``.splits`` and ``.dividends`` share a
+        single ``history(period="max")`` request."""
+        if symbol not in self._tickers:
+            self._tickers[symbol] = yf.Ticker(symbol)
+        return self._tickers[symbol]
+
+    def _split_actions(self, symbol: str) -> list[CorporateAction]:
+        if symbol not in self._splits:
+            splits = _rate_limited(lambda: self._ticker(symbol).splits)
+            self._splits[symbol] = [
+                CorporateAction(
+                    instrument_id=symbol,
+                    action_type=CorporateActionType.SPLIT,
+                    ex_date=ex.to_pydatetime(),
+                    ratio=float(ratio),
+                )
+                for ex, ratio in zip(_utc_midnight(splits.index), splits.to_numpy())
+            ]
+        return self._splits[symbol]
+
+    def get_corporate_actions(self, instrument_id: str) -> Sequence[CorporateAction]:
+        splits = self._split_actions(instrument_id)
+        dividends = _rate_limited(lambda: self._ticker(instrument_id).dividends)
+        raw = unadjust_dividends(dividends, splits)
+        return splits + [
+            CorporateAction(
+                instrument_id=instrument_id,
+                action_type=CorporateActionType.DIVIDEND,
+                ex_date=ex.to_pydatetime(),
+                amount=float(amount),
+            )
+            for ex, amount in zip(_utc_midnight(raw.index), raw.to_numpy())
+        ]
+
+    # --- bars ----------------------------------------------------------------
+
     def get_bars(self, request: MarketDataRequest) -> Sequence[BarData]:
-        """
-        Downloads the latest bars from yfinance and parses them into BarData.
-        """
         interval = request.interval or self.default_interval
         start, end = request.resolve_bounds()
 
-        # Download data using yfinance
-        df = yf.download(
-            request.instrument_id,
-            start=start,
-            end=end,
-            interval=interval,
-            auto_adjust=False,  # raw prices: adjusted history is rewritten after each dividend
-            progress=False,
+        df = _rate_limited(
+            lambda: yf.download(
+                request.instrument_id,
+                start=start,
+                end=end,
+                interval=interval,
+                # Yahoo's unadjusted frame: no dividend adjustment, but splits
+                # are still applied retroactively, hence unadjust_splits below.
+                auto_adjust=False,
+                progress=False,
+            )
         )
         if df.empty:
             logger.warning(
@@ -115,12 +148,15 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
+        # Undo the split adjustment while the index is still in the exchange's
+        # local frame (tz-naive dates for 1d, tz-aware local for intraday).
+        df = unadjust_splits(df, self._split_actions(request.instrument_id))
+
         # A count applies only when no explicit range was requested.
         df_subset = df if request.start_date else df.tail(request.count)
         bars = []
 
         for ts, row in df_subset.iterrows():
-            # Parse prices
             op = float(row["Open"])
             hi = float(row["High"])
             lo = float(row["Low"])
@@ -131,7 +167,6 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
             if op <= 0 or hi <= 0 or lo <= 0 or cl <= 0:
                 continue
 
-            # Convert timestamp to timezone-aware datetime
             # yfinance index can be datetime index or date index
             if hasattr(ts, "to_pydatetime"):
                 dt = ts.to_pydatetime()
@@ -159,3 +194,11 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider):
             )
 
         return bars
+
+
+def _rate_limited(fn):
+    """Translate yfinance's 429 into the shared error the throttle retries."""
+    try:
+        return fn()
+    except YFRateLimitError as e:
+        raise RateLimitedError(str(e)) from e

@@ -24,7 +24,7 @@ def main() -> None:
     parser.add_argument(
         "--provider",
         "-p",
-        choices=["yfinance", "ccxt", "tiered"],
+        choices=["yfinance", "ccxt"],
         required=True,
         help="The data source provider to use (yfinance or ccxt).",
     )
@@ -126,17 +126,10 @@ def main() -> None:
         # 2. Instantiate correct provider
         logger.info(f"Initializing provider '{args.provider}'...")
         try:
-            if args.provider == "tiered":
-                from quant_data.providers import TieredDataProvider
-
-                provider = TieredDataProvider.create_default(
-                    db_session=db, failing_tickers={"TSLA"}
-                )
-            else:
-                provider_class = MarketDataProviderRegistry.get_provider_class(
-                    args.provider
-                )
-                provider = provider_class.from_args(args)
+            provider_class = MarketDataProviderRegistry.get_provider_class(
+                args.provider
+            )
+            provider = provider_class.from_args(args)
         except ImportError:
             sys.exit(1)
         except ValueError as e:

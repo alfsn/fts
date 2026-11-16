@@ -142,3 +142,13 @@ def test_ingest_historical_ccxt(
     pass  # mock_provider.get_bars.assert_called_once()
     mock_repo.save_bars.assert_called_once_with("BTC/USDT", mock_bars)
     mock_db.close.assert_called_once()
+
+
+def test_tiered_provider_option_is_gone(monkeypatch):
+    """PR 2a (D12): `--provider tiered` wrote mock bars into the real DB."""
+    monkeypatch.setattr(
+        "sys.argv", ["ingest", "--provider", "tiered", "--ticker", "AAPL"]
+    )
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2  # argparse: invalid choice

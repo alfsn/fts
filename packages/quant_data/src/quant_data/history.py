@@ -3,10 +3,30 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 import pandas as pd
-from quant_core.interfaces import BaseMarketDataProvider
-from quant_core.models import MarketDataRequest
+from quant_core.interfaces import BaseMarketDataProvider, CorporateActionProvider
+from quant_core.models import CorporateAction, MarketDataRequest
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_corporate_actions(
+    provider: CorporateActionProvider, symbols: Iterable[str]
+) -> dict[str, list[CorporateAction]]:
+    """
+    Full split and dividend history per symbol, raw amounts (PR 2a, D7).
+
+    Sits beside ``fetch_daily_closes`` (which stays raw); callers combine the
+    two with ``quant_core.analytics.adjust``. A symbol whose vendor call fails
+    is logged and left out, not returned empty, so callers can tell "no
+    actions" from "unknown".
+    """
+    actions = {}
+    for symbol in sorted(set(symbols)):
+        try:
+            actions[symbol] = list(provider.get_corporate_actions(symbol))
+        except Exception as e:
+            logger.warning(f"No corporate actions for {symbol}: {e}")
+    return actions
 
 
 def fetch_daily_closes(

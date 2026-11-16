@@ -12,6 +12,7 @@ from quant_core.models import (
     MarketDataRequest,
     OrderBook,
     PriceLevel,
+    RateLimit,
     Trade,
     TradFiDetails,
 )
@@ -61,6 +62,13 @@ class CCXTMarketDataProvider(BaseMarketDataProvider):
         if "enableRateLimit" not in self.config:
             self.config["enableRateLimit"] = True
         self.exchange = exchange_class(self.config)
+        # The exchange's own budget (ms between requests), declared where every
+        # provider declares it. ccxt enforces it internally too, so no retries.
+        self.rate_limit = RateLimit(
+            min_interval_s=float(self.exchange.rateLimit) / 1000.0,
+            max_retries=0,
+            backoff_s=0.0,
+        )
 
     def list_tradable_markets(self) -> Sequence[Instrument]:
         """

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 from .models import (
     BarData,
@@ -8,11 +8,21 @@ from .models import (
     MarketData,
     MarketDataRequest,
     OrderBook,
+    RateLimit,
     Trade,
 )
 
 
+class RateLimitedError(Exception):
+    """The vendor throttled us (HTTP 429 or equivalent). Adapters translate
+    their library's error into this one so the throttle can retry it."""
+
+
 class BaseMarketDataProvider(ABC):
+    # Declared request budget; None means the provider needs no throttling
+    # (mocks, local files) or throttles itself (ccxt).
+    rate_limit: Optional[RateLimit] = None
+
     @classmethod
     def from_args(cls, args: Any) -> "BaseMarketDataProvider":
         raise NotImplementedError()

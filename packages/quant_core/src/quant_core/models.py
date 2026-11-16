@@ -217,6 +217,21 @@ class MarketDataRequest(BaseModel):
         return end - delta, end
 
 
+class RateLimit(BaseModel):
+    """
+    A provider's declared request budget, enforced in one place
+    (``quant_data.providers.throttle``): at most one call per
+    ``min_interval_s``, and on a rate-limit error ``max_retries`` retries with
+    exponential backoff ``backoff_s * 2**k``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    min_interval_s: float = Field(..., ge=0)
+    max_retries: int = Field(..., ge=0)
+    backoff_s: float = Field(..., ge=0)
+
+
 # --- 5. Additional Domain Models ---
 
 

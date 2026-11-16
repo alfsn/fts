@@ -61,3 +61,32 @@ def test_never_requests_todays_partial_bar():
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     assert provider.requests[0].end_date == today
     assert closes.index.max() < today
+
+
+class _Actions:
+    def get_corporate_actions(self, instrument_id):
+        from quant_core.enums import CorporateActionType
+        from quant_core.models import CorporateAction
+
+        if instrument_id == "BROKEN":
+            raise ValueError("vendor down")
+        if instrument_id == "GGAL.BA":
+            return []
+        return [
+            CorporateAction(
+                instrument_id=instrument_id,
+                action_type=CorporateActionType.SPLIT,
+                ex_date=datetime(2024, 6, 10, tzinfo=timezone.utc),
+                ratio=10.0,
+            )
+        ]
+
+
+def test_fetch_corporate_actions_per_symbol_and_skips_failures():
+    from quant_data.history import fetch_corporate_actions
+
+    actions = fetch_corporate_actions(_Actions(), ["NVDA", "GGAL.BA", "BROKEN", "NVDA"])
+
+    assert sorted(actions) == ["GGAL.BA", "NVDA"]  # a failure is absent, not empty
+    assert actions["GGAL.BA"] == []
+    assert actions["NVDA"][0].ratio == 10.0

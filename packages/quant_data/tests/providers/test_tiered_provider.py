@@ -1,12 +1,9 @@
 import pytest
+from mock_providers import MockIBKRProvider, MockTiingoProvider
 from quant_core.enums import BarType
 from quant_core.models import BarData
 from quant_data.db.models import Base
-from quant_data.providers import (
-    MockIBKRProvider,
-    MockTiingoProvider,
-    TieredDataProvider,
-)
+from quant_data.providers import TieredDataProvider
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -153,3 +150,41 @@ def test_failed_top_up_serves_cache(db_session):
     provider.get_bars = lambda request: []  # e.g. holiday or provider outage
 
     assert len(tiered.get_bars(request)) == 31
+
+
+def test_rate_limited_tier_falls_through_after_retries(db_session):
+    """A tier that keeps answering 429 is retried `max_retries` times through
+    the throttle, then the waterfall moves on. No real sleeping."""
+    from quant_core.interfaces import RateLimitedError
+    from quant_core.models import MarketDataRequest, RateLimit
+    from quant_data.providers.throttle import Throttle
+
+    class _Limited(MockIBKRProvider):
+        rate_limit = RateLimit(min_interval_s=1.0, max_retries=2, backoff_s=10.0)
+        calls = 0
+
+        def get_bars(self, request):
+            type(self).calls += 1
+            raise RateLimitedError("MockIBKR")
+
+    sleeps = []
+    clock = {"now": 0.0}
+
+    def sleep(s):
+        sleeps.append(s)
+        clock["now"] += s
+
+    tiered = TieredDataProvider(
+        db_session,
+        [_Limited(), MockTiingoProvider()],
+        throttle=Throttle(clock=lambda: clock["now"], sleep=sleep),
+    )
+    bars = tiered.get_bars(MarketDataRequest(instrument_id="MSFT", interval="1d"))
+
+    assert len(bars) == 1  # served by tier 2
+    assert _Limited.calls == 3
+    assert sleeps == [10.0, 20.0]
+
+
+def test_create_default_is_gone():
+    assert not hasattr(TieredDataProvider, "create_default")
