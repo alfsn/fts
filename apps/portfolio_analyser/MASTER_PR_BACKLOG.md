@@ -29,6 +29,11 @@ For each PR: search:
 *   **Math (`quant_core`):** Daily quantities from the ledger x raw closes x daily FX (CCL from split-adjusted closes, forward-filled across local holidays with a limit) gives the value series in USD. **Only deposits and withdrawals become `cash_flows`.** Dividends, coupons and fees are internal and part of the return. A missing price is NaN, never 0.
 *   **App Integration:** `analyze` values positions at the latest market close (not the YAML price) and reconciles ledger quantities against the snapshot. `client-review` feeds the real values and cash flows into `backward_analytics_figures`, replacing the mock random walk and the mock baseline.
 
+**PR 2c: Bond Prices & Coupons (`quant_data`, `quant_core`)** — TODO
+*   **Goal:** Value Argentine sovereign bonds (AL30, GD30, AL30D) and record coupons. PR 2b rejects `coupon` lines and bond listings because no price source exists (Yahoo has none; PR 2 checked).
+*   **Research:** a daily-close source for BYMA bonds (candidates: BYMA data, Rava, IOL/PPI APIs, data912). It must obey PR 2a's raw contract and declare a `RateLimit`. Decide how to key the listing (AL30 in ARS vs AL30D in USD).
+*   **Action:** adapter + cache; lift the PR 2b validator; `coupon` lines are internal income (cash in, never an external flow); amortising bonds change the quantity on each payment, which is a corporate action, not a trade. A bond pair (AL30 / AL30D) also gives the MEP rate.
+
 ---
 
 ## Epic 2: Backward Analytics - Return & Risk Basics
