@@ -111,3 +111,25 @@ def test_backtest_visualizer_get_available_runs(db_session: Session):
 
     runs = viz.get_available_runs(instrument_id="BTC/USDT", strategy_name="None")
     assert runs == ["run_123"]
+
+
+def test_calculate_pnl_compounds_across_gaps_and_is_nan_when_undefined():
+    import numpy as np
+    import pandas as pd
+
+    viz = BacktestVisualizer(db_url="sqlite:///:memory:")
+    df = pd.DataFrame(
+        {
+            "close": [100.0, 0.0, 110.0, 121.0],  # 0.0: the engine had no bar
+            "actual_equity": [1000.0, np.nan, 1100.0, 1210.0],
+        }
+    )
+
+    pnl = viz.calculate_pnl(df)
+
+    assert list(pnl["cum_baseline_return"].dropna()) == pytest.approx([0.0, 0.1, 0.21])
+    assert np.isnan(pnl["cum_baseline_return"].iloc[1])
+    assert list(pnl["cum_strat_return"].dropna()) == pytest.approx([0.0, 0.1, 0.21])
+
+    broke = viz.calculate_pnl(df.assign(actual_equity=[0.0, 0.0, 0.0, 0.0]))
+    assert broke["cum_strat_return"].isna().all()  # undefined, not 0.0

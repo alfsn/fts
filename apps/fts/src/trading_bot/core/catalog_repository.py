@@ -23,7 +23,7 @@ from .models import (
     OrderLog,
     TradeLog,
 )
-from .performance import build_performance_metrics
+from .performance import build_benchmark_metrics, build_performance_metrics
 from .schemas import (
     BacktestDetailDTO,
     BacktestRunCatalogItem,
@@ -290,6 +290,7 @@ class BacktestCatalogRepository:
                     start_time=start_time,
                     end_time=end_time,
                     metrics=metrics,
+                    benchmark_metrics=build_benchmark_metrics(equity_records),
                 )
             )
 
@@ -411,6 +412,7 @@ class BacktestCatalogRepository:
             start_time=equity_records[0].timestamp,
             end_time=equity_records[-1].timestamp,
             metrics=metrics,
+            benchmark_metrics=build_benchmark_metrics(equity_records),
             equity_curve=equity_curve,
             trades=trades_list,
             predictions=predictions_list,

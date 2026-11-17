@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from quant_core.models import (
     BarData,
+    BenchmarkMetrics,
     CashBalance,
     ExecutionResult,
     Instrument,
@@ -263,6 +264,10 @@ class BacktestRunCatalogItem(BaseModel):
     metrics: PerformanceMetrics = Field(
         default_factory=PerformanceMetrics, description="Performance metrics."
     )
+    benchmark_metrics: BenchmarkMetrics = Field(
+        default_factory=BenchmarkMetrics,
+        description="Alpha/beta vs buy-and-hold of the traded instrument (PR 7).",
+    )
 
 
 class BacktestDetailDTO(BaseModel):
@@ -281,6 +286,10 @@ class BacktestDetailDTO(BaseModel):
     end_time: Optional[datetime] = Field(None, description="Simulation end timestamp.")
     metrics: PerformanceMetrics = Field(
         default_factory=PerformanceMetrics, description="Performance metrics."
+    )
+    benchmark_metrics: BenchmarkMetrics = Field(
+        default_factory=BenchmarkMetrics,
+        description="Alpha/beta vs buy-and-hold of the traded instrument (PR 7).",
     )
     equity_curve: List[Dict] = Field(
         default_factory=list, description="Time-series tick equity logs."
