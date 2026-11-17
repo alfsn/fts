@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from quant_core.enums import AssetType, Geography, OrderStatus
@@ -24,6 +24,8 @@ from trading_bot.core.schemas import (
     Instrument,
     MarketData,
 )
+from trading_bot.core.schemas import Position as PositionSchema
+from trading_bot.risk_management.portfolio import Portfolio
 
 # tests/unit/test_backtest_engine.py
 
@@ -59,7 +61,10 @@ class DummyDataReader(BaseBacktestDataReader):
 
 
 def create_mock_tick(
-    timestamp: datetime, instrument_id: str, close_price: float
+    timestamp: datetime,
+    instrument_id: str,
+    close_price: float,
+    with_bar: bool = True,
 ) -> IngestionEngineOutput:
     """
     Helper to build IngestionEngineOutput packets.
@@ -88,7 +93,7 @@ def create_mock_tick(
     market_data = MarketData(
         instrument_id=instrument_id,
         details=details,
-        recent_bars=[bar],
+        recent_bars=[bar] if with_bar else [],
         order_book=None,
         recent_trades=[],
     )
@@ -96,7 +101,7 @@ def create_mock_tick(
         timestamp=timestamp,
         market_data=[market_data],
         external_data=[],
-        bars={instrument_id: [bar]},
+        bars={instrument_id: [bar]} if with_bar else {},
     )
 
 
@@ -233,16 +238,8 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
     assert sql_db_session.query(BacktestEquityLog).filter_by(run_id=run_id).count() == 1
 
     # Mock Pipeline and subcomponents
-    mock_portfolio = MagicMock()
-    # Mock portfolio cash and positions state
-    mock_portfolio._cash_balance = 10000.0
-    mock_portfolio._positions = {}
-    type(mock_portfolio).cash_balance = PropertyMock(
-        side_effect=lambda: mock_portfolio._cash_balance
-    )
-    type(mock_portfolio).positions = PropertyMock(
-        side_effect=lambda: mock_portfolio._positions
-    )
+    # A real Portfolio: the engine logs its single valuation (PR 7b)
+    mock_portfolio = Portfolio(initial_balance=10000.0)
 
     mock_strategy = MagicMock()
     mock_strategy_instance = MagicMock()
@@ -281,10 +278,9 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
         # Tick 2: Cash remains 5000.0, price rises to 51000.0
         if ingestion_output.timestamp == base_time:
             mock_portfolio._cash_balance = 5000.0
-            mock_portfolio._positions[instrument_id] = MagicMock(quantity=0.1)
-        elif ingestion_output.timestamp == base_time + timedelta(days=1):
-            mock_portfolio._cash_balance = 5000.0
-            mock_portfolio._positions[instrument_id] = MagicMock(quantity=0.1)
+            mock_portfolio._positions[instrument_id] = PositionSchema(
+                instrument_id=instrument_id, quantity=0.1, cost_basis=50000.0
+            )
 
     pipeline.execute_single_tick.side_effect = simulate_pipeline_execution
 
@@ -325,3 +321,58 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
     assert result.initial_equity == 10000.0
     assert result.final_equity == 10100.0
     assert result.total_return_pct == pytest.approx(1.0)
+
+
+def _run_engine(sql_db_session, ticks, instrument_id, buy_at):
+    """Engine over ``ticks`` with a real Portfolio that buys 0.1 at ``buy_at``."""
+    portfolio = Portfolio(initial_balance=10000.0)
+
+    def buy_on_first_tick(db, ingestion_output):
+        if ingestion_output.timestamp == ticks[0].timestamp:
+            portfolio._cash_balance = 10000.0 - 0.1 * buy_at
+            portfolio._positions[instrument_id] = PositionSchema(
+                instrument_id=instrument_id, quantity=0.1, cost_basis=buy_at
+            )
+
+    pipeline = MagicMock(spec=TradingPipeline)
+    pipeline.portfolio = portfolio
+    pipeline.strategy = MagicMock(strategies=[MagicMock()])
+    pipeline.execute_single_tick.side_effect = buy_on_first_tick
+    engine = BacktestEngine(
+        pipeline=pipeline,
+        data_reader=DummyDataReader(instrument_id=instrument_id, ticks=ticks),
+        db=sql_db_session,
+        instrument_id=instrument_id,
+    )
+    return engine.run(run_id="pr7b", clear_previous_run=True)
+
+
+def test_a_tick_without_a_bar_keeps_the_last_close(sql_db_session: Session):
+    """PR 7b: a missing bar used to value the position at 0 (equity = cash)."""
+    instrument_id = "BTC/USDT"
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    ticks = [
+        create_mock_tick(t0, instrument_id, 50000.0),
+        create_mock_tick(t0 + timedelta(days=1), instrument_id, 51000.0),
+        create_mock_tick(t0 + timedelta(days=2), instrument_id, 1.0, with_bar=False),
+    ]
+
+    result = _run_engine(sql_db_session, ticks, instrument_id, buy_at=50000.0)
+
+    assert [p["equity"] for p in result.equity_curve] == [10000.0, 10100.0, 10100.0]
+    assert [p["close"] for p in result.equity_curve] == [50000.0, 51000.0, 51000.0]
+    assert result.final_equity == 10100.0  # not 5000 (cash only)
+
+
+def test_ticks_before_the_first_bar_are_not_logged(sql_db_session: Session):
+    instrument_id = "BTC/USDT"
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    ticks = [
+        create_mock_tick(t0, instrument_id, 1.0, with_bar=False),
+        create_mock_tick(t0 + timedelta(days=1), instrument_id, 50000.0),
+    ]
+
+    result = _run_engine(sql_db_session, ticks, instrument_id, buy_at=50000.0)
+
+    assert len(result.equity_curve) == 1
+    assert result.equity_curve[0]["close"] == 50000.0

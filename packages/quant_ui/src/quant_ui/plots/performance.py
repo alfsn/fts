@@ -127,8 +127,9 @@ def plot_backtest_performance(df_pnl: pd.DataFrame, instrument_id: str) -> go.Fi
                     x=df_pnl["timestamp"],
                     y=df_pnl["cum_strat_return"] * 100,
                     mode="lines",
-                    name="ML Strategy P&L",
-                    line=dict(color="#2196f3", width=2),
+                    # no equity log: a +1/0/-1 position replayed on the close
+                    name="Strategy P&L (simulated from signals)",
+                    line=dict(color="#2196f3", width=2, dash="dot"),
                 ),
                 row=2,
                 col=1,

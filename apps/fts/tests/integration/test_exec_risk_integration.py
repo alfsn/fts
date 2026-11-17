@@ -285,14 +285,12 @@ def test_full_order_lifecycle_integration(
     # Available and total should be equal now (minus unrealized P&L)
     assert portfolio_state_filled.cash_balances[0].available == pytest.approx(9900.0)
 
-    # Total balance = 9900 (cash) + (position_size * current_bid_price)
-    # position_size = 196.0784
-    # current_bid_price = 0.49 (from market_data_map)
-    # market_value = 196.0784 * 0.49 = 96.0784
-    # total_balance = 9900 + 96.0784 = 9996.0784
-    # This reflects the immediate unrealized loss from crossing the spread.
+    # Total balance is the marked equity (PR 7b): positions at their last bar
+    # close. This market data has no bars yet, so the mark is the entry price:
+    # 9900 cash + 196.08 x 0.51 = 10000. The bid (0.49) is used only for the
+    # allocation-limit check, not for equity.
     assert portfolio_state_filled.cash_balances[0].total == pytest.approx(
-        9900.0 + (filled_result.filled_quantity * 0.49)
+        9900.0 + filled_result.filled_quantity * 0.51
     )
     logger.info("--- Integration test successful ---")
 

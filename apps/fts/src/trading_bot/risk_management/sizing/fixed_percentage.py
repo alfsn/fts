@@ -55,7 +55,7 @@ class FixedPercentageSizer(BaseSizingStrategy):
             return SizingOutput(amount_quote=0, quantity_shares=0)
 
         # Calculate the quote amount based on total portfolio equity
-        total_equity = input_data.portfolio_state.total_balance_usd
+        total_equity = input_data.portfolio_state.cash_balances[0].total
         amount_quote = total_equity * self.default_percentage
 
         size_shares = amount_quote / price

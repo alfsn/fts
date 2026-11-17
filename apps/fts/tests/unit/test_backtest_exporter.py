@@ -91,7 +91,7 @@ def test_html_exporter(db_session: Session, tmp_path):
         assert "Plotly" in html_content or "plotly" in html_content.lower()
         assert "BTC" in html_content
         assert "USDT" in html_content
-        assert "ML Strategy" in html_content
+        assert "simulated from signals" in html_content
 
 
 def test_html_exporter_directory_output(db_session: Session, tmp_path):

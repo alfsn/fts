@@ -94,6 +94,7 @@ graph TD
 ### [Portfolio](file:///home/alfred/github/fts/src/trading_bot/risk_management/portfolio.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)
 * **Quant Business Logic:** Keeps track of real-time account state: available cash balance, gross/net position exposure, unrealized/realized PnL, and current held contract quantities.
+* **Valuation (PR 7b):** `equity()` is the single equity number: cash plus every position at its last bar close, carried over ticks without a bar. The backtest equity log, `get_state` (so the RiskManager and the sizers) all use it. Best bid/ask is used only in `calculate_unrealized_pnl`, for the allocation-limit check. Outcome (YES/NO) positions stay at cost basis (backlog PR 7b).
 
 ### [FixedPercentageSizer](file:///home/alfred/github/fts/src/trading_bot/risk_management/sizing/fixed_percentage.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)

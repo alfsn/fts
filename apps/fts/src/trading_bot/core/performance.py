@@ -36,8 +36,9 @@ def build_benchmark_metrics(
     """
     Alpha/beta of the strategy against buy-and-hold of the instrument it
     traded (the logged ``close``), on daily closes, risk-free 0 (PR 7). The
-    close is raw: right for crypto, wrong across an equity split. The engine
-    logs ``close = 0.0`` when it has no bar; that is a missing price, not 0.
+    close is raw: right for crypto, wrong across an equity split. Runs logged
+    before PR 7b hold ``close = 0.0`` on ticks without a bar (and multi-
+    instrument runs still log 0.0): a missing price, not 0.
     """
     close = _log_series(equity_records, "close")
     return compute_benchmark_metrics(
