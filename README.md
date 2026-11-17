@@ -104,8 +104,6 @@ uv run pytest
 
 ## Project Structure
 
-For a full annotated sitemap of the codebase, see [folder_structure.txt](file:///home/alfred/github/fts/folder_structure.txt).
-
 ```
 fts/
 ├── src/

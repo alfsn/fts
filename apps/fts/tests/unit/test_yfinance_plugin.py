@@ -1,0 +1,103 @@
+from datetime import datetime, timezone
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+from quant_core.enums import BarType
+from quant_core.models import MarketDataRequest
+from quant_data.providers.yfinance_provider import YFinanceMarketDataProvider
+
+# tests/unit/test_yfinance_plugin.py
+
+
+def test_yfinance_market_details():
+    provider = YFinanceMarketDataProvider()
+    details = provider.get_market_details("AAPL")
+
+    assert details.instrument_id == "AAPL"
+    assert "AAPL" in details.name
+
+
+@patch("quant_data.providers.yfinance_provider.yf.download")
+def test_yfinance_get_bars(mock_download):
+    # Setup mock dataframe from yfinance
+    dates = pd.date_range(start="2026-06-10 09:30:00", periods=3, freq="min", tz="UTC")
+    data = {
+        "Open": [150.0, 151.0, 152.0],
+        "High": [150.5, 151.5, 152.5],
+        "Low": [149.5, 150.5, 151.5],
+        "Close": [150.2, 151.2, 152.2],
+        "Volume": [1000.0, 1100.0, 1200.0],
+    }
+    mock_df = pd.DataFrame(data, index=dates)
+    mock_download.return_value = mock_df
+
+    provider = YFinanceMarketDataProvider()
+    bars = provider.get_bars(
+        MarketDataRequest(
+            instrument_id="AAPL",
+            interval="1d",
+            count=2,
+            start_date=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+
+    # An explicit range wins over count: every bar in the range is returned.
+    assert len(bars) == 3
+    assert bars[1].close == 151.2
+    assert bars[2].close == 152.2
+    assert bars[1].volume == 1100.0
+    assert bars[2].bar_type == BarType.TIME
+    assert bars[1].timestamp == datetime(2026, 6, 10, 9, 31, tzinfo=timezone.utc)
+    assert bars[2].timestamp == datetime(2026, 6, 10, 9, 32, tzinfo=timezone.utc)
+    assert mock_download.call_args.kwargs["auto_adjust"] is False  # raw prices
+
+
+@patch("quant_data.providers.yfinance_provider.yf.download")
+def test_yfinance_get_bars_count_without_range(mock_download):
+    dates = pd.date_range(start="2026-06-10 09:30:00", periods=3, freq="min", tz="UTC")
+    mock_download.return_value = pd.DataFrame(
+        {
+            "Open": [150.0, 151.0, 152.0],
+            "High": [150.5, 151.5, 152.5],
+            "Low": [149.5, 150.5, 151.5],
+            "Close": [150.2, 151.2, 152.2],
+            "Volume": [1000.0, 1100.0, 1200.0],
+        },
+        index=dates,
+    )
+
+    bars = YFinanceMarketDataProvider().get_bars(
+        MarketDataRequest(instrument_id="AAPL", interval="1d", count=2)
+    )
+
+    # No start_date: count keeps its "last N bars" meaning.
+    assert [b.close for b in bars] == [151.2, 152.2]
+
+
+@patch("quant_data.providers.yfinance_provider.yf.download")
+def test_yfinance_get_bars_handles_zeros(mock_download):
+    # Setup mock dataframe containing a zero price row (should be filtered out)
+    dates = pd.date_range(start="2026-06-10 09:30:00", periods=2, freq="min", tz="UTC")
+    data = {
+        "Open": [0.0, 151.0],
+        "High": [150.5, 151.5],
+        "Low": [149.5, 150.5],
+        "Close": [150.2, 151.2],
+        "Volume": [1000.0, 1100.0],
+    }
+    mock_df = pd.DataFrame(data, index=dates)
+    mock_download.return_value = mock_df
+
+    provider = YFinanceMarketDataProvider()
+    bars = provider.get_bars(
+        MarketDataRequest(
+            instrument_id="AAPL",
+            interval="1m",
+            start_date=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+
+    # The first row with Open=0.0 should be filtered out
+    assert len(bars) == 1
+    assert bars[0].close == 151.2

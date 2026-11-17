@@ -1,0 +1,37 @@
+name: CI Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: uv sync --all-extras --dev --all-packages
+
+      - name: Run FTS App Tests
+        working-directory: apps/fts
+        run: uv run pytest tests/ -v
+
+      - name: Run Portfolio Analyser Tests
+        run: uv run pytest apps/portfolio_analyser/tests/ -v
+
+      - name: Run Shared Package Tests
+        run: uv run pytest packages/ -v
