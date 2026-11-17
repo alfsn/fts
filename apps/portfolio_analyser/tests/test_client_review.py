@@ -1,5 +1,5 @@
 """`client-review` reports on the real ledger (PR 2b-3): values and external
-flows replayed from `transactions:`, no random walk, no mock baseline."""
+flows replayed from `transactions:`, against a total-return benchmark (PR 7)."""
 
 import numpy as np
 import pandas as pd
@@ -21,7 +21,32 @@ def test_backward_analytics_figures_without_a_baseline():
     assert len(figures) == 4
 
 
-def _review(monkeypatch, tmp_path, yaml, closes=CLOSES):
+def test_backward_analytics_figures_against_an_unaligned_benchmark():
+    """The benchmark has its own calendar (a US holiday the portfolio values
+    through); its line starts at 0 on the portfolio's first date."""
+    dates = pd.bdate_range("2022-01-03", periods=400, tz="UTC")
+    rng = np.random.default_rng(4)
+    spy_r = rng.normal(0.0004, 0.01, 400)
+    spy = pd.Series(100 * np.cumprod(1 + spy_r), index=dates).drop(dates[10])
+    values = pd.Series(
+        1000 * np.cumprod(1 + 0.7 * spy_r + rng.normal(0, 0.003, 400)), index=dates
+    )
+
+    figures = backward_analytics_figures(values, benchmark=spy, benchmark_name="SPY")
+
+    assert len(figures) == 6
+    cumulative = figures[1]
+    assert [t.name for t in cumulative.data] == ["Portfolio", "SPY"]
+    assert cumulative.data[0].y[0] == cumulative.data[1].y[0] == 0
+    assert cumulative.data[0].x[0] == cumulative.data[1].x[0]
+    beta_row = figures[2].data[0].cells.values[1][1]
+    assert beta_row.startswith("0.7")
+
+
+MARKET = {**CLOSES, "SPY": 500.0, "^IRX": 4.0}
+
+
+def _review(monkeypatch, tmp_path, yaml, closes=CLOSES, extra_args=()):
     monkeypatch.setattr(YFinanceMarketDataProvider, "get_bars", _stub_get_bars(closes))
     monkeypatch.setattr(YFinanceMarketDataProvider, "rate_limit", None)
     monkeypatch.setattr(
@@ -38,6 +63,7 @@ def _review(monkeypatch, tmp_path, yaml, closes=CLOSES):
         str(path),
         "--db-url",
         "sqlite://",
+        *extra_args,
     ]
     return CliRunner().invoke(cli, args, terminal_width=200)
 
@@ -50,7 +76,48 @@ def test_client_review_reports_on_the_ledger(monkeypatch, tmp_path):
     assert "from 2024-01" in result.output and "valued days" in result.output
     html = (tmp_path / "client_review_yaml.html").read_text(encoding="utf-8")
     assert "Risk KPIs" in html
-    assert "SPY" not in html  # the mock baseline is gone (PR 7 brings a real one)
+    assert "Benchmark KPIs" not in html  # SPY has no prices in this stub
+    assert "No prices for benchmark SPY" in result.output
+    assert "No ^IRX quotes" in result.output
+
+
+def test_client_review_compares_against_the_total_return_benchmark(
+    monkeypatch, tmp_path
+):
+    result = _review(monkeypatch, tmp_path, PORTFOLIO + LEDGER % 100, MARKET)
+
+    assert result.exit_code == 0, result.output
+    assert "No prices" not in result.output and "No ^IRX" not in result.output
+    html = (tmp_path / "client_review_yaml.html").read_text(encoding="utf-8")
+    assert "SPY (total return, gross dividends)" in html
+    assert "Benchmark KPIs" in html and "Alpha" in html
+    assert "min 252" in html  # weekly stub bars: too few for a beta, shown as n/a
+
+
+def test_client_review_labels_net_dividends(monkeypatch, tmp_path):
+    result = _review(
+        monkeypatch,
+        tmp_path,
+        PORTFOLIO + LEDGER % 100,
+        MARKET,
+        ["--dividend-withholding", "0.3", "--benchmark", "SPY"],
+    )
+
+    assert result.exit_code == 0, result.output
+    html = (tmp_path / "client_review_yaml.html").read_text(encoding="utf-8")
+    assert "SPY (total return, net of 30% withholding)" in html
+
+
+def test_client_review_refuses_a_us_tbill_for_an_ars_portfolio(monkeypatch, tmp_path):
+    ars = (PORTFOLIO + LEDGER % 100).replace("base_currency: USD", "base_currency: ARS")
+    result = _review(monkeypatch, tmp_path, ars, MARKET)
+
+    assert result.exit_code != 0
+    assert "--risk-free-rate" in result.output
+    assert not (tmp_path / "client_review_yaml.html").exists()
+
+    result = _review(monkeypatch, tmp_path, ars, MARKET, ["--risk-free-rate", "0.3"])
+    assert result.exit_code == 0, result.output
 
 
 def test_client_review_refuses_without_a_ledger(monkeypatch, tmp_path):
@@ -102,3 +169,41 @@ def test_client_review_values_follow_the_market(monkeypatch, tmp_path):
     assert result.values.iloc[-1] == pytest.approx(600.0, rel=1e-4)
     assert result.flows.iloc[0] == pytest.approx(1_000_000 / 1_666.67, rel=1e-4)
     assert compute_twr(result.values, result.flows) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_benchmark_level_is_total_return_in_the_base_currency():
+    """A dividend is reinvested (net of withholding) and USD converts at CCL."""
+    from datetime import datetime, timezone
+
+    from data_layer.benchmark import benchmark_level
+    from quant_core.enums import CorporateActionType, Currency
+    from quant_core.models import Benchmark, CorporateAction
+
+    dates = pd.bdate_range("2024-03-11", periods=4, tz="UTC")
+    closes = pd.DataFrame({"SPY": [100.0, 100.0, 98.0, 98.0]}, index=dates)
+    actions = {
+        "SPY": [
+            CorporateAction(
+                instrument_id="SPY",
+                action_type=CorporateActionType.DIVIDEND,
+                ex_date=datetime(2024, 3, 13, tzinfo=timezone.utc),
+                amount=2.0,
+            )
+        ]
+    }
+    fx = pd.DataFrame(
+        {Currency.USD: 1.0, Currency.ARS: [1 / 1000, 1 / 1000, 1 / 1100, 1 / 1100]},
+        index=dates,
+    )
+
+    usd = benchmark_level(closes, actions, Benchmark(), fx, Currency.USD)
+    assert usd.pct_change().iloc[2] == pytest.approx(
+        0.0
+    )  # 2.0 dividend offsets the drop
+
+    net = benchmark_level(closes, actions, Benchmark(), fx, Currency.USD, 0.3)
+    # Yahoo's Adj Close convention (PR 2a): ex-date return = P_ex / (P_prev - D) - 1
+    assert net.pct_change().iloc[2] == pytest.approx(98 / (100 - 1.4) - 1)
+
+    ars = benchmark_level(closes, actions, Benchmark(), fx, Currency.ARS)
+    assert ars.iloc[-1] / ars.iloc[0] == pytest.approx(1100 / 1000)

@@ -4,7 +4,7 @@ import pandas as pd
 from quant_core.ledger import Breaks, ReplayResult, cash, holdings, reconcile, replay
 from quant_core.models import Portfolio
 
-from .market_history import Actions
+from .market_history import Actions, fx_in_base
 
 
 def ledger_calendar(portfolio: Portfolio, closes: pd.DataFrame, as_of: pd.Timestamp):
@@ -37,12 +37,10 @@ def replay_ledger(
     ledger line to `as_of`. `fx` is USD per unit of each currency; it is
     rebased to the portfolio's base currency here.
     """
-    base = portfolio.base_currency
-    fx_base = fx.div(fx[base], axis=0)
     return replay(
         portfolio.transactions,
         closes,
-        fx_base,
+        fx_in_base(fx, portfolio.base_currency),
         actions,
         ledger_calendar(portfolio, closes, as_of),
     )

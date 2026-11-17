@@ -102,20 +102,9 @@ def analyze(broker, file_path, db_url):
         )
 
     if portfolio.transactions:
-        breaks = reconcile_snapshot(portfolio, closes, actions, as_of)
-        for line in breaks.describe().splitlines():
-            style = "bold red" if line.startswith("quantity") else "yellow"
-            console.print(f"[{style}]{line}[/{style}]")
-        if not breaks.ok:
-            raise click.ClickException(
-                "Ledger and snapshot disagree on share counts: a trade or a split is missing."
-            )
-        if breaks.ok and not breaks.cash:
-            console.print("[green]Reconciliation: OK[/green]")
-        elif breaks.ok:
-            console.print(
-                "[green]Reconciliation: OK[/green] (cash breaks are warnings)"
-            )
+        _print_reconciliation(
+            console, reconcile_snapshot(portfolio, closes, actions, as_of)
+        )
 
     # Print Cash Balances
     cash_table = Table(
@@ -168,14 +157,15 @@ def analyze(broker, file_path, db_url):
     )
 
 
-def prefetch_history(portfolio, db_url):
+def prefetch_history(portfolio, db_url, extra_symbols=()):
     """Cache-backed raw daily closes and corporate actions for everything the
-    snapshot and ledger need valuing (PR 2a: prices stay raw, `adjust` on read)."""
+    snapshot and ledger need valuing, plus `extra_symbols` (benchmark,
+    risk-free). PR 2a: prices stay raw, `adjust` on read."""
     from quant_data.db import Base, create_db_session
     from quant_data.history import fetch_corporate_actions, fetch_daily_closes
     from quant_data.providers import TieredDataProvider, YFinanceMarketDataProvider
 
-    symbols = history_symbols(portfolio)
+    symbols = history_symbols(portfolio) | set(extra_symbols)
     with create_db_session(db_url) as session:
         Base.metadata.create_all(session.get_bind())
         provider = TieredDataProvider(session, [YFinanceMarketDataProvider()])
@@ -205,8 +195,38 @@ def history_table(portfolio, closes):
 
 @cli.command()
 @_broker_options
-def client_review(broker, file_path, db_url):
-    """Client review dashboard from the ledger, valued at market (PR 2b)."""
+@click.option(
+    "--benchmark",
+    "benchmark_symbol",
+    default=None,
+    help="Benchmark symbol in USD (default: the YAML's `benchmark:`, else SPY).",
+)
+@click.option(
+    "--risk-free-rate",
+    type=float,
+    default=None,
+    help="Annual risk-free rate as a fraction (0.04). Default: daily 13-week "
+    "T-bill (^IRX); required when the base currency is not USD.",
+)
+@click.option(
+    "--dividend-withholding",
+    type=click.FloatRange(0, 1, max_open=True),
+    default=0.0,
+    show_default=True,
+    help="Tax withheld on the benchmark's dividends (0.30 for a non-US holder).",
+)
+def client_review(
+    broker, file_path, db_url, benchmark_symbol, risk_free_rate, dividend_withholding
+):
+    """Client review dashboard from the ledger, valued at market, against a
+    total-return benchmark (PR 2b, PR 7)."""
+    from data_layer.benchmark import (
+        benchmark_label,
+        benchmark_level,
+        treasury_bill_rate,
+    )
+    from quant_core.models import Benchmark
+    from quant_data.reference import RISK_FREE_SYMBOL
     from rich.console import Console
     from visualization.plot_factory import backward_analytics_figures, write_report
 
@@ -222,7 +242,19 @@ def client_review(broker, file_path, db_url):
             "day by day from it, never back-cast from today's holdings."
         )
 
-    closes, actions = prefetch_history(portfolio, db_url)
+    if risk_free_rate is None and portfolio.base_currency is not Currency.USD:
+        raise click.ClickException(
+            f"Base currency {portfolio.base_currency.value}: the US T-bill is not "
+            "its risk-free rate. Pass --risk-free-rate (annual fraction)."
+        )
+    benchmark = (
+        portfolio.benchmark
+        if benchmark_symbol is None
+        else Benchmark(symbol=benchmark_symbol)
+    )
+    extra = [benchmark.symbol] + ([RISK_FREE_SYMBOL] if risk_free_rate is None else [])
+
+    closes, actions = prefetch_history(portfolio, db_url, extra)
     fx = usd_per_unit(ccl_series(closes, actions), closes.index)
     try:
         as_of = valuation_date(portfolio, closes, fx)
@@ -233,8 +265,33 @@ def client_review(broker, file_path, db_url):
     )
 
     result = replay_ledger(portfolio, closes, actions, fx, as_of)
+    level = benchmark_level(
+        closes, actions, benchmark, fx, portfolio.base_currency, dividend_withholding
+    )
+    if level is None:
+        console.print(
+            f"[yellow]No prices for benchmark {benchmark.symbol}: "
+            "benchmark statistics are n/a.[/yellow]"
+        )
+    if risk_free_rate is None:
+        risk_free_rate = treasury_bill_rate(closes)
+        if risk_free_rate is None:
+            console.print(
+                f"[yellow]No {RISK_FREE_SYMBOL} quotes: Sharpe, Sortino, alpha "
+                "and beta are n/a (or pass --risk-free-rate).[/yellow]"
+            )
+            risk_free_rate = float("nan")
     output_file = f"client_review_{broker}.html"
-    write_report(backward_analytics_figures(result.values, result.flows), output_file)
+    write_report(
+        backward_analytics_figures(
+            result.values,
+            result.flows,
+            benchmark=level,
+            benchmark_name=benchmark_label(benchmark, dividend_withholding),
+            risk_free_rate=risk_free_rate,
+        ),
+        output_file,
+    )
     console.print(
         f"Valued from {result.values.index[0].date()} to {as_of.date()}: "
         f"{len(result.values)} valued days, {len(result.dropped)} dropped."

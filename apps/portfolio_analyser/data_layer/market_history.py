@@ -38,12 +38,16 @@ def held_currencies(portfolio: Portfolio) -> set[Currency]:
 
 
 def history_symbols(portfolio: Portfolio) -> set[str]:
-    """Position and ledger symbols plus whatever FX needs for the currencies held."""
+    """Position and ledger symbols plus whatever FX needs for the currencies held
+    (and for the benchmark's currency; the benchmark symbol itself is fetched
+    only by `client-review`)."""
     symbols = {p.market_symbol for p in portfolio.positions}
     symbols |= {t.market_symbol for t in portfolio.transactions if t.instrument_id}
-    currencies = held_currencies(portfolio) | {
-        t.currency for t in portfolio.transactions
-    }
+    currencies = (
+        held_currencies(portfolio)
+        | {t.currency for t in portfolio.transactions}
+        | {portfolio.benchmark.currency}
+    )
     if Currency.ARS in currencies | {portfolio.base_currency}:
         symbols |= {s for local, adr, _ in ARS_CCL_PAIRS for s in (local, adr)}
     return symbols
@@ -63,8 +67,16 @@ def ccl_series(closes: pd.DataFrame, actions: Actions) -> pd.Series:
 def usd_per_unit(ccl: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:
     """USD value of one unit of each supported currency per session, forward-
     filled over local holidays (PR 2b D9). Columns are Currency."""
-    frame = pd.DataFrame({Currency.USD: 1.0, Currency.ARS: 1.0 / ccl}, index=ccl.index)
-    return forward_fill(frame, dates)
+    # USD is 1 on every session: built on the CCL's index it would be missing
+    # whenever no ARS pair was fetched (a USD-only portfolio).
+    frame = forward_fill(pd.DataFrame({Currency.ARS: 1.0 / ccl}), dates)
+    frame.insert(0, Currency.USD, 1.0)
+    return frame
+
+
+def fx_in_base(fx: pd.DataFrame, base: Currency) -> pd.DataFrame:
+    """`usd_per_unit` rebased: units of `base` per unit of each currency."""
+    return fx.div(fx[base], axis=0)
 
 
 def valuation_date(
