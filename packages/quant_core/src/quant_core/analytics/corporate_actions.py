@@ -155,3 +155,23 @@ def adjust_frame(
         },
         index=closes.index,
     )
+
+
+def net_of_withholding(
+    actions: Sequence[CorporateAction], rate: float
+) -> list[CorporateAction]:
+    """
+    Dividends scaled by ``1 - rate`` (e.g. 0.30 US withholding on a non-US
+    holder), so ``adjust(..., TOTAL_RETURN)`` reinvests what an investor
+    actually receives. Splits pass through unchanged.
+    """
+    if not 0 <= rate < 1:
+        raise ValueError(f"Withholding rate must be in [0, 1), got {rate}.")
+    return [
+        (
+            a.model_copy(update={"amount": a.amount * (1 - rate)})
+            if a.action_type is CorporateActionType.DIVIDEND
+            else a
+        )
+        for a in actions
+    ]

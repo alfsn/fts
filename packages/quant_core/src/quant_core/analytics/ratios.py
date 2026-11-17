@@ -24,24 +24,24 @@ def compute_rolling_vol(
 
 
 def _annualised_ratio(numerator: pd.Series, denominator: float, ppy: float) -> float:
-    if len(numerator) < 2 or not denominator > 0:
+    # A NaN period (e.g. no risk-free quote) makes the ratio undefined; pandas
+    # would otherwise skip it and silently shrink the sample.
+    if len(numerator) < 2 or numerator.isna().any() or not denominator > 0:
         return float("nan")
     return float(numerator.mean() / denominator * np.sqrt(ppy))
 
 
-def compute_sharpe(
-    returns: pd.Series, periods_per_year: float, risk_free_rate: float = 0.0
-) -> float:
-    """``risk_free_rate`` is annual; it is de-annualised per period."""
-    excess = returns - risk_free_rate / periods_per_year
+def compute_sharpe(excess: pd.Series, periods_per_year: float) -> float:
+    """``excess``: period returns minus the risk-free rate (see
+    ``rates.excess_returns``)."""
     return _annualised_ratio(excess, excess.std(ddof=1), periods_per_year)
 
 
-def compute_sortino(
-    returns: pd.Series, periods_per_year: float, target_return: float = 0.0
-) -> float:
-    """Downside deviation is taken over *all* periods (not only losing ones)."""
-    excess = returns - target_return / periods_per_year
+def compute_sortino(excess: pd.Series, periods_per_year: float) -> float:
+    """
+    ``excess``: period returns minus the target (the risk-free rate, via
+    ``rates.excess_returns``). Downside deviation is taken over *all* periods.
+    """
     downside_dev = np.sqrt((excess.clip(upper=0) ** 2).mean())
     return _annualised_ratio(excess, downside_dev, periods_per_year)
 

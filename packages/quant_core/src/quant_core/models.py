@@ -125,6 +125,15 @@ def listing_symbols(items: Iterable["Position | Transaction"]) -> Dict[Listing, 
     return symbols
 
 
+class Benchmark(BaseModel):
+    """What a portfolio is compared against (PR 7): a listing and its currency."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str = "SPY"
+    currency: Currency = Currency.USD
+
+
 class Portfolio(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     base_currency: Currency = Field(default=Currency.USD)
@@ -133,6 +142,7 @@ class Portfolio(BaseModel):
     open_orders: List[OrderRequest] = Field(default_factory=list)
     # Hand-written ledger (PR 2b). Empty means "snapshot only".
     transactions: List["Transaction"] = Field(default_factory=list)
+    benchmark: Benchmark = Field(default_factory=Benchmark)
 
     @model_validator(mode="after")
     def _ledger_is_consistent(self) -> "Portfolio":
@@ -415,3 +425,33 @@ class PerformanceMetrics(BaseModel):
         float("nan"), description="Fraction of closed round trips with positive PnL."
     )
     total_trades: int = Field(0, description="Total filled trade executions count.")
+
+
+def _nan(description: str):
+    return Field(float("nan"), description=description)
+
+
+class BenchmarkMetrics(BaseModel):
+    """
+    Portfolio vs benchmark on aligned daily returns (PR 7). Fractions, NaN
+    when undefined or below the minimum sample; ``n_obs`` is always reported.
+    Alpha is arithmetic (daily intercept x periods per year), not a CAGR gap.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_obs: int = Field(0, description="Aligned daily returns.")
+    hac_lags: Optional[int] = Field(None, description="Newey-West lags used.")
+    alpha: float = _nan("Annualised Jensen's alpha on excess returns.")
+    alpha_se: float = _nan("HAC standard error of alpha (annualised).")
+    alpha_ci_low: float = _nan("Lower bound of alpha's confidence interval.")
+    alpha_ci_high: float = _nan("Upper bound of alpha's confidence interval.")
+    beta: float = _nan("Slope on benchmark excess returns.")
+    beta_se: float = _nan("HAC standard error of beta.")
+    beta_ci_low: float = _nan("Lower bound of beta's confidence interval.")
+    beta_ci_high: float = _nan("Upper bound of beta's confidence interval.")
+    dimson_beta: float = _nan("Beta + lag-1 beta: corrects non-synchronous prices.")
+    r_squared: float = _nan("Squared correlation of the daily returns.")
+    up_capture: float = _nan("Geometric up-market capture ratio.")
+    down_capture: float = _nan("Geometric down-market capture ratio.")
+    information_ratio: float = _nan("Annualised active return / tracking error.")
