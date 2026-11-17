@@ -67,70 +67,20 @@ How to read it:
 
 ## 🛠️ How to Add a Portfolio (Without Real Broker Data)
 
-If you haven't actually implemented the real API connections inside the `quant_data` broker connectors yet, the CLI will probably crash or return empty data when trying to connect.
+The `ibkr`, `inviu` and `iol` connectors are still mocks. To analyse a real portfolio, write it as a YAML file and pass `--broker yaml --file <path>`; no code changes are needed. `portfolio.yaml` in this folder is a minimal example:
 
-To test the tool and bypass the real broker connections, you can easily hardcode a **Mock Portfolio**. Here is how you manually construct a valid `Portfolio` object using the `quant_core` domain models:
-
-```python
-from datetime import datetime, timezone
-from quant_core.enums import Currency
-from quant_core.models import Portfolio, Position, CashBalance, FXContext
-
-# 1. Create Mock Positions
-my_positions = [
-    Position(
-        instrument_id="AAPL",
-        currency=Currency.USD,
-        quantity=10.0,
-        cost_basis=150.0,
-        current_price=175.50
-    ),
-    Position(
-        instrument_id="YPF",
-        currency=Currency.ARS,
-        quantity=100.0,
-        cost_basis=12000.0,
-        current_price=15500.0
-    )
-]
-
-# 2. Create Mock Cash Balances
-my_cash = [
-    CashBalance(currency=Currency.USD, total=5000.0, available=5000.0),
-    CashBalance(currency=Currency.ARS, total=250000.0, available=250000.0)
-]
-
-# 3. Build the Portfolio
-mock_portfolio = Portfolio(
-    timestamp=datetime.now(timezone.utc),
-    base_currency=Currency.USD,
-    positions=my_positions,
-    cash_balances=my_cash
-)
+```yaml
+base_currency: USD
+positions:
+  - {instrument_id: AAPL, currency: USD, quantity: 10, cost_basis: 150.0}
+  - {instrument_id: YPF, provider_symbol: YPFD.BA, currency: ARS, quantity: 100, cost_basis: 12000.0}
+cash_balances:
+  - {currency: USD, total: 5000.0, available: 5000.0}
+  - {currency: ARS, total: 250000.0, available: 250000.0}
+# optional
+transactions: []                      # the ledger (section 3); client-review needs it
+benchmark: {symbol: SPY, currency: USD}
 ```
-
-### Injecting it into `main.py`
-To use this mock portfolio to test the `analyze` command without touching the `quant_data` package, simply modify `apps/portfolio_analyser/main.py`:
-
-```python
-@cli.command()
-@click.option("--broker", type=click.Choice(["ibkr", "inviu", "iol"]), required=True)
-def analyze(broker):
-    click.echo(f"Analyzing portfolio from {broker}...")
-
-    # Override the real connector with the mock portfolio you built above!
-    portfolio = mock_portfolio
-
-    # Setup your FX rates to convert ARS and EUR to your base currency (USD)
-    fx_context = FXContext(
-        base_currency=portfolio.base_currency,
-        rates={
-            Currency.ARS: 0.001,  # Example: 1 ARS = 0.001 USD
-            Currency.EUR: 1.1,
-            Currency.USD: 1.0,
-        },
-    )
-
-    total_value = portfolio.total_value(fx_context)
-    click.echo(f"Total Portfolio Value ({portfolio.base_currency.value}): {total_value:.2f}")
-```
+- `instrument_id` is the broker's name for the holding; `provider_symbol` is the market-data symbol when it differs (YPF in ARS trades as `YPFD.BA`).
+- `current_price` may be present but is ignored: positions are valued at the cached market close (section 1). FX comes from the market too (the CCL rate for ARS), never typed by hand.
+- `base_currency` is the reporting currency (`USD` or `ARS`).
