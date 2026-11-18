@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from IPython.display import clear_output, display
 from plotly.subplots import make_subplots
+from quant_core.analytics import wealth_index
 from quant_core.enums import OrderSide, SignalType
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,6 +17,15 @@ from trading_bot.config import get_settings
 from trading_bot.core.database import create_db_engine
 
 logger = logging.getLogger(__name__)
+
+
+def _cumulative_return(levels: pd.Series) -> pd.Series:
+    """Growth of 1 minus 1 over the priced rows (a non-positive level is
+    missing), compounding across gaps; NaN where unpriced or undefined."""
+    priced = levels.where(levels > 0).dropna()
+    if priced.empty:
+        return pd.Series(np.nan, index=levels.index)
+    return wealth_index(priced).reindex(levels.index) - 1.0
 
 
 class BacktestVisualizer:
@@ -275,18 +285,11 @@ class BacktestVisualizer:
                 .fillna(0.0)
             )
 
-        # Cumulative P&L
-        df["cum_baseline_return"] = (1.0 + df["raw_return"]).cumprod() - 1.0
+        # Cumulative P&L (buy-and-hold baseline and logged equity) from quant_core
+        df["cum_baseline_return"] = _cumulative_return(df["close"])
 
         if "actual_equity" in df.columns and not df["actual_equity"].isnull().all():
-            # Use actual logged portfolio equity
-            initial_equity = df["actual_equity"].iloc[0]
-            if initial_equity > 0:
-                df["cum_strat_return"] = (
-                    df["actual_equity"] - initial_equity
-                ) / initial_equity
-            else:
-                df["cum_strat_return"] = 0.0
+            df["cum_strat_return"] = _cumulative_return(df["actual_equity"])
 
             if "equity_position" in df.columns:
                 df["strat_position"] = df["equity_position"]

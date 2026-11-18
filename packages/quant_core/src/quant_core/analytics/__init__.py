@@ -1,7 +1,15 @@
+from .benchmark import (
+    HacFit,
+    align_daily,
+    compute_capture_ratios,
+    hac_ols,
+    newey_west_lags,
+)
 from .corporate_actions import (
     adjust,
     adjust_frame,
     local_dates,
+    net_of_withholding,
     split_factor,
     unadjust_dividends,
     unadjust_splits,
@@ -14,6 +22,7 @@ from .drawdown import (
     top_drawdowns,
 )
 from .fx import ccl_from_pairs, implied_ccl
+from .rates import RiskFree, excess_returns, tbill_bond_equivalent_yield
 from .ratios import (
     compute_calmar,
     compute_information_ratio,

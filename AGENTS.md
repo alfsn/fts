@@ -4,6 +4,11 @@ Workspace-wide rules for agents working in this repo (fts, portfolio_analyser, a
 For the fts agent constitution (SOLID, Pydantic, `uv`), see `docs/architecture/fts/AGENTS.md`.
 Roadmap status lives in `apps/portfolio_analyser/MASTER_PR_BACKLOG.md`; keep it updated there.
 
+## Documentation
+
+- **Docs follow the code, in the same PR.** When a change touches a command, flag, config/YAML field, output or workflow, update the docs that describe it (`HOW_TO_USE.md`, READMEs, `docs/`, this file). Delete sections that describe code which no longer exists rather than leaving them.
+- **Documented commands must run.** Before committing, run each command or example you changed in the docs, or cover it with a test.
+
 ## Performance & risk analytics
 
 - **One home for the maths.** All KPI maths lives in `quant_core.analytics` (returns / drawdown / ratios / trades). Both apps get KPIs through `quant_core.metrics.compute_performance_metrics`. Apps only map their data to its inputs (fts: `trading_bot/core/performance.py`; analyser: `visualization/plot_factory.py`). Never reimplement a metric in an app.

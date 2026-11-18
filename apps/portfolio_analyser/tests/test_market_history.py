@@ -106,3 +106,14 @@ def test_history_symbols_include_the_ccl_pairs_for_ars():
         cash_balances=[CashBalance(currency=Currency.ARS, total=1, available=1)],
     )
     assert {"GGAL.BA", "GGAL", "YPFD.BA", "YPF"} <= history_symbols(portfolio)
+
+
+def test_usd_is_priced_without_any_ccl_pair():
+    """A USD-only portfolio fetches no ARS pairs: USD must still be 1, ARS NaN."""
+    from data_layer.market_history import usd_per_unit
+
+    dates = pd.bdate_range("2024-01-02", periods=3, tz="UTC")
+    fx = usd_per_unit(pd.Series(dtype=float), dates)
+
+    assert list(fx[Currency.USD]) == [1.0, 1.0, 1.0]
+    assert fx[Currency.ARS].isna().all()

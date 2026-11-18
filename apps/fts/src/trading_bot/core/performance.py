@@ -11,19 +11,38 @@ from typing import Iterable, List
 import pandas as pd
 from quant_core.analytics import compute_win_rate, round_trip_pnls
 from quant_core.enums import OrderSide
-from quant_core.metrics import compute_performance_metrics
-from quant_core.models import PerformanceMetrics
+from quant_core.metrics import compute_benchmark_metrics, compute_performance_metrics
+from quant_core.models import BenchmarkMetrics, PerformanceMetrics
 
 from .models import BacktestEquityLog, TradeLog
 
 
-def equity_series(equity_records: Iterable[BacktestEquityLog]) -> pd.Series:
+def _log_series(equity_records: Iterable[BacktestEquityLog], column: str) -> pd.Series:
     records = [e for e in equity_records if e.timestamp is not None]
     return pd.Series(
-        [e.equity for e in records],
+        [getattr(e, column) for e in records],
         index=pd.DatetimeIndex([e.timestamp for e in records]),
         dtype=float,
     )
+
+
+def equity_series(equity_records: Iterable[BacktestEquityLog]) -> pd.Series:
+    return _log_series(equity_records, "equity")
+
+
+def build_benchmark_metrics(
+    equity_records: List[BacktestEquityLog],
+) -> BenchmarkMetrics:
+    """
+    Alpha/beta of the strategy against buy-and-hold of the instrument it
+    traded (the logged ``close``), on daily closes, risk-free 0 (PR 7). The
+    close is raw: right for crypto, wrong across an equity split. The engine
+    logs ``close = 0.0`` when it has no bar; that is a missing price, not 0.
+    """
+    close = _log_series(equity_records, "close")
+    return compute_benchmark_metrics(
+        equity_series(equity_records), None, close.where(close > 0)
+    ).metrics
 
 
 def trade_win_rate(trade_records: Iterable[TradeLog]) -> float:
