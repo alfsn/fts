@@ -56,6 +56,8 @@ class Portfolio:
         self._positions: Dict[str, Position] = {}
         # Key: order_id -> OrderRequest schema
         self._open_orders: Dict[str, OrderRequest] = {}
+        # Last bar close seen per instrument_id, carried over ticks without a bar
+        self._last_close: Dict[str, float] = {}
 
         logger.info(
             f"Portfolio initialized with cash: {initial_balance:.2f} "
@@ -238,19 +240,52 @@ class Portfolio:
             f"Realized P&L: {realized_pnl:.2f}. New cash: {self._cash_balance:.2f}"
         )
 
+    # --- Valuation (PR 7b): one price rule for equity ------------------------
+
+    def mark(self, market_data_map: Dict[str, MarketData]) -> None:
+        """Remember the latest bar close of every instrument in the map. A tick
+        without a bar keeps the previous close: a missing bar is not a price of 0."""
+        for instrument_id, market_data in market_data_map.items():
+            if market_data.recent_bars:
+                self._last_close[instrument_id] = market_data.recent_bars[-1].close
+
+    def last_close(self, instrument_id: str) -> Optional[float]:
+        return self._last_close.get(instrument_id)
+
+    def mark_price(self, pos: Position) -> float:
+        """
+        Last close of the position's instrument. Before any close is seen, and
+        for prediction-market outcome positions (the bars are the instrument's,
+        not the YES/NO side's; see MASTER_PR_BACKLOG PR 7b), the cost basis.
+        """
+        close = None if pos.outcome else self._last_close.get(pos.instrument_id)
+        return pos.cost_basis if close is None else close
+
+    def equity(self, market_data_map: Dict[str, MarketData]) -> float:
+        """Cash plus every position at its mark price. The single equity
+        number: the backtest log, the risk limits and the sizers all use it."""
+        self.mark(market_data_map)
+        return self._cash_balance + sum(
+            pos.quantity * self.mark_price(pos) for pos in self._positions.values()
+        )
+
     def calculate_unrealized_pnl(
         self, market_data_map: Dict[str, MarketData]
     ) -> Dict[str, float]:
         """
-        Calculates the unrealized P&L for all open positions.
+        Unrealized P&L at the price a position could be closed at: the best bid
+        (long) or ask (short). Used only to check a trade against the
+        allocation limits; equity uses ``equity()``. Without a book, the mark
+        price.
 
         :param market_data_map: A map of instrument_id to MarketData.
         :return: A dictionary mapping position keys to their unrealized P&L.
         """
+        self.mark(market_data_map)
         pnl_map = {}
         for key, pos in self._positions.items():
             market_data = market_data_map.get(pos.instrument_id)
-            current_price = pos.cost_basis  # Default to no P&L
+            current_price = self.mark_price(pos)
 
             if market_data:
                 try:
@@ -269,7 +304,7 @@ class Portfolio:
                     ):
                         current_price = market_data.order_book.asks[0].price
                 except IndexError:
-                    pass  # No liquidity, use entry price
+                    pass  # No liquidity, use the mark price
 
             unrealized_pnl = pos.quantity * (current_price - pos.cost_basis)
             pnl_map[key] = unrealized_pnl
@@ -293,24 +328,9 @@ class Portfolio:
 
         available_balance = self._cash_balance - committed_cash
 
-        # 2. Calculate total market value of all positions
-        total_market_value = 0.0
+        # 2. Total balance = the single marked equity (PR 7b)
         positions_list = list(self._positions.values())
-        unrealized_pnl_map = self.calculate_unrealized_pnl(market_data_map)
-
-        for pos in positions_list:
-            key = (
-                f"{pos.instrument_id}:{pos.outcome}"
-                if pos.outcome
-                else pos.instrument_id
-            )
-            pnl = unrealized_pnl_map.get(key, 0.0)
-            cost_basis = pos.quantity * pos.cost_basis
-            market_value = cost_basis + pnl
-            total_market_value += market_value
-
-        # 3. Total balance = current cash + current market value of positions
-        total_balance = self._cash_balance + total_market_value
+        total_balance = self.equity(market_data_map)
 
         return PortfolioSchema(
             cash_balances=[

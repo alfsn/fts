@@ -614,3 +614,124 @@ class TestRiskManager:
             sizing_output, signal, portfolio_state, market_map
         )
         assert passes
+
+
+# --- PR 7b: one equity number -------------------------------------------------
+
+
+def _with_bar(market_data, close):
+    from trading_bot.core.schemas import BarData
+
+    bar = BarData(
+        timestamp=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        open=close,
+        high=close,
+        low=close,
+        close=close,
+        volume=1.0,
+        bar_type="time",
+        ticks_count=1,
+        dollar_volume=close,
+    )
+    return market_data.model_copy(update={"recent_bars": [bar]})
+
+
+class TestSingleValuation:
+    def test_equity_uses_the_last_close_not_the_bid(
+        self, base_portfolio: Portfolio, mock_market_data
+    ):
+        base_portfolio._positions["MARKET_01"] = Position(
+            instrument_id="MARKET_01", quantity=100, cost_basis=0.40
+        )
+        data = {"MARKET_01": _with_bar(mock_market_data, 0.50)}
+
+        assert base_portfolio.equity(data) == pytest.approx(10000 + 100 * 0.50)
+        assert base_portfolio.get_state(data).cash_balances[0].total == pytest.approx(
+            10050.0
+        )
+        # the allocation-limit check still prices the position at the bid
+        assert base_portfolio.calculate_unrealized_pnl(data)[
+            "MARKET_01"
+        ] == pytest.approx(100 * (0.49 - 0.40))
+
+    def test_a_tick_without_a_bar_keeps_the_last_close(
+        self, base_portfolio: Portfolio, mock_market_data
+    ):
+        base_portfolio._positions["MARKET_01"] = Position(
+            instrument_id="MARKET_01", quantity=100, cost_basis=0.40
+        )
+        base_portfolio.equity({"MARKET_01": _with_bar(mock_market_data, 0.50)})
+
+        # no bar, and an empty map: still 0.50, never 0
+        assert base_portfolio.equity({"MARKET_01": mock_market_data}) == 10050.0
+        assert base_portfolio.equity({}) == 10050.0
+        assert base_portfolio.last_close("MARKET_01") == 0.50
+
+    def test_limit_check_without_a_book_uses_the_last_close(
+        self, base_portfolio: Portfolio, mock_market_data
+    ):
+        base_portfolio._positions["MARKET_01"] = Position(
+            instrument_id="MARKET_01", quantity=100, cost_basis=0.40
+        )
+        no_book = _with_bar(mock_market_data, 0.45).model_copy(
+            update={"order_book": None}
+        )
+        pnl = base_portfolio.calculate_unrealized_pnl({"MARKET_01": no_book})
+        assert pnl["MARKET_01"] == pytest.approx(100 * (0.45 - 0.40))  # not 0
+
+    def test_before_any_close_a_position_is_at_cost_basis(
+        self, base_portfolio: Portfolio
+    ):
+        base_portfolio._positions["MARKET_01"] = Position(
+            instrument_id="MARKET_01", quantity=100, cost_basis=0.40
+        )
+        assert base_portfolio.equity({}) == pytest.approx(10040.0)
+
+    def test_outcome_positions_are_at_cost_basis(
+        self, base_portfolio: Portfolio, mock_market_data
+    ):
+        """Known limit (backlog PR 7b): the bars are the instrument's, not the
+        YES/NO side's, so an outcome position is not marked to them."""
+        base_portfolio._positions["MARKET_01:YES"] = Position(
+            instrument_id="MARKET_01", outcome="YES", quantity=100, cost_basis=0.40
+        )
+        data = {"MARKET_01": _with_bar(mock_market_data, 0.90)}
+        assert base_portfolio.equity(data) == pytest.approx(10040.0)
+
+
+class TestSizersUseEquity:
+    """Both sizers read an attribute Portfolio never had (total_balance_usd)."""
+
+    def _input(self, market_data, signal, total):
+        from trading_bot.core.schemas import SizingInput
+
+        state = PortfolioSchema(
+            cash_balances=[CashBalance(currency="USD", total=total, available=total)],
+            positions=[],
+        )
+        return SizingInput(
+            signal=signal, market_data=market_data, portfolio_state=state
+        )
+
+    def test_fixed_percentage(self, mock_market_data, mock_buy_signal):
+        from trading_bot.risk_management.sizing.fixed_percentage import (
+            FixedPercentageSizer,
+        )
+
+        out = FixedPercentageSizer(0.02).calculate_size(
+            self._input(mock_market_data, mock_buy_signal, 10000.0)
+        )
+        assert out.amount_quote == pytest.approx(200.0)
+        assert out.quantity_shares == pytest.approx(200.0 / 0.51)
+
+    def test_kelly(self, mock_market_data, mock_buy_signal):
+        from trading_bot.risk_management.sizing.kelly_criterion import (
+            KellyCriterionSizer,
+        )
+
+        b = 0.49 / 0.51
+        f = (0.6 * b - 0.4) / b
+        out = KellyCriterionSizer(0.5).calculate_size(
+            self._input(mock_market_data, mock_buy_signal, 10000.0)
+        )
+        assert out.amount_quote == pytest.approx(10000.0 * f * 0.5)

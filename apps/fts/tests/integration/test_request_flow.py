@@ -156,8 +156,9 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     assert position.quantity == 1000.0
     assert position.cost_basis == 0.60
 
-    # P&L calculation (Unrealized P&L: 1000 * (0.59 - 0.60) = -10)
-    assert post_buy_state.cash_balances[0].total == 9990.0  # 9400 cash + (1000 * 0.59)
+    # Total is the marked equity (PR 7b): no bars yet, so the position is at
+    # its entry price, 9400 + 1000 x 0.60. The bid (0.59) is for limits only.
+    assert post_buy_state.cash_balances[0].total == 10000.0
     assert post_buy_state.cash_balances[0].available == 9400.0
 
     # Check database state

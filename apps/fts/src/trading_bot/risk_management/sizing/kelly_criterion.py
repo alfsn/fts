@@ -116,7 +116,7 @@ class KellyCriterionSizer(BaseSizingStrategy):
         f_safe = f_kelly * self.kelly_fraction
 
         # Calculate final size
-        total_equity = input_data.portfolio_state.total_balance_usd
+        total_equity = input_data.portfolio_state.cash_balances[0].total
         amount_quote = total_equity * f_safe
         size_shares = amount_quote / price
 

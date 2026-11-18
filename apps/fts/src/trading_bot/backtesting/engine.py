@@ -145,32 +145,23 @@ class BacktestEngine:
             equity_curve: List[Dict[str, Any]] = []
 
             def on_tick_callback(tick_data: Any) -> None:
-                # Track portfolio balances and position size (using public accessors)
-                current_cash = self.pipeline.portfolio.cash_balance
+                # Equity comes from the portfolio's single valuation (PR 7b):
+                # every position at its last close, carried over missing bars.
+                portfolio = self.pipeline.portfolio
+                market_data_map = {m.instrument_id: m for m in tick_data.market_data}
+                equity = portfolio.equity(market_data_map)
+                current_cash = portfolio.cash_balance
 
                 pos_size = 0.0
-                close_price = 0.0
-
+                close_price = 0.0  # no single traded instrument: no close column
                 if self.instrument_id:
-                    # Retrieve active position size
-                    pos = self.pipeline.portfolio.positions.get(self.instrument_id)
+                    close = portfolio.last_close(self.instrument_id)
+                    if close is None:
+                        return  # no price seen yet: nothing to value
+                    close_price = close
+                    pos = portfolio.positions.get(self.instrument_id)
                     if pos:
                         pos_size = pos.quantity
-
-                    # Retrieve last close price for equity calculation
-                    market_data = next(
-                        (
-                            m
-                            for m in tick_data.market_data
-                            if m.instrument_id == self.instrument_id
-                        ),
-                        None,
-                    )
-                    if market_data and market_data.recent_bars:
-                        close_price = market_data.recent_bars[-1].close
-
-                # Equity = Cash + Position Value (valued at current close price)
-                equity = current_cash + (pos_size * close_price)
 
                 equity_curve.append(
                     {
