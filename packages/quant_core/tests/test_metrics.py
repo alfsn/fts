@@ -42,3 +42,18 @@ def test_metrics_empty():
     m = compute_performance_metrics(pd.Series(dtype=float, index=pd.DatetimeIndex([])))
     assert np.isnan(m.total_return)
     assert m.total_trades == 0
+
+
+def test_dispersion_at_zero_rate_is_plain_daily_returns():
+    from quant_core.analytics import periods_per_year
+
+    idx = pd.date_range("2024-01-01", periods=200, freq="6h")
+    values = pd.Series(
+        100 * np.cumprod(1 + np.random.default_rng(7).normal(0, 0.01, 200)), idx
+    )
+    m = compute_performance_metrics(values)
+    daily = values.groupby(values.index.normalize()).last()
+    r = daily.pct_change().dropna()
+    ppy = periods_per_year(daily.index)
+    assert m.volatility == pytest.approx(r.std(ddof=1) * np.sqrt(ppy))
+    assert m.sharpe_ratio == pytest.approx(r.mean() / r.std(ddof=1) * np.sqrt(ppy))

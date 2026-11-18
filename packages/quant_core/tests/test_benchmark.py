@@ -256,3 +256,11 @@ def test_net_of_withholding_scales_dividends_only():
     assert actions[0].amount == 2.0  # input untouched
     with pytest.raises(ValueError):
         net_of_withholding(actions, 1.0)
+
+
+@pytest.mark.parametrize("n", [0, 1, 50, 600])
+def test_min_obs_is_reported_on_every_path(n):
+    portfolio, benchmark = _market()
+    values = portfolio.iloc[: n + 1] if n else portfolio.iloc[:1]
+    m = compute_benchmark_metrics(values, None, benchmark, min_obs=300).metrics
+    assert m.min_obs == 300
