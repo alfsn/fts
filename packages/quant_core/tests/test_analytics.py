@@ -184,3 +184,14 @@ def test_open_fills_are_not_wins():
     assert round_trip_pnls([(1, 10), (2, 11)]) == []
     assert np.isnan(compute_win_rate([]))
     assert compute_win_rate([1.0, -1.0, 2.0]) == pytest.approx(2 / 3)
+
+
+def test_daily_returns_are_the_daily_closes_returns_and_their_frequency():
+    from quant_core.analytics import daily_returns, periods_per_year, to_daily
+
+    idx = pd.date_range("2024-01-01", periods=96, freq="6h")
+    levels = pd.Series(np.linspace(1.0, 1.2, 96), index=idx)
+    returns, ppy = daily_returns(levels)
+    daily = to_daily(levels)
+    pd.testing.assert_series_equal(returns, daily.pct_change().dropna())
+    assert ppy == periods_per_year(daily.index)

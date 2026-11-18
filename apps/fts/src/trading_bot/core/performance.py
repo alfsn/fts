@@ -11,8 +11,12 @@ from typing import Iterable, List
 import pandas as pd
 from quant_core.analytics import compute_win_rate, round_trip_pnls
 from quant_core.enums import OrderSide
-from quant_core.metrics import compute_benchmark_metrics, compute_performance_metrics
-from quant_core.models import BenchmarkMetrics, PerformanceMetrics
+from quant_core.metrics import (
+    compute_benchmark_metrics,
+    compute_performance_metrics,
+    compute_vol_forecast,
+)
+from quant_core.models import BenchmarkMetrics, PerformanceMetrics, VolForecastMetrics
 
 from .models import BacktestEquityLog, TradeLog
 
@@ -44,6 +48,13 @@ def build_benchmark_metrics(
     return compute_benchmark_metrics(
         equity_series(equity_records), None, close.where(close > 0)
     ).metrics
+
+
+def build_vol_forecast(equity_records: List[BacktestEquityLog]) -> VolForecastMetrics:
+    """EWMA volatility forecast of the strategy's equity, checked against the
+    volatility it then realised (PR 10). Detail view only: it is not worth
+    computing for every run in a catalog listing."""
+    return compute_vol_forecast(equity_series(equity_records)).metrics
 
 
 def trade_win_rate(trade_records: Iterable[TradeLog]) -> float:

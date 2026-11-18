@@ -1,27 +1,34 @@
 """
-Single entry point composing the analytics primitives into ``PerformanceMetrics``
-and ``BenchmarkMetrics``. Both fts backtests and the portfolio analyser go
+Single entry point composing the analytics primitives into ``PerformanceMetrics``,
+``BenchmarkMetrics`` and ``VolForecastMetrics``. Both fts backtests and the portfolio analyser go
 through here so a KPI means the same thing everywhere.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Dict, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
 from .analytics import (
+    EWMA_SEED_OBS,
+    RISKMETRICS_DAILY_LAMBDA,
     RiskFree,
     align_daily,
+    annualise_variance,
     compute_cagr,
     compute_calmar,
     compute_capture_ratios,
     compute_information_ratio,
     compute_max_drawdown,
+    compute_rolling_vol,
     compute_sharpe,
     compute_sortino,
     compute_volatility,
+    daily_returns,
+    evaluate_variance_forecast,
+    ewma_variance,
     excess_returns,
     hac_ols,
     max_time_underwater_days,
@@ -30,11 +37,13 @@ from .analytics import (
     wealth_index,
     years_between,
 )
-from .models import BenchmarkMetrics, PerformanceMetrics
+from .models import BenchmarkMetrics, PerformanceMetrics, VolForecastMetrics
 
 # A beta on less than a year of daily data is mostly noise (PR 7, D5).
 MIN_BENCHMARK_OBS = 252
 CONFIDENCE = 0.95
+# Forecast-quality statistics need a year of out-of-sample days, like beta.
+MIN_VOL_EVAL_OBS = MIN_BENCHMARK_OBS
 
 
 def compute_performance_metrics(
@@ -56,15 +65,13 @@ def compute_performance_metrics(
     cagr = compute_cagr(total_return, years_between(values.index[0], values.index[-1]))
     max_dd = compute_max_drawdown(wealth)
 
-    daily = to_daily(wealth)
-    daily_returns = daily.pct_change().dropna()
-    excess = excess_returns(daily, risk_free_rate)
-    ppy = periods_per_year(daily.index)
+    returns, ppy = daily_returns(wealth)
+    excess = excess_returns(to_daily(wealth), risk_free_rate)
 
     return PerformanceMetrics(
         total_return=total_return,
         cagr=cagr,
-        volatility=compute_volatility(daily_returns, ppy),
+        volatility=compute_volatility(returns, ppy),
         sharpe_ratio=compute_sharpe(excess, ppy),
         sortino_ratio=compute_sortino(excess, ppy),
         calmar_ratio=compute_calmar(cagr, max_dd),
@@ -169,4 +176,84 @@ def compute_benchmark_metrics(
         ),
         wealth,
         excess,
+    )
+
+
+def compute_rolling_vols(
+    values: pd.Series,
+    cash_flows: Optional[pd.Series],
+    windows: Sequence[int],
+) -> Dict[str, pd.Series]:
+    """Annualised rolling volatility of the daily flow-adjusted wealth index,
+    keyed by window label (``"30d"``)."""
+    returns, ppy = daily_returns(wealth_index(values.sort_index(), cash_flows))
+    return {f"{w}d": compute_rolling_vol(returns, w, ppy) for w in windows}
+
+
+@dataclass
+class VolForecastAnalysis:
+    """What the charts need: metrics and the annualised volatility series."""
+
+    metrics: VolForecastMetrics = field(default_factory=VolForecastMetrics)
+    # At date t: forecast = EWMA for t+1, baseline = rolling one-year for t+1,
+    # realised = volatility of the next ``horizon`` returns. Annualised fractions.
+    frame: pd.DataFrame = field(
+        default_factory=lambda: _empty_frame(["forecast", "realised", "baseline"])
+    )
+
+
+def compute_vol_forecast(
+    values: pd.Series,
+    cash_flows: Optional[pd.Series] = None,
+    lam: float = RISKMETRICS_DAILY_LAMBDA,
+    seed_obs: int = EWMA_SEED_OBS,
+    min_obs: int = MIN_VOL_EVAL_OBS,
+) -> VolForecastAnalysis:
+    """
+    RiskMetrics EWMA volatility forecast on the daily returns of the
+    flow-adjusted wealth index, checked out of sample (PR 10).
+
+    Each day's forecast uses returns up to the day before. It is scored
+    against the realised squared return next to a rolling one-year baseline
+    (sample variance over ``round(periods/year)`` returns), both on the same
+    days. The chart's realised line covers the next month
+    (``round(periods/year / 12)`` returns). Below ``min_obs`` common days the
+    scores are NaN; the counts are always set.
+    """
+    values = values.sort_index()
+    if len(values) < 2:
+        return VolForecastAnalysis(VolForecastMetrics(lam=lam))
+    returns, ppy = daily_returns(wealth_index(values, cash_flows))
+    if not ppy > 0:
+        return VolForecastAnalysis(VolForecastMetrics(lam=lam, n_obs=len(returns)))
+    window, horizon = max(2, round(ppy)), max(2, round(ppy / 12))
+
+    ewma = ewma_variance(returns, lam, seed_obs)
+    baseline = compute_rolling_vol(returns, window, 1.0) ** 2
+    forecast_for_t, baseline_for_t = ewma.shift(1), baseline.shift(1)
+    common = forecast_for_t.notna() & baseline_for_t.notna()
+
+    def score(forecast: pd.Series):
+        return evaluate_variance_forecast(
+            returns[common], forecast[common], ppy, min_obs
+        )
+
+    frame = pd.DataFrame(
+        {
+            "forecast": annualise_variance(ewma, ppy),
+            "realised": compute_rolling_vol(returns, horizon, ppy).shift(-horizon),
+            "baseline": annualise_variance(baseline, ppy),
+        }
+    )
+    return VolForecastAnalysis(
+        VolForecastMetrics(
+            lam=lam,
+            n_obs=len(returns),
+            forecast_vol=float(annualise_variance(ewma.iloc[-1], ppy)),
+            baseline_window=window,
+            horizon=horizon,
+            ewma=score(forecast_for_t),
+            baseline=score(baseline_for_t),
+        ),
+        frame,
     )

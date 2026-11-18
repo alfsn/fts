@@ -455,3 +455,42 @@ class BenchmarkMetrics(BaseModel):
     up_capture: float = _nan("Geometric up-market capture ratio.")
     down_capture: float = _nan("Geometric down-market capture ratio.")
     information_ratio: float = _nan("Annualised active return / tracking error.")
+
+
+class ForecastEvaluation(BaseModel):
+    """
+    Out-of-sample check of a one-step-ahead variance forecast h_t against the
+    realised squared return r_t² (PR 10). NaN below the minimum sample; ``n``
+    is always reported. The squared return is a noisy proxy, so the
+    Mincer-Zarnowitz R² is low by construction: judge a forecast by QLIKE
+    against a baseline on the same days, and by slope / z-std near 1.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n: int = Field(0, description="Days with both a forecast and a return.")
+    qlike: float = _nan("Mean QLIKE loss r²/h + ln h (lower is better).")
+    mz_intercept: float = _nan("Mincer-Zarnowitz intercept (annualised variance).")
+    mz_slope: float = _nan("Mincer-Zarnowitz slope of r² on h (ideal 1).")
+    mz_slope_se: float = _nan("HAC standard error of the slope.")
+    mz_r_squared: float = _nan("R² of the Mincer-Zarnowitz regression.")
+    hac_lags: Optional[int] = Field(None, description="Newey-West lags used.")
+    z_std: float = _nan("Std of standardized returns r / sqrt(h) (ideal 1).")
+
+
+class VolForecastMetrics(BaseModel):
+    """
+    EWMA (RiskMetrics) volatility forecast on daily wealth-index returns and
+    its out-of-sample evaluation against a rolling one-year baseline, both
+    scored on the same days (PR 10). Volatilities are annualised fractions.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    lam: float = _nan("EWMA decay factor (weight of yesterday's variance).")
+    n_obs: int = Field(0, description="Daily returns.")
+    forecast_vol: float = _nan("Next-day EWMA volatility, annualised.")
+    baseline_window: int = Field(0, description="Baseline window (obs, ~1 year).")
+    horizon: int = Field(0, description="Realised-vol window (obs, ~1 month).")
+    ewma: ForecastEvaluation = Field(default_factory=ForecastEvaluation)
+    baseline: ForecastEvaluation = Field(default_factory=ForecastEvaluation)

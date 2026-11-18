@@ -40,6 +40,16 @@ def to_daily(series: pd.Series) -> pd.Series:
     return series.groupby(series.index.normalize()).last()
 
 
+def daily_returns(levels: pd.Series) -> tuple[pd.Series, float]:
+    """
+    Returns of the daily closes of ``levels`` (e.g. a flow-adjusted wealth
+    index) and the observed periods per year of those closes: the input of
+    every dispersion statistic (volatility, Sharpe, EWMA forecast).
+    """
+    daily = to_daily(levels)
+    return daily.pct_change().dropna(), periods_per_year(daily.index)
+
+
 def _aligned_flows(values: pd.Series, cash_flows: Optional[pd.Series]) -> pd.Series:
     if cash_flows is None:
         return pd.Series(0.0, index=values.index)

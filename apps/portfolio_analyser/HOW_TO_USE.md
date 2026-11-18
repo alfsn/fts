@@ -63,6 +63,18 @@ How to read it:
 - Cash in the portfolio lowers beta: that's real exposure, not an error.
 - The benchmark reinvests dividends on the ex-date, while the ledger books them on the pay date, so tracking error is slightly noisier around dividends.
 
+### 5. Expected volatility (EWMA forecast)
+`client-review` also forecasts how much the portfolio will move tomorrow and checks that forecast against what really happened. There are no new flags.
+- **The forecast** is RiskMetrics EWMA on the daily returns of the flow-adjusted wealth index (deposits and withdrawals aren't volatility). Yesterday's move counts the most; each older day counts 6% less (decay λ = 0.94). It is shown annualised ("next-day volatility, ann."), using the portfolio's own trading calendar (about 252 days a year for stocks, 365 for crypto). It starts after 30 daily returns.
+- **The chart** draws each day's forecast next to the volatility actually realised over the **following month**, and a lazy baseline: the sample volatility of the **last year**.
+- **The table** scores both forecasts on the same out-of-sample days (each forecast only uses data up to the day before):
+  - **QLIKE**: lower is better. Only the comparison between the two columns means something, not the level.
+  - **Mincer-Zarnowitz slope** (regression of the realised squared return on the forecast, Newey-West SE): 1 is ideal. Below 1 the forecast over-reacts, and near 0 it carries no information.
+  - **R²** is low by construction: one day's squared return is a very noisy measure of that day's variance. Don't judge the forecast by it.
+  - **Std of standardized returns** (return / forecast vol): about 1 if the forecast is calibrated. Above 1, it understates risk (or the returns have fat tails).
+- Below **252 common out-of-sample days** the scores show n/a; the day count is always shown. The baseline needs a year to start, so the scores need about two years of history.
+- Limits: λ = 0.94 is tuned on developed markets, not re-estimated for ARS assets. EWMA has no mean reversion, so after a shock the annualised number overstates a true 1-year volatility. It describes the portfolio as it was held, not today's weights. Stale BYMA prices make it look calmer.
+
 ---
 
 ## 🛠️ How to Add a Portfolio (Without Real Broker Data)
