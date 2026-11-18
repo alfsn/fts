@@ -195,3 +195,15 @@ def test_daily_returns_are_the_daily_closes_returns_and_their_frequency():
     daily = to_daily(levels)
     pd.testing.assert_series_equal(returns, daily.pct_change().dropna())
     assert ppy == periods_per_year(daily.index)
+
+
+def test_daily_returns_in_excess_of_a_rate_keep_a_stale_rate_as_nan():
+    from quant_core.analytics import daily_returns, excess_returns, to_daily
+
+    # the second interval starts on Jan 15, 13 days after the only quote
+    idx = pd.DatetimeIndex(["2024-01-02", "2024-01-15", "2024-01-16"], tz="UTC")
+    levels = pd.Series([1.0, 1.01, 1.02], idx)
+    rates = pd.Series([0.04], pd.DatetimeIndex(["2024-01-02"], tz="UTC"))
+    excess, _ = daily_returns(levels, rates)
+    pd.testing.assert_series_equal(excess, excess_returns(to_daily(levels), rates))
+    assert len(excess) == 2 and np.isnan(excess.iloc[1])  # kept, not dropped
