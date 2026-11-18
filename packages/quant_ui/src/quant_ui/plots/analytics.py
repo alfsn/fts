@@ -9,13 +9,20 @@ from typing import List, Mapping, Optional
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from quant_core.models import BenchmarkMetrics, DrawdownEpisode, PerformanceMetrics
+from quant_core.models import (
+    BenchmarkMetrics,
+    DrawdownEpisode,
+    ForecastEvaluation,
+    PerformanceMetrics,
+    VolForecastMetrics,
+)
 from quant_ui.plots.theme import BBG_DOWN, BBG_TEXT, setup_bloomberg_theme
 
 setup_bloomberg_theme()
 
 _PORTFOLIO_COLOR = "#2196f3"
 _BASELINE_COLOR = "#78909c"
+_REALISED_COLOR = "#ffb300"
 
 
 def plot_cumulative_returns(
@@ -98,6 +105,18 @@ def _fmt(value: float, pattern: str) -> str:
     return "n/a" if math.isnan(value) else format(value, pattern)
 
 
+def _kpi_table(rows: List[tuple], header: List[str], title: str) -> go.Figure:
+    """A label/value(s) table: ``rows`` are tuples, one cell per header column."""
+    fig = go.Figure(
+        go.Table(
+            header=dict(values=header, fill_color="#1a1a1a"),
+            cells=dict(values=list(zip(*rows)), fill_color="#000000", align="left"),
+        )
+    )
+    fig.update_layout(title=title)
+    return fig
+
+
 def plot_risk_kpi_table(metrics: PerformanceMetrics) -> go.Figure:
     rows = [
         ("Total Return (TWR)", _fmt(metrics.total_return, ".2%")),
@@ -109,14 +128,7 @@ def plot_risk_kpi_table(metrics: PerformanceMetrics) -> go.Figure:
         ("Max Drawdown", _fmt(metrics.max_drawdown, ".2%")),
         ("Longest Time Underwater", _fmt(metrics.time_underwater_days, ".0f") + " d"),
     ]
-    fig = go.Figure(
-        go.Table(
-            header=dict(values=["Risk KPI", "Value"], fill_color="#1a1a1a"),
-            cells=dict(values=list(zip(*rows)), fill_color="#000000", align="left"),
-        )
-    )
-    fig.update_layout(title="Risk KPIs")
-    return fig
+    return _kpi_table(rows, ["Risk KPI", "Value"], "Risk KPIs")
 
 
 def plot_benchmark_scatter(
@@ -187,11 +199,81 @@ def plot_benchmark_kpi_table(
         ("Observations (daily)", f"{m.n_obs} (min {min_obs})"),
         ("Newey-West lags", "n/a" if m.hac_lags is None else str(m.hac_lags)),
     ]
-    fig = go.Figure(
-        go.Table(
-            header=dict(values=["Benchmark KPI", "Value"], fill_color="#1a1a1a"),
-            cells=dict(values=list(zip(*rows)), fill_color="#000000", align="left"),
-        )
+    return _kpi_table(
+        rows, ["Benchmark KPI", "Value"], f"Benchmark KPIs vs {benchmark_name}"
     )
-    fig.update_layout(title=f"Benchmark KPIs vs {benchmark_name}")
+
+
+def plot_vol_forecast(frame: pd.DataFrame, metrics: VolForecastMetrics) -> go.Figure:
+    """EWMA next-day forecast vs the volatility realised over the following
+    ``metrics.horizon`` days, with the rolling one-year baseline (``frame``
+    columns forecast, realised, baseline: annualised fractions)."""
+    lines = [
+        ("forecast", f"EWMA forecast (λ = {metrics.lam:g})", _PORTFOLIO_COLOR, None),
+        ("realised", f"Realised, next {metrics.horizon} days", _REALISED_COLOR, None),
+        (
+            "baseline",
+            f"{metrics.baseline_window}-day baseline",
+            _BASELINE_COLOR,
+            "dash",
+        ),
+    ]
+    fig = go.Figure()
+    for column, name, color, dash in lines:
+        fig.add_trace(
+            go.Scatter(
+                x=frame.index,
+                y=frame[column],
+                mode="lines",
+                name=name,
+                line=dict(color=color, width=1.5, dash=dash),
+            )
+        )
+    fig.update_layout(
+        title=(
+            "Expected Volatility (ann.): next day "
+            f"{_fmt(metrics.forecast_vol, '.1%')}"
+        ),
+        yaxis_tickformat=".0%",
+    )
     return fig
+
+
+def _evaluation_rows(e: ForecastEvaluation) -> List[str]:
+    slope = (
+        "n/a"
+        if math.isnan(e.mz_slope)
+        else f"{e.mz_slope:.2f} ± {_fmt(e.mz_slope_se, '.2f')}"
+    )
+    return [
+        _fmt(e.qlike, ".3f"),
+        slope,
+        _fmt(e.mz_intercept, ".4f"),
+        _fmt(e.mz_r_squared, ".3f"),
+        _fmt(e.z_std, ".2f"),
+        str(e.n),
+    ]
+
+
+def plot_vol_forecast_kpi_table(metrics: VolForecastMetrics, min_obs: int) -> go.Figure:
+    """Forecast quality, EWMA vs baseline, scored on the same days."""
+    labels = [
+        "QLIKE (lower is better)",
+        "Mincer-Zarnowitz slope ± HAC SE (ideal 1)",
+        "Mincer-Zarnowitz intercept (ann. variance, ideal 0)",
+        "Mincer-Zarnowitz R² (low by construction)",
+        "Std of standardized returns (ideal 1)",
+        f"Out-of-sample days (min {min_obs})",
+    ]
+    rows = [
+        ("Next-day volatility (ann.)", _fmt(metrics.forecast_vol, ".2%"), ""),
+        ("Decay λ", _fmt(metrics.lam, "g"), ""),
+        *zip(
+            labels, _evaluation_rows(metrics.ewma), _evaluation_rows(metrics.baseline)
+        ),
+    ]
+    return _kpi_table(
+        rows,
+        ["Forecast KPI", "EWMA", f"{metrics.baseline_window}-day baseline"],
+        "Volatility Forecast vs Realised",
+    )

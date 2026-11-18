@@ -1,23 +1,19 @@
 """Composes quant_core analytics with quant_ui charts for the backward-analytics
-report (Epic 2, PR 7)."""
+report (Epic 2, PR 7; volatility forecast PR 10). No maths here: every number
+comes from quant_core."""
 
 from typing import List, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
-from quant_core.analytics import (
-    RiskFree,
-    compute_rolling_vol,
-    drawdown_series,
-    periods_per_year,
-    to_daily,
-    top_drawdowns,
-    wealth_index,
-)
+from quant_core.analytics import RiskFree, drawdown_series, top_drawdowns, wealth_index
 from quant_core.metrics import (
     MIN_BENCHMARK_OBS,
+    MIN_VOL_EVAL_OBS,
     compute_benchmark_metrics,
     compute_performance_metrics,
+    compute_rolling_vols,
+    compute_vol_forecast,
 )
 from quant_ui.plots.analytics import (
     plot_benchmark_kpi_table,
@@ -26,6 +22,8 @@ from quant_ui.plots.analytics import (
     plot_risk_kpi_table,
     plot_rolling_volatility,
     plot_underwater,
+    plot_vol_forecast,
+    plot_vol_forecast_kpi_table,
 )
 
 ROLLING_WINDOWS = (30, 90, 252)
@@ -45,9 +43,6 @@ def backward_analytics_figures(
     portfolio's dates before any return is taken.
     """
     wealth = wealth_index(values, cash_flows)
-    daily = to_daily(wealth)
-    daily_returns = daily.pct_change().dropna()
-    ppy = periods_per_year(daily.index)
 
     figures = [
         plot_risk_kpi_table(
@@ -76,13 +71,13 @@ def backward_analytics_figures(
             ),
             plot_benchmark_scatter(analysis.excess, analysis.metrics, benchmark_name),
         ]
+    forecast = compute_vol_forecast(values, cash_flows)
     figures += [
         plot_rolling_volatility(
-            {
-                f"{w}d": compute_rolling_vol(daily_returns, w, ppy)
-                for w in ROLLING_WINDOWS
-            }
+            compute_rolling_vols(values, cash_flows, ROLLING_WINDOWS)
         ),
+        plot_vol_forecast(forecast.frame, forecast.metrics),
+        plot_vol_forecast_kpi_table(forecast.metrics, MIN_VOL_EVAL_OBS),
         plot_underwater(drawdown_series(wealth), top_drawdowns(wealth, TOP_DRAWDOWNS)),
     ]
     return figures

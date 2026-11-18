@@ -75,3 +75,24 @@ def test_benchmark_views_show_na_below_the_minimum_sample():
     assert len(fig.data) == 1 and "n/a" in fig.layout.title.text
     cells = plot_benchmark_kpi_table(analysis.metrics, "SPY", 252).data[0].cells.values
     assert cells[1][0] == "n/a" and cells[1][7] == "49 (min 252)"
+
+
+def test_vol_forecast_chart_and_table():
+    from quant_core.metrics import compute_vol_forecast
+    from quant_ui.plots.analytics import plot_vol_forecast, plot_vol_forecast_kpi_table
+
+    long = compute_vol_forecast(
+        pd.Series(
+            100 * np.cumprod(1 + np.random.default_rng(3).normal(0, 0.01, 700)),
+            index=pd.bdate_range("2022-01-03", periods=700),
+        )
+    )
+    fig = plot_vol_forecast(long.frame, long.metrics)
+    assert [t.name for t in fig.data][0] == "EWMA forecast (λ = 0.94)"
+    assert len(fig.data) == 3
+    cells = plot_vol_forecast_kpi_table(long.metrics, 252).data[0].cells.values
+    assert len(cells) == 3 and cells[1][2] != "n/a"  # EWMA QLIKE
+
+    short = compute_vol_forecast(VALUES.iloc[:100]).metrics
+    cells = plot_vol_forecast_kpi_table(short, 252).data[0].cells.values
+    assert cells[1][2] == cells[2][2] == "n/a" and cells[1][-1] == "0"

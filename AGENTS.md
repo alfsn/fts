@@ -11,7 +11,7 @@ Roadmap status lives in `apps/portfolio_analyser/MASTER_PR_BACKLOG.md`; keep it 
 
 ## Performance & risk analytics
 
-- **One home for the maths.** All KPI maths lives in `quant_core.analytics` (returns / drawdown / ratios / trades). Both apps get KPIs through `quant_core.metrics.compute_performance_metrics`. Apps only map their data to its inputs (fts: `trading_bot/core/performance.py`; analyser: `visualization/plot_factory.py`). Never reimplement a metric in an app.
+- **One home for the maths.** All KPI maths lives in `quant_core.analytics` (returns / drawdown / ratios / trades / benchmark / regression / volatility). Both apps get KPIs through `quant_core.metrics` (`compute_performance_metrics`, `compute_benchmark_metrics`, `compute_rolling_vols`, `compute_vol_forecast`). Daily returns for any dispersion statistic come from `analytics.daily_returns(wealth)`. Apps only map their data to its inputs (fts: `trading_bot/core/performance.py`; analyser: `visualization/plot_factory.py`). Never reimplement a metric in an app.
 - **Fractions, not percents.** Store `0.05`, not `5.0`. Multiplying by 100 and `%` formatting happen only in the UI.
 - **Undefined is NaN, never 0.0.** 0.0 is a legitimate result. Write threshold filters so NaN fails them: `not x >= threshold`.
 - **Sample statistics use `ddof=1`.**
