@@ -239,8 +239,9 @@ def client_review(
             start=start,
             end=end,
         )
-    except review.QuantityBreakError as e:
-        _print_breaks(console, e.breaks)
+    except review.ReviewError as e:
+        if e.breaks is not None:
+            _print_breaks(console, e.breaks)
         raise click.ClickException(str(e))
     except (MissingFXRateError, ValueError) as e:
         raise click.ClickException(str(e))

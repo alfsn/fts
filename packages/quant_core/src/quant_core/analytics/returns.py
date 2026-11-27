@@ -72,11 +72,19 @@ def _aligned_flows(values: pd.Series, cash_flows: Optional[pd.Series]) -> pd.Ser
     return flows.reindex(values.index, fill_value=0.0)
 
 
-def _bound(timestamp, index: pd.DatetimeIndex) -> pd.Timestamp:
+def window_bound(
+    timestamp, index: pd.DatetimeIndex, *, end: bool = False
+) -> pd.Timestamp:
+    """A ``window`` bound in ``index``'s frame. A naive bound takes the index's
+    timezone; an aware one is converted to it (to UTC-naive for a naive index).
+    A date-only ``end`` (midnight) means the whole of that day, so intraday
+    bars after midnight are kept."""
     timestamp = pd.Timestamp(timestamp)
-    if index.tz is not None and timestamp.tz is None:
-        return timestamp.tz_localize(index.tz)
-    return timestamp
+    if end and timestamp == timestamp.normalize():
+        timestamp = timestamp + pd.Timedelta(days=1) - pd.Timedelta(1, "ns")
+    if timestamp.tz is None:
+        return timestamp if index.tz is None else timestamp.tz_localize(index.tz)
+    return timestamp.tz_convert(index.tz)
 
 
 def window(
@@ -93,15 +101,15 @@ def window(
     first priced row. A flow on the base row is part of the starting capital
     (``period_returns`` and ``compute_mwr`` drop it). Flows are cut by the same
     dates, not reindexed, so a flow on an unpriced row in the window still
-    raises downstream. Naive bounds take the index's timezone.
+    raises downstream. Bounds are read by ``window_bound``.
     """
     values = values.sort_index()
     priced = values.dropna()
     first = priced.index[0] if len(priced) else None
     if start is not None and len(priced):
-        before = priced.index[priced.index < _bound(start, priced.index)]
+        before = priced.index[priced.index < window_bound(start, priced.index)]
         first = before[-1] if len(before) else priced.index[0]
-    last = None if end is None else _bound(end, values.index)
+    last = None if end is None else window_bound(end, values.index, end=True)
     values = values.loc[first:last]
     if values.count() < 2:
         raise ValueError(

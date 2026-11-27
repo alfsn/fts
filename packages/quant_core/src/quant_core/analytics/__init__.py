@@ -36,6 +36,7 @@ from .returns import (
     to_daily,
     wealth_index,
     window,
+    window_bound,
     years_between,
 )
 from .trades import compute_win_rate, round_trip_pnls

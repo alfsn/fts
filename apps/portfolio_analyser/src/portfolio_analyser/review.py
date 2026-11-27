@@ -35,7 +35,7 @@ from portfolio_analyser.data_layer.market_history import (
     usd_per_unit,
     valuation_date,
 )
-from quant_core.analytics import window
+from quant_core.analytics import window, window_bound
 from quant_core.enums import Currency
 from quant_core.ledger import Breaks
 from quant_core.models import Benchmark, FXContext, Portfolio
@@ -44,7 +44,13 @@ Date = Union[datetime, pd.Timestamp, str, None]
 
 
 class ReviewError(ValueError):
-    """The inputs can't give a review (no ledger, no risk-free rate, ...)."""
+    """The inputs can't give a review (no ledger, no risk-free rate, ...).
+    `breaks` is the reconciliation, when the run got that far, so the CLI can
+    still show it."""
+
+    def __init__(self, message: str, breaks: Optional[Breaks] = None):
+        super().__init__(message)
+        self.breaks = breaks
 
 
 class QuantityBreakError(ReviewError):
@@ -52,9 +58,9 @@ class QuantityBreakError(ReviewError):
 
     def __init__(self, breaks: Breaks):
         super().__init__(
-            "Ledger and snapshot disagree on share counts: a trade or a split is missing."
+            "Ledger and snapshot disagree on share counts: a trade or a split is missing.",
+            breaks,
         )
-        self.breaks = breaks
 
 
 @dataclass(frozen=True)
@@ -199,9 +205,14 @@ def prepare_review(
     closes, actions = prepare_history(portfolio, db_url, extra, sources)
     snapshot = build_snapshot(portfolio, closes, actions)
 
-    replayed = replay_ledger(portfolio, closes, actions, snapshot.fx, snapshot.as_of)
-    warnings = _clip_warnings(replayed.values.index, start, end)
-    values, flows = window(replayed.values, replayed.flows, start, end)
+    try:
+        replayed = replay_ledger(
+            portfolio, closes, actions, snapshot.fx, snapshot.as_of
+        )
+        warnings = _clip_warnings(replayed.values.index, start, end)
+        values, flows = window(replayed.values, replayed.flows, start, end)
+    except ValueError as e:
+        raise ReviewError(str(e), snapshot.breaks) from e
     dropped = [d for d in replayed.dropped if values.index[0] <= d <= values.index[-1]]
 
     level = benchmark_level(
@@ -238,20 +249,15 @@ def prepare_review(
     )
 
 
-def _utc(date) -> pd.Timestamp:
-    timestamp = pd.Timestamp(date)
-    return timestamp.tz_localize("UTC") if timestamp.tz is None else timestamp
-
-
 def _clip_warnings(index: pd.DatetimeIndex, start: Date, end: Date) -> list[str]:
     """A window reaching outside the ledger is trimmed to it, with a warning (Q3)."""
     warnings = []
     if len(index) == 0:
         return warnings
-    if start is not None and _utc(start) < index[0]:
+    if start is not None and window_bound(start, index) < index[0]:
         warnings.append(
             f"Window starts at {index[0].date()}, the first valued ledger day."
         )
-    if end is not None and _utc(end) > index[-1]:
+    if end is not None and window_bound(end, index, end=True) > index[-1]:
         warnings.append(f"Window ends at {index[-1].date()}, the valuation date.")
     return warnings

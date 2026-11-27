@@ -95,6 +95,26 @@ def test_window_takes_naive_bounds_on_a_utc_index():
     assert list(sliced) == [110, 121]
 
 
+def test_window_end_date_keeps_that_whole_day_and_any_timezone():
+    values = pd.Series(
+        [100.0, 101, 102, 103, 104],
+        index=pd.to_datetime(
+            [
+                "2024-01-01 10:00",
+                "2024-01-01 22:00",
+                "2024-01-02 10:00",
+                "2024-01-02 22:00",
+                "2024-01-03 10:00",
+            ]
+        ),
+    )
+    sliced, _ = window(values, end="2024-01-02")
+    aware, _ = window(values, end=pd.Timestamp("2024-01-02", tz="UTC"))
+
+    assert list(sliced) == [100, 101, 102, 103]
+    assert list(aware) == list(sliced)
+
+
 def test_twr_undefined_for_single_point():
     assert np.isnan(compute_twr(_series([100])))
 
