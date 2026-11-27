@@ -2,7 +2,14 @@
 
 Workspace-wide rules for agents working in this repo (fts, portfolio_analyser, and `packages/`).
 For the fts agent constitution (SOLID, Pydantic, `uv`), see `docs/architecture/fts/AGENTS.md`.
-Roadmap status lives in `apps/portfolio_analyser/MASTER_PR_BACKLOG.md`; keep it updated there.
+Roadmap status lives in `docs/BACKLOG.md`; keep it updated there.
+
+## Where things live (one home each)
+
+- **Status** (which PR, in what order, done or not): only `docs/BACKLOG.md`, one entry per PR, linking to its plan.
+- **Design** (decisions, why and how): only `docs/plans/<name>.md`. Plans hold no status; they may note when they were written, against which commit, and which PRs shipped them.
+- **Rules** (how we work): this file and `docs/architecture/fts/AGENTS.md`.
+- `docs/fts/presentation.md` is a dated deck, not a roadmap; new ideas from it go to the backlog.
 
 ## Documentation
 

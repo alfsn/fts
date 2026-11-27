@@ -1,6 +1,6 @@
 """PR 2b-1: holdings, cash and values replayed from a hand-written ledger.
 
-Conventions under test (plans/PR2b.md): every event on date d is in the close
+Conventions under test (docs/plans/PR2b.md): every event on date d is in the close
 of d; only deposits, withdrawals and in-kind transfers are external flows;
 dividends and fees are internal; a held listing without a price is NaN, never
 0; splits come from corporate actions and multiply the quantity held at the

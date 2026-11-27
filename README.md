@@ -25,8 +25,12 @@ fts/
         ├── data_layer/          # Market history, benchmark & ledger reconciliation binding
         ├── visualization/       # Static HTML client-review report builder
         ├── tests/               # Analyser test suite
-        ├── HOW_TO_USE.md        # Portfolio Analyser usage guide
-        └── MASTER_PR_BACKLOG.md # Workspace feature roadmap
+        └── HOW_TO_USE.md        # Portfolio Analyser usage guide
+docs/
+├── BACKLOG.md                   # Workspace roadmap: PR order and status (the only place for status)
+├── plans/                       # One design per PR or epic: decisions, why and how
+├── architecture/                # fts architecture notes and agent constitution
+└── fts/                         # fts presentation and research notes
 ```
 
 ---

@@ -1,10 +1,42 @@
-# Portfolio Analyser: Master PR Backlog (The "JIRA")
+# Workspace Backlog (The "JIRA")
 
-*This is the complete, unfiltered backlog translating every single feature from our original brainstorming session into vertical-slice Pull Requests. It adheres to Clean Architecture (`quant_core` for math, `quant_data` for DB/API, `portfolio_analyser` for orchestration).*
+*The workspace's single source of truth for PR order and status (fts, portfolio_analyser and `packages/`). Each entry links to its design in `plans/`. It adheres to Clean Architecture (`quant_core` for math, `quant_data` for DB/API, the apps for orchestration).*
 
 For each PR: search:
 1. is this (loosely) implemented in fts already? Or something similar? If so, we must extract and generalize usage for both apps.
 2. Is this something we could apply in fts? If so, how?
+
+## Architecture ideals (not yet scheduled)
+
+*   **One ID per deployment.** A deployment is strategy + model + config. Its ID is derived from the code commit, the model artifact hash and the config hash, so it survives restarts, and any change to one of the three makes a new deployment (a retrained model is a new deployment). Backtests, paper trading and live orders all carry it, which is what lets live results be compared with the backtest of the same deployment. Today fts makes a new ID from the start time on every process start (`trading_bot/__main__.py`), and only predictions are saved with it.
+
+## Modularization (Parnas review): plan in `plans/modularization.md`
+
+Order: W1, W2, **M1**, **M2**, W3, W4, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps in `plans/UI-plan.md`.
+
+*   **M1: `RunStore` + one database.** One module saves, loads and deletes runs. Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch.
+*   **M2: Bars via `quant_data`.** fts stops importing `BarDataLog`. Last step: one price-cache file shared by fts and the analyser (plan D18).
+*   **M3: Deployment ID.** hash(commit, model file, config), plus a strategy-line ID.
+*   **M4: Configurable fills.** `ExecutionSpec` + pluggable `FillPrice` (default next-bar open) / `PriceSlip` / `CommissionModel`, and one builder for `SimVenue`.
+*   **R1: Forecast maths in `quant_core`.** Rank IC, Newey-West SE, fold aggregates.
+*   **R2: One experiment loop.** Optuna-only search, walk-forward `Splitter`, pluggable objective / aggregate / acceptance; replaces the sweep runner.
+*   **M8: Generic training out of `nets`.** Into `trading_bot.modeling`.
+*   **M5: `quant_broker` package.** `AccountReader` + `Venue`; IBKR via `ib_async`.
+*   **M6: Live book.** Append-only IBKR fills as `Transaction`s; a quantity break stops trading.
+*   **M7: IBKR paper deployment.**
+*   **M9: Shadow backtest + Live page.**
+*   **A1: Analyser what-if backtest.** Weights + `quant_core.rebalance` → `ledger.replay`.
+
+## Future stuff (nice to have)
+
+*   **Multi-instrument models.** Today a model, a search and a backtest cover one `instrument_id`. A pooled model trains one network on several symbols at once. It needs per-symbol scaling (or returns-only features), a symbol identifier or embedding as an input, walk-forward folds cut on a shared calendar, and per-symbol IC reported next to the pooled IC, so that one easy symbol can't carry the score.
+
+### Research ideas (from `docs/fts/presentation.md` §17)
+
+*   **Target realism.** Align the training target with the fill: with a 1-bar execution delay, train on the return from the fill onward (e.g. r_{t+2}), not r_{t+1}. Now a must-verify item before R2 (`plans/modularization.md`).
+*   **Latency-aware loss.** Put non-fill probability, execution-latency distributions and slippage penalties into the training loss.
+*   **Volatility-scaled sizing.** Use the volatility forecast (PR 10, EWMA) to scale position size and confidence thresholds across volatility regimes.
+*   **Model ensembles.** A `PortfolioStrategy` that combines single-feature (1D) and multi-feature (5D) models into one ensemble.
 
 ---
 
