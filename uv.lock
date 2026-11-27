@@ -2893,9 +2893,11 @@ wheels = [
 [[package]]
 name = "portfolio-analyser"
 version = "0.1.0"
-source = { virtual = "apps/portfolio_analyser" }
+source = { editable = "apps/portfolio_analyser" }
 dependencies = [
     { name = "click" },
+    { name = "pandas" },
+    { name = "plotly" },
     { name = "quant-core" },
     { name = "quant-data" },
     { name = "quant-ui" },
@@ -2905,6 +2907,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click" },
+    { name = "pandas" },
+    { name = "plotly" },
     { name = "quant-core", editable = "packages/quant_core" },
     { name = "quant-data", editable = "packages/quant_data" },
     { name = "quant-ui", editable = "packages/quant_ui" },

@@ -181,7 +181,7 @@ can't quietly undo it. A guard arrives **in the PR that makes it true**; adding 
 | PR | Guard | Kind |
 |---|---|---|
 | Existing (in `pyproject.toml`) | Shared packages never import an app; `quant_core` imports no workspace package; `quant_data` and `quant_ui` never import each other; `quant_ui` never imports a data library (`sqlalchemy`, `yfinance`, `ccxt`) | contracts |
-| W1 | The apps never import each other: `portfolio_analyser` ↛ `trading_bot`/`nets`, and the reverse. The analyser's old top-level names (`main`, `data_layer`, `visualization`) leave the first contract's list | contract |
+| W1 | The apps never import each other: `portfolio_analyser` ↛ `trading_bot`/`nets`/`argentina`, and the reverse. The analyser's old top-level names (`main`, `data_layer`, `visualization`) leave the first contract's list | contract |
 | W2 | Nothing outside the analyser's `review` module calls its internals from the workbench side (checked in W3, when the workbench exists) | — |
 | M1 | Only the `RunStore` module imports the run tables (`OrderLog`, `TradeLog`, `Position`, `BacktestEquityLog`, `BacktestPredictionLog`); they move to their own module so this can be a module-level contract. Text test: no `BACKTEST_DATABASE_URL`, no `"test" in` URL checks in `trading_bot/` | contract + test |
 | M2 | fts (`trading_bot`, `nets`) never imports `quant_data.db.models` (bars and markets go through the repository); `Base` is re-exported from `quant_data.db` for `trading_bot.core.database`, with `allow_indirect_imports = true` | contract |

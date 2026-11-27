@@ -34,7 +34,15 @@ dev = [
 # Architecture guards: `uv run lint-imports` (CI runs it). Each plan PR adds the
 # contract for the boundary it creates (docs/plans/modularization.md).
 [tool.importlinter]
-root_packages = ["quant_core", "quant_data", "quant_ui"]
+root_packages = [
+    "quant_core",
+    "quant_data",
+    "quant_ui",
+    "portfolio_analyser",
+    "trading_bot",
+    "nets",
+    "argentina",
+]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
@@ -47,10 +55,19 @@ forbidden_modules = [
     "nets",
     "argentina",
     "portfolio_analyser",
-    "main",
-    "data_layer",
-    "visualization",
 ]
+
+[[tool.importlinter.contracts]]
+name = "The analyser never imports fts"
+type = "forbidden"
+source_modules = ["portfolio_analyser"]
+forbidden_modules = ["trading_bot", "nets", "argentina"]
+
+[[tool.importlinter.contracts]]
+name = "fts never imports the analyser"
+type = "forbidden"
+source_modules = ["trading_bot", "nets", "argentina"]
+forbidden_modules = ["portfolio_analyser"]
 
 [[tool.importlinter.contracts]]
 name = "quant_core imports no other workspace package"

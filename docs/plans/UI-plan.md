@@ -64,14 +64,14 @@ Imports flow one way: packages ← apps.
 ## W1: package the analyser (no behaviour change)
 
 - Move `main.py`, `data_layer/`, `visualization/` → `apps/portfolio_analyser/src/portfolio_analyser/`
-  with a build backend (setuptools, mirroring `apps/fts/src/trading_bot/pyproject.toml`). Imports become
+  with a build backend (hatchling with a `src/` layout, like `packages/quant_*`; no extra config). Imports become
   `portfolio_analyser.data_layer...`. Add `[project.scripts] portfolio-analyser = "portfolio_analyser.main:cli"`
   (closes PR 7 D7).
 - Tests: change the imports only (`from main import cli` → `from portfolio_analyser.main import cli`).
   Delete `conftest.py` if it only does sys.path setup. Update the AGENTS.md test-run note if the
   `--import-mode` caveat changes.
-- Guard: add `portfolio_analyser`, `trading_bot` and `nets` to import-linter's `root_packages` and a contract
-  that the two apps never import each other; drop the old top-level names (`main`, `data_layer`, `visualization`)
+- Guard: add `portfolio_analyser`, `trading_bot`, `nets` and `argentina` to import-linter's `root_packages` and two
+  contracts (one per direction) that the two apps never import each other; drop the old top-level names (`main`, `data_layer`, `visualization`)
   from the "shared packages never import an app" list (`modularization.md` "Guards per PR").
 - Docs: `HOW_TO_USE.md` and the README commands become `uv run portfolio-analyser ...`.
 - **Hide mock brokers:** `IBKRConnector`/`InviuConnector`/`IOLConnector` return hard-coded fakes

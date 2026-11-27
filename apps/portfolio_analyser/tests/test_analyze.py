@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 from click.testing import CliRunner
-from main import cli
+from portfolio_analyser.main import cli
 from quant_core.enums import BarType
 from quant_core.models import BarData
 from quant_data.providers import YFinanceMarketDataProvider

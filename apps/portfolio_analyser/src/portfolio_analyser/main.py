@@ -1,6 +1,9 @@
 import click
-from data_layer.ledger_binding import reconcile_snapshot, replay_ledger
-from data_layer.market_history import (
+from portfolio_analyser.data_layer.ledger_binding import (
+    reconcile_snapshot,
+    replay_ledger,
+)
+from portfolio_analyser.data_layer.market_history import (
     ccl_series,
     fx_context_at,
     history_symbols,
@@ -33,6 +36,8 @@ def _broker_options(command):
                 "--broker",
                 type=click.Choice(["ibkr", "inviu", "iol", "yaml"]),
                 required=True,
+                help="Where the portfolio comes from. ibkr, inviu and iol are "
+                "mocks (fixed fake data); use yaml.",
             ),
             click.option(
                 "--file",
@@ -220,15 +225,18 @@ def client_review(
 ):
     """Client review dashboard from the ledger, valued at market, against a
     total-return benchmark (PR 2b, PR 7)."""
-    from data_layer.benchmark import (
+    from portfolio_analyser.data_layer.benchmark import (
         benchmark_label,
         benchmark_level,
         treasury_bill_rate,
     )
+    from portfolio_analyser.visualization.plot_factory import (
+        backward_analytics_figures,
+        write_report,
+    )
     from quant_core.models import Benchmark
     from quant_data.reference import RISK_FREE_SYMBOL
     from rich.console import Console
-    from visualization.plot_factory import backward_analytics_figures, write_report
 
     console = Console()
     console.print(f"[bold blue]Generating client review for {broker}...[/bold blue]")

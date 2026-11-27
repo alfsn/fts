@@ -22,8 +22,10 @@ fts/
     │   ├── runs/                # Optuna/TensorBoard logs and HTML backtest/sweep reports
     │   └── tests/               # Unit and integration tests
     └── portfolio_analyser/      # CLI for broker snapshots, ledger replay & HTML client reviews
-        ├── data_layer/          # Market history, benchmark & ledger reconciliation binding
-        ├── visualization/       # Static HTML client-review report builder
+        ├── src/portfolio_analyser/
+        │   ├── main.py          # Click CLI (`portfolio-analyser` script)
+        │   ├── data_layer/      # Market history, benchmark & ledger reconciliation binding
+        │   └── visualization/   # Static HTML client-review report builder
         ├── tests/               # Analyser test suite
         └── HOW_TO_USE.md        # Portfolio Analyser usage guide
 docs/
@@ -64,7 +66,7 @@ Plugins in `apps/fts/src/plugins/`:
 
 ### `apps/portfolio_analyser`
 
-Standalone Click CLI (`main.py`) for valuing holdings at the latest market close, converting multi-currency books (USD/ARS at CCL), reconciling transaction ledgers against snapshots, and exporting interactive HTML client reviews (`client_review_yaml.html`). See [apps/portfolio_analyser/HOW_TO_USE.md](apps/portfolio_analyser/HOW_TO_USE.md) for full details.
+Standalone Click CLI (`uv run portfolio-analyser`, package `portfolio_analyser`) for valuing holdings at the latest market close, converting multi-currency books (USD/ARS at CCL), reconciling transaction ledgers against snapshots, and exporting interactive HTML client reviews (`client_review_yaml.html`). See [apps/portfolio_analyser/HOW_TO_USE.md](apps/portfolio_analyser/HOW_TO_USE.md) for full details.
 
 ---
 
@@ -86,10 +88,10 @@ uv sync --all-extras --dev --all-packages
 cd apps/portfolio_analyser
 
 # Value a portfolio at the latest market close
-uv run python main.py analyze --broker yaml --file portfolio.yaml
+uv run portfolio-analyser analyze --broker yaml --file portfolio.yaml
 
 # Generate an interactive HTML client review (requires a transactions ledger in YAML)
-uv run python main.py client-review --broker yaml --file portfolio.yaml
+uv run portfolio-analyser client-review --broker yaml --file portfolio.yaml
 ```
 
 ### 3. FTS Trading Bot (`apps/fts`)
