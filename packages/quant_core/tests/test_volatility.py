@@ -219,6 +219,19 @@ def test_one_unpriced_day_does_not_blank_the_forecast():
     assert holed.ewma.n >= MIN_VOL_EVAL_OBS and np.isfinite(holed.ewma.qlike)
 
 
+def test_one_unpriced_day_leaves_the_rolling_vols_whole():
+    from quant_core.metrics import compute_rolling_vols
+
+    values = _garch_values(400)
+    gap = values.copy()
+    gap.iloc[200] = np.nan
+    clean = compute_rolling_vols(values, None, [30, 90])
+    holed = compute_rolling_vols(gap, None, [30, 90])
+    for w in ("30d", "90d"):
+        # One return fewer (it spans the gap), so at most one point fewer.
+        assert holed[w].notna().sum() >= clean[w].notna().sum() - 1
+
+
 def test_models_reject_unknown_fields():
     with pytest.raises(ValidationError):
         VolForecastMetrics(volatility=0.1)

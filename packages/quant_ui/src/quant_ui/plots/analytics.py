@@ -128,6 +128,8 @@ def plot_risk_kpi_table(metrics: PerformanceMetrics) -> go.Figure:
         ("Max Drawdown", _fmt(metrics.max_drawdown, ".2%")),
         ("Longest Time Underwater", _fmt(metrics.time_underwater_days, ".0f") + " d"),
     ]
+    if metrics.unpriced_obs:
+        rows.append(("Unpriced valuations skipped", str(metrics.unpriced_obs)))
     return _kpi_table(rows, ["Risk KPI", "Value"], "Risk KPIs")
 
 

@@ -29,14 +29,16 @@ def compute_performance_metrics(
     Path metrics (return, drawdown) use the full-resolution flow-adjusted wealth
     index; dispersion ratios use its daily closes with the observed periods/year.
     ``risk_free_rate``: annual rate, constant or a Series (``rates.excess_returns``).
+    Unpriced (NaN) valuations are skipped and counted in ``unpriced_obs``.
     """
     values = values.sort_index()
-    if len(values) < 2:
-        return PerformanceMetrics()
+    unpriced = int(values.isna().sum())
+    if values.count() < 2:
+        return PerformanceMetrics(unpriced_obs=unpriced)
 
     wealth = wealth_index(values, cash_flows)
     total_return = float(wealth.iloc[-1] - 1)
-    cagr = compute_cagr(total_return, years_between(values.index[0], values.index[-1]))
+    cagr = compute_cagr(total_return, years_between(wealth.index[0], wealth.index[-1]))
     max_dd = compute_max_drawdown(wealth)
 
     returns, ppy = daily_returns(wealth)
@@ -51,4 +53,5 @@ def compute_performance_metrics(
         calmar_ratio=compute_calmar(cagr, max_dd),
         max_drawdown=max_dd,
         time_underwater_days=max_time_underwater_days(wealth),
+        unpriced_obs=unpriced,
     )

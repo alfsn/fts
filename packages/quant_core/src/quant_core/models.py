@@ -425,6 +425,9 @@ class PerformanceMetrics(BaseModel):
         float("nan"), description="Fraction of closed round trips with positive PnL."
     )
     total_trades: int = Field(0, description="Total filled trade executions count.")
+    unpriced_obs: int = Field(
+        0, description="Valuations missing (NaN), skipped and chained across."
+    )
 
 
 def _nan(description: str):
