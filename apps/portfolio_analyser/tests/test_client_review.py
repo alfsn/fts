@@ -5,10 +5,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from click.testing import CliRunner
-from main import cli
+from portfolio_analyser.main import cli
+from portfolio_analyser.visualization.plot_factory import backward_analytics_figures
 from quant_data.providers import YFinanceMarketDataProvider
 from test_analyze import CLOSES, LEDGER, PORTFOLIO, _stub_get_bars
-from visualization.plot_factory import backward_analytics_figures
 
 
 def test_backward_analytics_figures_without_a_baseline():
@@ -154,8 +154,12 @@ def test_client_review_refuses_on_a_quantity_break(monkeypatch, tmp_path):
 
 def test_client_review_values_follow_the_market(monkeypatch, tmp_path):
     """A flat market gives a flat value series and a zero total return."""
-    from data_layer.ledger_binding import replay_ledger
-    from data_layer.market_history import ccl_series, usd_per_unit, valuation_date
+    from portfolio_analyser.data_layer.ledger_binding import replay_ledger
+    from portfolio_analyser.data_layer.market_history import (
+        ccl_series,
+        usd_per_unit,
+        valuation_date,
+    )
     from quant_core.analytics import compute_twr
     from quant_data.providers.brokers import LocalYamlConnector
 
@@ -171,7 +175,7 @@ def test_client_review_values_follow_the_market(monkeypatch, tmp_path):
     path = tmp_path / "portfolio.yaml"
     path.write_text(PORTFOLIO + at_market % 100)
     portfolio = LocalYamlConnector(str(path)).get_portfolio()
-    from main import prefetch_history
+    from portfolio_analyser.main import prefetch_history
 
     closes, actions = prefetch_history(portfolio, "sqlite://")
     fx = usd_per_unit(ccl_series(closes, actions), closes.index)
@@ -191,7 +195,7 @@ def test_benchmark_level_is_total_return_in_the_base_currency():
     """A dividend is reinvested (net of withholding) and USD converts at CCL."""
     from datetime import datetime, timezone
 
-    from data_layer.benchmark import benchmark_level
+    from portfolio_analyser.data_layer.benchmark import benchmark_level
     from quant_core.enums import CorporateActionType, Currency
     from quant_core.models import Benchmark, CorporateAction
 

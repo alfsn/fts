@@ -8,20 +8,18 @@ It provides:
 - **Multi-Currency Normalization**: Support for USD, ARS, and financial exchange rates (MEP and CCL).
 - **Persistent Data Layer**: PostgreSQL caching (inspectable in pgAdmin) with tiered market data providers (Yahoo Finance + local Argentine price feeds) and in-memory SQLite support for automated unit testing.
 
-## Master Architecture & Staged Implementation Plan
+Run it with `uv run portfolio-analyser --help` (usage: [HOW_TO_USE.md](HOW_TO_USE.md)).
 
-For the full system design, decoupled seams, rubberducked edge case resolutions, and prompt-engineered execution stages for Gemini LLMs, see:
-
-👉 **[ARCHITECTURE_AND_PLAN.md](file:///home/alfred/github/portfolio_analyser/ARCHITECTURE_AND_PLAN.md)**
-
-## Architectural Seams
+## Layout
 
 ```
-portfolio_analyser/
-├── domain/            # Pure mathematical core (Models, Rebalancing ABC, Calculators, Rule Engine)
-├── data_layer/        # Persistence (Postgres/SQLite), Tiered Market Providers, Financial FX
-├── brokers/           # Broker Ingestion (IBKR, Inviu, IOL) & Client Accounting (TWR/MWR)
-├── visualization/     # PlotFactory (Matplotlib/Seaborn) & ReportExporter (HTML/PDF)
-├── config/            # Pydantic Settings & Themes
-└── main.py            # Click CLI entry point
+apps/portfolio_analyser/
+├── src/portfolio_analyser/
+│   ├── main.py          # Click CLI (`portfolio-analyser` script): analyze, client-review
+│   ├── data_layer/      # Market history and FX (CCL), benchmark, ledger replay and reconciliation
+│   └── visualization/   # Maps the data to quant_core metrics and quant_ui figures; writes the HTML report
+├── tests/
+└── portfolio.yaml       # Sample snapshot
 ```
+
+KPI maths lives in `quant_core`, data access in `quant_data`, figures in `quant_ui`; this app only wires them.

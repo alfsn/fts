@@ -3,7 +3,7 @@
 The **Portfolio Analyser** is a standalone CLI tool for extracting your broker data, calculating your overall portfolio value (in a standardized base currency), and generating beautiful client-facing review dashboards.
 
 > [!IMPORTANT]
-> Always run these commands from the `portfolio_analyser` app folder!
+> Run these commands from the `portfolio_analyser` app folder: `--file` defaults to `portfolio.yaml` there and the report is written to the current folder. (The market-data cache is in the app folder wherever you run from.)
 > ```bash
 > cd /home/alfred/github/fts/apps/portfolio_analyser
 > ```
@@ -15,16 +15,16 @@ The **Portfolio Analyser** is a standalone CLI tool for extracting your broker d
 ### 1. Simple Value Analysis
 If you just want to ping your broker and calculate your total portfolio value:
 ```bash
-uv run python main.py analyze --broker yaml --file portfolio.yaml
+uv run portfolio-analyser analyze --broker yaml --file portfolio.yaml
 ```
 *(You can pass `--broker ibkr`, `--broker inviu`, `--broker iol` or `--broker yaml`; the first three are still mocks.)*
 
-Positions are valued at the **latest market close** on which every holding and the CCL rate have data (the date is printed). A `current_price` in the YAML is ignored. Market data is cached in `portfolio_analyser.db` (`--db-url` to change it).
+Positions are valued at the **latest market close** on which every holding and the CCL rate have data (the date is printed). A `current_price` in the YAML is ignored. Market data is cached in `apps/portfolio_analyser/portfolio_analyser.db` wherever you run the command from (`--db-url` or `PA_DATABASE_URL` to change it).
 
 ### 2. Generate a Client Dashboard
 The review is built from a **transactions ledger**, replayed day by day and valued at market, so it needs a `transactions:` list in the YAML (see below):
 ```bash
-uv run python main.py client-review --broker yaml --file portfolio.yaml
+uv run portfolio-analyser client-review --broker yaml --file portfolio.yaml
 ```
 This will generate a file named `client_review_yaml.html` in your current folder. Just double-click the file to open it in your browser!
 
@@ -49,7 +49,7 @@ transactions:
 ### 4. Benchmark, alpha and beta
 `client-review` compares the portfolio with a **total-return** benchmark (dividends reinvested) in the portfolio's base currency, on the days both have a price:
 ```bash
-uv run python main.py client-review --broker yaml --file portfolio.yaml \
+uv run portfolio-analyser client-review --broker yaml --file portfolio.yaml \
     --benchmark SPY --risk-free-rate 0.04 --dividend-withholding 0.30
 ```
 - `--benchmark` (USD listing; default: the YAML's `benchmark:` block, else `SPY`). A non-USD benchmark goes in the YAML: `benchmark: {symbol: "^MERV", currency: ARS}`.

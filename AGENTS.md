@@ -33,7 +33,7 @@ Roadmap status lives in `docs/BACKLOG.md`; keep it updated there.
 ## Environment
 
 - Sync with `uv sync --all-extras --dev --all-packages`. A plain `uv sync` removes pytest and the workspace packages' dependencies.
-- Test `packages/` as well as the apps, as three runs (a single run fails at collection: `apps/fts/tests` and `packages/quant_core/tests` are both a package named `tests`, and `--import-mode=importlib` breaks the analyser's imports): `uv run pytest packages` · `uv run pytest apps/portfolio_analyser/tests` · `cd apps/fts && uv run pytest tests`.
+- Test `packages/` as well as the apps, as three runs (a single run fails at collection: `apps/fts/tests` and `packages/quant_core/tests` are both a package named `tests`, and `--import-mode=importlib` breaks the analyser tests' `from test_analyze import ...`): `uv run pytest packages` · `uv run pytest apps/portfolio_analyser/tests` · `cd apps/fts && uv run pytest tests`.
 - Check module boundaries with `uv run lint-imports` (contracts in the root `pyproject.toml`, run in CI). A PR that creates a boundary adds its contract in the same PR; never weaken a contract to make a change pass.
 - The market-data cache tables (`bar_data_logs`, `corporate_actions`, `fx_rates`) are disposable; there are no migrations. After a schema change run `uv run python -m quant_data.db.reset --db-url <url>`, which drops only those three tables (fts `dev.db` also holds the model registry and Optuna studies).
 - Pydantic ignores unknown fields by default, so a test can pass while setting fields that don't exist. Use `model_config = ConfigDict(extra="forbid")` on domain models whose field names matter (e.g. `PerformanceMetrics`).

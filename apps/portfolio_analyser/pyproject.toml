@@ -4,13 +4,22 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "click",
+    "pandas",
+    "plotly",
     "quant_core",
     "quant_data",
     "quant-ui",
     "rich",
 ]
 
+[project.scripts]
+portfolio-analyser = "portfolio_analyser.main:cli"
+
 [tool.uv.sources]
 quant_core = { workspace = true }
 quant_data = { workspace = true }
 quant-ui = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

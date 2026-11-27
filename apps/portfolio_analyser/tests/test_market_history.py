@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 import pytest
-from data_layer.market_history import (
+from portfolio_analyser.data_layer.market_history import (
     ccl_series,
     fx_context_at,
     history_symbols,
@@ -110,7 +110,7 @@ def test_history_symbols_include_the_ccl_pairs_for_ars():
 
 def test_usd_is_priced_without_any_ccl_pair():
     """A USD-only portfolio fetches no ARS pairs: USD must still be 1, ARS NaN."""
-    from data_layer.market_history import usd_per_unit
+    from portfolio_analyser.data_layer.market_history import usd_per_unit
 
     dates = pd.bdate_range("2024-01-02", periods=3, tz="UTC")
     fx = usd_per_unit(pd.Series(dtype=float), dates)
