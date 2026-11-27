@@ -151,4 +151,47 @@ acceptance:
 - M4: a YAML with `NextBarClose` and one with `NextBarOpen` give different fill prices on a fixture; changing `slippage_pct` in a sweep YAML changes the result (regression test for the ignored keys).
 - R1: `rank_ic` vs `scipy.stats.spearmanr`; constant predictions → NaN; HAC SE vs statsmodels on a fixture.
 - R2: a grid search on a fixture reproduces the old sweep's trial list; the holdout is never passed to the objective (assert on fold indices); gap < horizon raises.
-- Guards arrive with the PR that makes them true. Import rules are import-linter contracts in the root `pyproject.toml` (`uv run lint-imports`, run in CI; the package layering contracts exist already). Text rules are small pytest tests: no `BACKTEST_DATABASE_URL` (M1); no `BarDataLog` / `Market` import in fts (M2, a contract); `streamlit` only in `apps/workbench` (W3, a contract); no `"execution_delay_bars"`/`"slippage_bps"` (M4); no `np.corrcoef` in `plugins/` (R1).
+- Each PR adds the guards listed for it in "Guards per PR" below.
+
+## Guards per PR
+
+Every PR in this plan ends by turning its boundary into a check, so later changes (by people or agents)
+can't quietly undo it. A guard arrives **in the PR that makes it true**; adding it earlier fails CI.
+
+- **Import rules** → an import-linter contract in the root `pyproject.toml` (`[[tool.importlinter.contracts]]`),
+  checked by `uv run lint-imports` in CI.
+- **Rules that aren't imports** (a setting name, a function call) → a small pytest test that searches the
+  source files, with a narrow pattern so comments and docs don't trip it.
+- **Prove each new guard bites:** plant the forbidden import or text in a temporary file, run the check, see
+  it fail, delete the file. (Done for the four layering contracts that already exist.)
+- **Never weaken a contract to make a change pass** (`AGENTS.md`). If a boundary is wrong, change the plan first.
+
+**How to write them**
+- `root_packages` lists only `quant_core`, `quant_data` and `quant_ui` today. A contract about app code needs
+  the app added there first (`trading_bot`, `nets`; `portfolio_analyser` after W1; `quant_broker` after M5;
+  `workbench` after W3). Libraries such as `streamlit`, `optuna` or `ib_async` can be named as forbidden
+  modules because `include_external_packages = true`.
+- `forbidden` contracts also follow **indirect** imports: importing `quant_data.db` reaches `quant_data.db.models`
+  through its `__init__`. Set `allow_indirect_imports = true` when the rule is about direct imports only, or
+  use `ignore_imports` for one named, explained exception.
+- import-linter sees only `import` statements. Components loaded from YAML by `PluginLoader`
+  (`importlib` + `class_path`) are invisible to it, so a boundary crossed through config needs a pytest test
+  that loads the specs and checks their `class_path`s.
+
+| PR | Guard | Kind |
+|---|---|---|
+| (done) | Shared packages never import an app; `quant_core` imports no workspace package; `quant_data` and `quant_ui` never import each other | contracts |
+| W1 | The apps never import each other: `portfolio_analyser` ↛ `trading_bot`/`nets`, and the reverse. The analyser's old top-level names (`data_layer`, `visualization`) leave the first contract's list | contract |
+| W2 | Nothing outside the analyser's `review` module calls its internals from the workbench side (checked in W3, when the workbench exists) | — |
+| M1 | Only the `RunStore` module imports the run tables (`OrderLog`, `TradeLog`, `Position`, `BacktestEquityLog`, `BacktestPredictionLog`); they move to their own module so this can be a module-level contract. Text test: no `BACKTEST_DATABASE_URL`, no `"test" in` URL checks in `trading_bot/` | contract + test |
+| M2 | fts (`trading_bot`, `nets`) never imports `quant_data.db.models` (bars and markets go through the repository); `Base` is re-exported from `quant_data.db` for `trading_bot.core.database`, with `allow_indirect_imports = true` | contract |
+| M2 (cache) | Text test: no hardcoded cache file path; both apps read the one cache env var | test |
+| W3 | `streamlit` is imported only by `workbench` (forbidden for every package and app, `quant_ui` included); `workbench` never imports `quant_data` or `quant_core.analytics` (pages draw, never calculate), and imports the apps only through their use-case modules (`portfolio_analyser.review`, the fts catalog service) | contracts |
+| M3 | Text test: only the deployment-ID module computes the ID hash (no other `hashlib` use on commit/model/config) | test |
+| M4 | Text test: no `execution_delay_bars`, `slippage_bps` or `execution_price_source` in `trading_bot/` or `plugins/`; a spec test that every execution YAML loads with `extra="forbid"` | test |
+| R1 | Text test: no `np.corrcoef`, `spearmanr` or `pearsonr` in `trading_bot/` or `plugins/` (IC maths only in `quant_core`) | test |
+| R2 | `optuna` is imported only by the search module (`ignore_imports` lists nothing else); `sweep_runner`, `SweepSpec` and `run_model_backtest` don't exist (text test) | contract + test |
+| M8 | `trading_bot` never imports `nets` (core doesn't know the plugin); `trading_bot.modeling` never imports `torch` | contracts |
+| M5 | `quant_broker` may import `quant_core` only; `quant_core`/`quant_data`/`quant_ui` never import `quant_broker`; `ib_async` only in `quant_broker`'s IBKR module; `portfolio_analyser` imports the reader side only, never the `Venue` (order) module | contracts |
+| M6 | Only the live-book module imports the live-book tables; text test: the live book has no delete or update of fill rows (append-only) | contract + test |
+| A1 | `portfolio_analyser` still ↛ `trading_bot` (the W1 contract covers it; the what-if uses `quant_core` only) | — |

@@ -68,6 +68,9 @@ quant_core ← quant_data ← quant_ui(figures)          packages: never import 
 - Tests: change the imports only (`from main import cli` → `from portfolio_analyser.main import cli`).
   Delete `conftest.py` if it only does sys.path setup. Update the AGENTS.md test-run note if the
   `--import-mode` caveat changes.
+- Guard: add `portfolio_analyser`, `trading_bot` and `nets` to import-linter's `root_packages` and a contract
+  that the two apps never import each other; drop the old top-level names (`data_layer`, `visualization`)
+  from the "shared packages never import an app" list (`modularization.md` "Guards per PR").
 - Docs: `HOW_TO_USE.md` and the README commands become `uv run portfolio-analyser ...`; fix the stale PR 26
   text in `docs/BACKLOG.md` (it lists `domain/` and `config/`, which no longer exist).
 - **Hide mock brokers:** `IBKRConnector`/`InviuConnector`/`IOLConnector` return hard-coded fakes
@@ -192,4 +195,7 @@ apps/workbench/
   gives the same KPI values as before W1.
 - Manual: launch the workbench and click every tab; check the YPFD raw/SPLIT chart around 2026-08-03;
   check that a 1-year window changes the KPIs and a 3-month window shows n/a for alpha.
-- Grep guards: no `streamlit` outside `apps/workbench`; no `quant_data` import in `quant_ui`.
+- Guards (import-linter contracts, see `modularization.md` "Guards per PR"): W1 adds "the apps never import
+  each other"; W3 adds "`streamlit` only in the workbench" and "the workbench never imports `quant_data` or
+  `quant_core.analytics`, and reaches the apps only through their use-case modules". `quant_ui` ↛ `quant_data`
+  is already a contract.
