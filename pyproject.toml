@@ -45,7 +45,9 @@ forbidden_modules = [
     "trading_bot",
     "plugins",
     "nets",
+    "argentina",
     "portfolio_analyser",
+    "main",
     "data_layer",
     "visualization",
 ]
@@ -66,7 +68,7 @@ forbidden_modules = ["quant_ui"]
 name = "quant_ui draws only: no data access"
 type = "forbidden"
 source_modules = ["quant_ui"]
-forbidden_modules = ["quant_data"]
+forbidden_modules = ["quant_data", "sqlalchemy", "yfinance", "ccxt"]
 
 [tool.uv.workspace]
 members = [

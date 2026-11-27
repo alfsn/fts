@@ -45,8 +45,10 @@ small rule violations get fixed.
 Imports flow one way: packages ← apps.
 
 ```
-quant_core ← quant_data ← quant_ui(figures)          packages: never import apps
-      ↑            ↑           ↑
+               quant_core                    packages: never import apps
+               ↑        ↑
+      quant_data        quant_ui(figures)    quant_data and quant_ui never import each other
+          ↑                  ↑
    fts (engine, CLI, CatalogQueryService)   portfolio_analyser (CLI, review use cases)
       ↑                                        ↑
       └──────────── apps/workbench (Streamlit shell) ┘
@@ -69,10 +71,9 @@ quant_core ← quant_data ← quant_ui(figures)          packages: never import 
   Delete `conftest.py` if it only does sys.path setup. Update the AGENTS.md test-run note if the
   `--import-mode` caveat changes.
 - Guard: add `portfolio_analyser`, `trading_bot` and `nets` to import-linter's `root_packages` and a contract
-  that the two apps never import each other; drop the old top-level names (`data_layer`, `visualization`)
+  that the two apps never import each other; drop the old top-level names (`main`, `data_layer`, `visualization`)
   from the "shared packages never import an app" list (`modularization.md` "Guards per PR").
-- Docs: `HOW_TO_USE.md` and the README commands become `uv run portfolio-analyser ...`; fix the stale PR 26
-  text in `docs/BACKLOG.md` (it lists `domain/` and `config/`, which no longer exist).
+- Docs: `HOW_TO_USE.md` and the README commands become `uv run portfolio-analyser ...`.
 - **Hide mock brokers:** `IBKRConnector`/`InviuConnector`/`IOLConnector` return hard-coded fakes
   (e.g. IOL → 200 YPFD). The CLI help says "(mock)"; the workbench offers YAML only.
 

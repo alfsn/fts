@@ -10,22 +10,26 @@ For each PR: search:
 
 *   **One ID per deployment.** A deployment is strategy + model + config. Its ID is derived from the code commit, the model artifact hash and the config hash, so it survives restarts, and any change to one of the three makes a new deployment (a retrained model is a new deployment). Backtests, paper trading and live orders all carry it, which is what lets live results be compared with the backtest of the same deployment. Today fts makes a new ID from the start time on every process start (`trading_bot/__main__.py`), and only predictions are saved with it.
 
-## Modularization (Parnas review): plan in `plans/modularization.md`
+## Modularization (Parnas review): plans in [`plans/modularization.md`](plans/modularization.md) and [`plans/UI-plan.md`](plans/UI-plan.md)
 
-Order: W1, W2, **M1**, **M2**, W3, W4, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps in `plans/UI-plan.md`. Each PR ends by adding its guards (import-linter contracts or text tests), listed in the plan's "Guards per PR".
+Order: **W1**, **W2**, **M1**, **M2**, **W3**, **W4**, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps. Each PR ends by adding its guards (import-linter contracts or text tests), listed in the plan's "Guards per PR".
 
-*   **M1: `RunStore` + one database.** One module saves, loads and deletes runs. Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch.
-*   **M2: Bars via `quant_data`.** fts stops importing `BarDataLog`. Last step: one price-cache file shared by fts and the analyser (plan D18).
-*   **M3: Deployment ID.** hash(commit, model file, config), plus a strategy-line ID.
-*   **M4: Configurable fills.** `ExecutionSpec` + pluggable `FillPrice` (default next-bar open) / `PriceSlip` / `CommissionModel`, and one builder for `SimVenue`.
-*   **R1: Forecast maths in `quant_core`.** Rank IC, Newey-West SE, fold aggregates.
-*   **R2: One experiment loop.** Optuna-only search, walk-forward `Splitter`, pluggable objective / aggregate / acceptance; replaces the sweep runner.
-*   **M8: Generic training out of `nets`.** Into `trading_bot.modeling`.
-*   **M5: `quant_broker` package.** `AccountReader` + `Venue`; IBKR via `ib_async`.
-*   **M6: Live book.** Append-only IBKR fills as `Transaction`s; a quantity break stops trading.
-*   **M7: IBKR paper deployment.**
-*   **M9: Shadow backtest + Live page.**
-*   **A1: Analyser what-if backtest.** Weights + `quant_core.rebalance` → `ledger.replay`.
+*   **W1: Package the analyser.** Move it under `src/portfolio_analyser/`, add the `portfolio-analyser` script; no behaviour change. [plan](plans/UI-plan.md#w1-package-the-analyser-no-behaviour-change)
+*   **W2: Use cases + date window.** The analyser's `review` module: one pipeline the CLI and the workbench both call. [plan](plans/UI-plan.md#w2-use-cases--date-window-the-shared-pipeline)
+*   **M1: `RunStore` + one database.** One module saves, loads and deletes runs. Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch. [plan](plans/modularization.md#pr-sequence)
+*   **M2: Bars via `quant_data`.** fts stops importing `BarDataLog`. Last step: one price-cache file shared by fts and the analyser (plan D18). [plan](plans/modularization.md#pr-sequence)
+*   **W3: Workbench shell.** `apps/workbench`, a Streamlit shell over both apps' use cases. [plan](plans/UI-plan.md#w3-the-workbench-shell)
+*   **W4: Workbench cleanups.** [plan](plans/UI-plan.md#w4-cleanups)
+*   **M3: Deployment ID.** hash(commit, model file, config), plus a strategy-line ID. [plan](plans/modularization.md#pr-sequence)
+*   **M4: Configurable fills.** `ExecutionSpec` + pluggable `FillPrice` (default next-bar open) / `PriceSlip` / `CommissionModel`, and one builder for `SimVenue`. [plan](plans/modularization.md#pr-sequence)
+*   **R1: Forecast maths in `quant_core`.** Rank IC, Newey-West SE, fold aggregates. [plan](plans/modularization.md#pr-sequence)
+*   **R2: One experiment loop.** Optuna-only search, walk-forward `Splitter`, pluggable objective / aggregate / acceptance; replaces the sweep runner. [plan](plans/modularization.md#pr-sequence)
+*   **M8: Generic training out of `nets`.** Into `trading_bot.modeling`. [plan](plans/modularization.md#pr-sequence)
+*   **M5: `quant_broker` package.** `AccountReader` + `Venue`; IBKR via `ib_async`. [plan](plans/modularization.md#pr-sequence)
+*   **M6: Live book.** Append-only IBKR fills as `Transaction`s; a quantity break stops trading. [plan](plans/modularization.md#pr-sequence)
+*   **M7: IBKR paper deployment.** [plan](plans/modularization.md#pr-sequence)
+*   **M9: Shadow backtest + Live page.** [plan](plans/modularization.md#pr-sequence)
+*   **A1: Analyser what-if backtest.** Weights + `quant_core.rebalance` → `ledger.replay`. [plan](plans/modularization.md#pr-sequence)
 
 ## Future stuff (nice to have)
 
@@ -193,7 +197,7 @@ Order: W1, W2, **M1**, **M2**, W3, W4, **M3**, **M4**, **R1**, **R2**, **M8**, *
 
 **PR 26: Local Dashboard & Deployment (`quant_ui`, fts dashboard, `portfolio_analyser`)**
 *   **Goal:** One locally deployed browser UX for both apps: the fts backtest catalog plus the analyser's `analyze` / `client-review`, without the CLI.
-*   **Prerequisite:** make the analyser importable. Move `main.py`, `data_layer/`, `domain/`, `visualization/` and `config/` under a `portfolio_analyser/` package with a build backend, which also unblocks `[project.scripts] portfolio-analyser` (PR 7 D7). The Streamlit app can't cleanly import generic top-level `config` / `domain` modules.
+*   **Prerequisite:** make the analyser importable. Move `main.py`, `data_layer/` and `visualization/` under a `portfolio_analyser/` package with a build backend, which also unblocks `[project.scripts] portfolio-analyser` (PR 7 D7). The Streamlit app can't cleanly import generic top-level `main` / `data_layer` / `visualization` modules. This is W1.
 *   **Action:** Add Streamlit pages to `trading_bot/dashboard/app.py`, or lift the dashboard shell into a shared package if both apps' pages grow. Pages: upload/select a portfolio YAML, pick the benchmark / risk-free rate / withholding, and render the same `backward_analytics_figures`. No new maths: the pages call the same functions as the CLI. fts pages show PR 7's `benchmark_metrics`.
 *   **Deploy:** `uv run streamlit run …` for development; a `Dockerfile` + `docker-compose.yml` with the market-data cache DB on a mounted volume. Bind to localhost only (`--server.address 127.0.0.1`, `127.0.0.1:` port mapping) because reports contain client PII (Epic 8). No credentials baked into the image (PR 23).
 *   **fts:** the same container serves the existing backtest explorer.
