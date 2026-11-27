@@ -102,10 +102,10 @@ to "write this fill", "load run X" or "delete run X". There's one database, and 
 | Module | Job |
 |---|---|
 | `tables.py` | The run schema, hidden: `RunLog` (run card: kind, strategy, instrument, start, end), `RunSegmentLog` (which model traded from when to when; one row per backtest today, one per fold in R2), `OrderLog`, `TradeLog` (one row per fill, stamped with the bar time), `PredictionLog` and its subclasses, `BacktestEquityLog`. `RUN_TABLES` is the only list of them. |
-| `records.py` | Pydantic records callers see (`extra="forbid"`): `RunHeader`, `Segment`, `EquityPoint`, `Fill`, `Prediction`, `RunRecord`, `RunSummary`. No ORM objects leave the package. |
-| `recorder.py` | Write side during a run: the `RunRecorder` Protocol and `SqlRunRecorder(session, run_id, kind)`. Never commits; the loop owns the transaction. |
+| `records.py` | Pydantic records callers see (`extra="forbid"`): `RunHeader` (the card, with `initial_cash`), `Segment`, `EquityPoint`, `Fill`, `Prediction`, `RunRecord`. No ORM objects leave the package. |
+| `recorder.py` | Write side during a run: the `RunRecorder` Protocol and `SqlRunRecorder(run_id, kind)`. Every method takes the session to write into, so one run can't be split across two sessions; it never commits (the loop or the execution engine owns the transaction). |
 | `store.py` | Read/delete side: `RunStore(session_factory)` with `list`, `load`, `delete` and `counts`. |
-| `integrity.py` | Fills → `quant_core` `Transaction`s (the initial balance is one `DEPOSIT`, which is the run's cash flow; the instrument key includes the outcome, so YES and NO never merge). The end-of-run check against the Portfolio raises `RunIntegrityError`. |
+| `integrity.py` | Fills → `quant_core` `Transaction`s (the run card's `initial_cash` is one `DEPOSIT`, the run's cash flow; the instrument key includes the outcome, so YES and NO never merge). The end-of-run check against the Portfolio raises `RunIntegrityError`. |
 | `reset.py` | `python -m trading_bot.runs.reset --db-url <url>` drops the run tables (and the legacy `positions` table) only. |
 
 `ExecutionEngine`, the prediction logger and `BacktestEngine` receive a `RunRecorder`. The readers (`BacktestResult`,

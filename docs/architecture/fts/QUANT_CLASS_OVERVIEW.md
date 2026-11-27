@@ -94,6 +94,7 @@ graph TD
 ### [Portfolio](file:///home/alfred/github/fts/src/trading_bot/risk_management/portfolio.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)
 * **Quant Business Logic:** Keeps track of real-time account state: available cash balance, gross/net position exposure, unrealized/realized PnL, and current held contract quantities.
+* **In memory only (M1):** no database code. Fills are the truth and are saved by the `ExecutionEngine`; positions are derived from them. `update_order_status(result)` returns the order whose fill it applied, so the engine saves exactly that fill. A restarted live bot starts flat until the live book (M6).
 * **Valuation (PR 7b):** `equity()` is the single equity number: cash plus every position at its last bar close, carried over ticks without a bar. The backtest equity log, `get_state` (so the RiskManager and the sizers) all use it. Best bid/ask is used only in `calculate_unrealized_pnl`, for the allocation-limit check. Outcome (YES/NO) positions stay at cost basis (backlog PR 7b).
 
 ### [FixedPercentageSizer](file:///home/alfred/github/fts/src/trading_bot/risk_management/sizing/fixed_percentage.py)
@@ -118,7 +119,7 @@ graph TD
 
 ### [SimulatedExecutionHandler](file:///home/alfred/github/fts/src/trading_bot/execution/handlers/simulated_handler.py) & [ExecutionEngine](file:///home/alfred/github/fts/src/trading_bot/execution/engine.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)
-* **Quant Business Logic:** Virtual exchange matching engine. Receives validated orders, applies delay and slippage rules, calculates transaction fees/commissions, updates position records, and returns execution fill notifications.
+* **Quant Business Logic:** Virtual exchange matching engine. Receives validated orders, applies delay and slippage rules, calculates transaction fees/commissions, and returns execution fill notifications. The `ExecutionEngine` saves orders and each fill the Portfolio applies through its `RunRecorder`.
 
 ---
 
@@ -130,7 +131,11 @@ graph TD
 
 ### [DatabasePredictionLogger](file:///home/alfred/github/fts/src/trading_bot/monitoring/prediction_logger.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)
-* **Quant Business Logic:** Quantitative audit system. Records raw model prediction scores, threshold classifications, generated signals, and resulting trade executions into a persistent database table for diagnostic post-hoc analysis.
+* **Quant Business Logic:** Quantitative audit system. Records raw model prediction scores, threshold classifications and generated signals through the run's `RunRecorder`, for diagnostic post-hoc analysis.
+
+### [RunRecorder, RunStore](file:///home/alfred/github/fts/apps/fts/src/trading_bot/runs/__init__.py)
+* **Used in:** `BacktestEngine`, the catalog, the visualizers, the sweep runner and the live runner.
+* **Quant Business Logic:** One home for "which tables make up a run" (M1). `SqlRunRecorder(run_id, kind)` writes a run into the session it is given and never commits; `RunStore` lists, loads (`RunRecord`: card, segments, equity, fills, predictions) and deletes runs. A run's model comes from its segments (one per backtest; one per fold in walk-forward). `check_fills_match` replays the saved fills with the `quant_core` ledger at the end of each backtest and raises `RunIntegrityError` if they don't give the Portfolio's final positions and cash. Old runs are disposable: `python -m trading_bot.runs.reset --db-url <url>`.
 
 ### [BacktestSpec](file:///home/alfred/github/fts/src/trading_bot/backtesting/spec.py)
 * **Used in:** [`03_custom_backtest.ipynb`](file:///home/alfred/github/fts/notebooks/03_custom_backtest.ipynb)
