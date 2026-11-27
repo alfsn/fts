@@ -458,7 +458,9 @@ class BenchmarkMetrics(BaseModel):
     up_capture: float = _nan("Geometric up-market capture ratio.")
     down_capture: float = _nan("Geometric down-market capture ratio.")
     information_ratio: float = _nan("Annualised active return / tracking error.")
-    min_obs: int = Field(0, description="Minimum sample used (obs).")
+    min_obs: Optional[int] = Field(
+        None, description="Minimum sample used (obs); None when never computed."
+    )
 
 
 class ForecastEvaluation(BaseModel):
@@ -495,7 +497,9 @@ class VolForecastMetrics(BaseModel):
 
     lam: float = _nan("EWMA decay factor (weight of yesterday's variance).")
     n_obs: int = Field(0, description="Daily returns.")
-    min_obs: int = Field(0, description="Minimum sample used (obs).")
+    min_obs: Optional[int] = Field(
+        None, description="Minimum sample used (obs); None when never computed."
+    )
     forecast_vol: float = _nan("Next-day EWMA volatility, annualised.")
     baseline_window: int = Field(0, description="Baseline window (obs, ~1 year).")
     horizon: int = Field(0, description="Realised-vol window (obs, ~1 month).")

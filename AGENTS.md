@@ -15,7 +15,7 @@ Roadmap status lives in `apps/portfolio_analyser/MASTER_PR_BACKLOG.md`; keep it 
 - **Fractions, not percents.** Store `0.05`, not `5.0`. Multiplying by 100 and `%` formatting happen only in the UI.
 - **A missing price is dropped, never filled.** A NaN valuation is left out and the next return is chained across the gap (`V[t+1]/V[t-1] − 1`) inside `quant_core.analytics`; prices are never forward-filled or interpolated, and the count is reported (`unpriced_obs`). A cash flow on an unpriced row raises. A missing risk-free quote is a different case: that excess return stays NaN.
 - **Undefined is NaN, never 0.0.** 0.0 is a legitimate result. Write threshold filters so NaN fails them: `not x >= threshold`.
-- **Sample statistics use `ddof=1`.**
+- **Sample statistics use `ddof=1`.** One exception: a zero-mean variance (RiskMetrics EWMA, and the baseline and realised lines scored against it, `rolling_variance(zero_mean=True)`) estimates no mean, so it divides by n.
 - **No default `periods_per_year`.** Pass it, or infer it with `analytics.periods_per_year(index)`. 252 is wrong for crypto (365) and for non-daily data.
 - **Ratios use daily closes; path metrics use full resolution.** Sharpe, Sortino and volatility come from `to_daily(wealth)`, because annualising tick returns inflates them. Total return and drawdown use the full-resolution, flow-adjusted wealth index.
 - **Always handle cash flows.** Return functions take `cash_flows`: deposits are positive, and each flow is already included in the value at its timestamp. Never compute performance as last value / first value.

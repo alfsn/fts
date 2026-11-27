@@ -264,3 +264,19 @@ def test_min_obs_is_reported_on_every_path(n):
     values = portfolio.iloc[: n + 1] if n else portfolio.iloc[:1]
     m = compute_benchmark_metrics(values, None, benchmark, min_obs=300).metrics
     assert m.min_obs == 300
+
+
+def test_benchmark_ratios_match_plain_daily_returns():
+    """R², capture and IR come from excess_returns at rate 0: plain returns."""
+    from quant_core.analytics import (
+        align_daily,
+        compute_capture_ratios,
+        wealth_index,
+    )
+
+    portfolio, benchmark = _market()
+    m = compute_benchmark_metrics(portfolio, None, benchmark, min_obs=1).metrics
+    r = align_daily(wealth_index(portfolio), benchmark).pct_change().iloc[1:]
+    assert m.r_squared == pytest.approx(r["portfolio"].corr(r["benchmark"]) ** 2)
+    up, down = compute_capture_ratios(r["portfolio"], r["benchmark"])
+    assert (m.up_capture, m.down_capture) == pytest.approx((up, down))

@@ -67,7 +67,8 @@ def compute_benchmark_metrics(
         return BenchmarkAnalysis(BenchmarkMetrics(min_obs=min_obs))
 
     wealth = aligned / aligned.iloc[0]
-    returns = aligned.pct_change().iloc[1:]
+    # One path from levels to returns: plain returns are excess returns at 0.
+    returns = pd.DataFrame({c: excess_returns(aligned[c]) for c in aligned.columns})
     excess = pd.DataFrame(
         {c: excess_returns(aligned[c], risk_free_rate) for c in aligned.columns}
     )

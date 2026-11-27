@@ -113,3 +113,16 @@ def test_tables_print_the_minimum_the_metrics_were_judged_against():
     bench = compute_benchmark_metrics(VALUES, None, VALUES * 1.1, min_obs=500)
     cells = plot_benchmark_kpi_table(bench.metrics, "SPY").data[0].cells.values
     assert cells[1][7] == "299 (min 500)"
+
+
+def test_tables_say_n_a_for_a_minimum_never_computed():
+    from quant_core.models import BenchmarkMetrics, VolForecastMetrics
+    from quant_ui.plots.analytics import (
+        plot_benchmark_kpi_table,
+        plot_vol_forecast_kpi_table,
+    )
+
+    cells = plot_vol_forecast_kpi_table(VolForecastMetrics()).data[0].cells.values
+    assert cells[0][-1] == "Out-of-sample days (min n/a)"
+    cells = plot_benchmark_kpi_table(BenchmarkMetrics(), "SPY").data[0].cells.values
+    assert cells[1][7] == "0 (min n/a)"

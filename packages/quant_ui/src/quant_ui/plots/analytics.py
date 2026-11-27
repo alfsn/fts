@@ -105,6 +105,10 @@ def _fmt(value: float, pattern: str) -> str:
     return "n/a" if math.isnan(value) else format(value, pattern)
 
 
+def _count(value: Optional[int]) -> str:
+    return "n/a" if value is None else str(value)
+
+
 def _kpi_table(rows: List[tuple], header: List[str], title: str) -> go.Figure:
     """A label/value(s) table: ``rows`` are tuples, one cell per header column."""
     fig = go.Figure(
@@ -198,7 +202,7 @@ def plot_benchmark_kpi_table(
         ("Up Capture (daily)", _fmt(m.up_capture, ".0%")),
         ("Down Capture (daily)", _fmt(m.down_capture, ".0%")),
         ("Information Ratio", _fmt(m.information_ratio, ".2f")),
-        ("Observations (daily)", f"{m.n_obs} (min {m.min_obs})"),
+        ("Observations (daily)", f"{m.n_obs} (min {_count(m.min_obs)})"),
         ("Newey-West lags", "n/a" if m.hac_lags is None else str(m.hac_lags)),
     ]
     return _kpi_table(
@@ -248,7 +252,7 @@ def _slope(e: ForecastEvaluation) -> str:
 
 
 def _evaluation_rows(
-    min_obs: int,
+    min_obs: Optional[int],
 ) -> List[Tuple[str, Callable[[ForecastEvaluation], str]]]:
     """Each row once: its label beside the formatter of its value."""
     return [
@@ -263,7 +267,7 @@ def _evaluation_rows(
             lambda e: _fmt(e.mz_r_squared, ".3f"),
         ),
         ("RMS of standardized returns (ideal 1)", lambda e: _fmt(e.z_std, ".2f")),
-        (f"Out-of-sample days (min {min_obs})", lambda e: str(e.n)),
+        (f"Out-of-sample days (min {_count(min_obs)})", lambda e: str(e.n)),
     ]
 
 
