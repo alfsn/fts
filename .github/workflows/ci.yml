@@ -26,6 +26,9 @@ jobs:
       - name: Install Dependencies
         run: uv sync --all-extras --dev --all-packages
 
+      - name: Check Architecture Contracts
+        run: uv run lint-imports
+
       - name: Run FTS App Tests
         working-directory: apps/fts
         run: uv run pytest tests/ -v

@@ -28,7 +28,45 @@ dev = [
     "isort",
     "flake8",
     "mypy",
+    "import-linter",
 ]
+
+# Architecture guards: `uv run lint-imports` (CI runs it). Each plan PR adds the
+# contract for the boundary it creates (docs/plans/modularization.md).
+[tool.importlinter]
+root_packages = ["quant_core", "quant_data", "quant_ui"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Shared packages never import an app"
+type = "forbidden"
+source_modules = ["quant_core", "quant_data", "quant_ui"]
+forbidden_modules = [
+    "trading_bot",
+    "plugins",
+    "nets",
+    "portfolio_analyser",
+    "data_layer",
+    "visualization",
+]
+
+[[tool.importlinter.contracts]]
+name = "quant_core imports no other workspace package"
+type = "forbidden"
+source_modules = ["quant_core"]
+forbidden_modules = ["quant_data", "quant_ui"]
+
+[[tool.importlinter.contracts]]
+name = "quant_data builds on quant_core only"
+type = "forbidden"
+source_modules = ["quant_data"]
+forbidden_modules = ["quant_ui"]
+
+[[tool.importlinter.contracts]]
+name = "quant_ui draws only: no data access"
+type = "forbidden"
+source_modules = ["quant_ui"]
+forbidden_modules = ["quant_data"]
 
 [tool.uv.workspace]
 members = [

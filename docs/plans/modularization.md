@@ -151,4 +151,4 @@ acceptance:
 - M4: a YAML with `NextBarClose` and one with `NextBarOpen` give different fill prices on a fixture; changing `slippage_pct` in a sweep YAML changes the result (regression test for the ignored keys).
 - R1: `rank_ic` vs `scipy.stats.spearmanr`; constant predictions → NaN; HAC SE vs statsmodels on a fixture.
 - R2: a grid search on a fixture reproduces the old sweep's trial list; the holdout is never passed to the objective (assert on fold indices); gap < horizon raises.
-- Grep guards: no `BACKTEST_DATABASE_URL`; no `BarDataLog` import in fts; no `"execution_delay_bars"`/`"slippage_bps"`; no `np.corrcoef` in `plugins/`.
+- Guards arrive with the PR that makes them true. Import rules are import-linter contracts in the root `pyproject.toml` (`uv run lint-imports`, run in CI; the package layering contracts exist already). Text rules are small pytest tests: no `BACKTEST_DATABASE_URL` (M1); no `BarDataLog` / `Market` import in fts (M2, a contract); `streamlit` only in `apps/workbench` (W3, a contract); no `"execution_delay_bars"`/`"slippage_bps"` (M4); no `np.corrcoef` in `plugins/` (R1).
