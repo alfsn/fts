@@ -15,13 +15,13 @@ from trading_bot.core.loop import (
     RealTimePollingLoop,
 )
 from trading_bot.core.pipeline import TradingPipeline
-from trading_bot.core.repository import OrderRepository, PositionRepository
 from trading_bot.data_ingestion.engine import DataIngestionEngine
 from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.monitoring.logger import setup_logging
 from trading_bot.monitoring.prediction_logger import DatabasePredictionLogger
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.runs import RunHeader, SqlRunRecorder
 from trading_bot.strategy.engine import StrategyEngine
 
 # src/trading_bot/__main__.py
@@ -76,20 +76,13 @@ def main() -> None:
         logger.critical(f"Database initialization failed: {e}", exc_info=True)
         sys.exit(1)
 
-    # 3. Create DB Session and Repositories
+    # 3. Create the DB Session
     db_session = SessionLocal()
-    pos_repo = PositionRepository(db_session)
-    order_repo = OrderRepository(db_session)
 
     try:
-        # 4. Initialize Portfolio State (injecting decoupled repositories)
-        portfolio = Portfolio(
-            initial_balance=10000.0,
-            quote_currency="USD",
-            pos_repo=pos_repo,
-            order_repo=order_repo,
-        )
-        portfolio.load_positions()
+        # 4. Initialize Portfolio State. In memory only: positions are derived
+        # from fills (D19), so a restarted bot starts flat until the live book (M6).
+        portfolio = Portfolio(initial_balance=10000.0, quote_currency="USD")
 
         # 5. Dynamic Recursive Instantiation via PluginLoader
         logger.info("Initializing dynamic core and plugin components...")
@@ -133,21 +126,7 @@ def main() -> None:
             sizer=sizing_strategy,
         )
 
-        execution_engine = ExecutionEngine(
-            execution_handler=execution_handler,
-            portfolio=portfolio,
-        )
-
-        # 7. Bind Unified TradingPipeline
-        pipeline = TradingPipeline(
-            ingestion=ingestion_engine,
-            strategy=strategy_engine,
-            risk=risk_manager,
-            execution=execution_engine,
-            portfolio=portfolio,
-        )
-
-        # 8. Instantiate and Start Configured Loop Driver
+        # 6a. Instantiate the Configured Loop Driver (its kind names the run)
         if not task_config.loop_driver:
             logger.critical("No loop_driver component configured in task YAML!")
             sys.exit(1)
@@ -159,6 +138,35 @@ def main() -> None:
                 f"must inherit from BaseEventLoop!"
             )
             sys.exit(1)
+
+        # One recorder per session: every order, fill and prediction carries its run_id
+        start_ts = datetime.now(timezone.utc).isoformat()
+        session_hash = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
+        recorder = SqlRunRecorder(run_id=session_hash, kind=loop_driver.run_kind)
+        recorder.start(
+            db_session,
+            RunHeader(
+                run_id=session_hash,
+                kind=loop_driver.run_kind,
+                initial_cash=portfolio.initial_balance,
+            ),
+        )
+        db_session.commit()
+
+        execution_engine = ExecutionEngine(
+            execution_handler=execution_handler,
+            portfolio=portfolio,
+            recorder=recorder,
+        )
+
+        # 7. Bind Unified TradingPipeline
+        pipeline = TradingPipeline(
+            ingestion=ingestion_engine,
+            strategy=strategy_engine,
+            risk=risk_manager,
+            execution=execution_engine,
+            portfolio=portfolio,
+        )
 
         # Safeguards:
         if isinstance(loop_driver, RealTimePollingLoop) and not market_provider:
@@ -184,16 +192,10 @@ def main() -> None:
         )
 
         # Register the prediction logger directly on the pipeline (Composition Root)
-        start_ts = datetime.now(timezone.utc).isoformat()
-        session_hash = hashlib.sha256(start_ts.encode("utf-8")).hexdigest()[:16]
-
         logger.info(f"Registering DatabasePredictionLogger for session: {session_hash}")
 
         prediction_logger = DatabasePredictionLogger(
-            db=db_session,
-            commit=True,
-            model_class=loop_driver.prediction_log_model,
-            run_id=session_hash,
+            db=db_session, recorder=recorder, commit=True
         )
 
         pipeline.prediction_logger = prediction_logger

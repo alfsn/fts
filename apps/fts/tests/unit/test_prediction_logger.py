@@ -6,9 +6,10 @@ from quant_core.enums import SignalType
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.core.database import Base
-from trading_bot.core.models import BacktestPredictionLog, ModelPredictionLog
 from trading_bot.core.schemas import TradeSignal
 from trading_bot.monitoring.prediction_logger import DatabasePredictionLogger
+from trading_bot.runs import SqlRunRecorder
+from trading_bot.runs.tables import BacktestPredictionLog, ModelPredictionLog
 
 
 @pytest.fixture
@@ -27,7 +28,9 @@ def db_session():
 
 def test_database_prediction_logger(db_session):
     # Given: A database logger observer
-    logger = DatabasePredictionLogger(db_session, commit=True, run_id="test_run")
+    logger = DatabasePredictionLogger(
+        db_session, SqlRunRecorder("test_run", "live"), commit=True
+    )
 
     # And: A sample TradeSignal with serialized prediction_output
     signal = TradeSignal(
@@ -62,7 +65,9 @@ def test_database_prediction_logger(db_session):
 
 def test_timezone_normalization_prevents_duplicates(db_session):
     # Given: Logger instanced with run_id
-    logger = DatabasePredictionLogger(db_session, commit=True, run_id="norm_run")
+    logger = DatabasePredictionLogger(
+        db_session, SqlRunRecorder("norm_run", "live"), commit=True
+    )
 
     # And: Two signals at the exact same instant but with different timezone representation
     ts_utc = datetime(2026, 6, 16, 10, 0, tzinfo=timezone.utc)
@@ -103,8 +108,12 @@ def test_timezone_normalization_prevents_duplicates(db_session):
 
 def test_unique_constraint_enforces_run_isolation(db_session):
     # Given: Two loggers for different runs
-    logger1 = DatabasePredictionLogger(db_session, commit=True, run_id="run_a")
-    logger2 = DatabasePredictionLogger(db_session, commit=True, run_id="run_b")
+    logger1 = DatabasePredictionLogger(
+        db_session, SqlRunRecorder("run_a", "live"), commit=True
+    )
+    logger2 = DatabasePredictionLogger(
+        db_session, SqlRunRecorder("run_b", "live"), commit=True
+    )
 
     ts = datetime(2026, 6, 16, 10, 0, tzinfo=timezone.utc)
     signal = TradeSignal(
@@ -129,10 +138,7 @@ def test_unique_constraint_enforces_run_isolation(db_session):
 def test_backtest_prediction_logger(db_session):
     # Given: A logger configured to log to BacktestPredictionLog
     logger = DatabasePredictionLogger(
-        db_session,
-        commit=True,
-        model_class=BacktestPredictionLog,
-        run_id="hash_bt_123",
+        db_session, SqlRunRecorder("hash_bt_123", "backtest"), commit=True
     )
 
     signal = TradeSignal(
@@ -162,7 +168,9 @@ def test_backtest_prediction_logger(db_session):
 
 def test_batch_prediction_logging(db_session):
     # Given: A logger configured to log to ModelPredictionLog
-    logger = DatabasePredictionLogger(db_session, commit=True, run_id="batch_run")
+    logger = DatabasePredictionLogger(
+        db_session, SqlRunRecorder("batch_run", "live"), commit=True
+    )
 
     signals = [
         TradeSignal(

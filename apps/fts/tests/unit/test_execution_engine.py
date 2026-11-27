@@ -11,7 +11,6 @@ from quant_core.enums import OrderSide, OrderStatus
 from quant_core.models import ExecutionResult, OrderRequest
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from trading_bot.core.models import OrderLog as OrderLogModel
 
 # Import classes to be mocked
 from trading_bot.execution.abc import BaseExecutionHandler
@@ -19,6 +18,8 @@ from trading_bot.execution.abc import BaseExecutionHandler
 # Import the class we are testing
 from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.runs import SqlRunRecorder
+from trading_bot.runs.tables import OrderLog as OrderLogModel
 
 # --- Pytest Fixtures ---
 
@@ -33,8 +34,10 @@ def mock_handler() -> MagicMock:
 
 @pytest.fixture
 def mock_portfolio() -> MagicMock:
-    """Mocks the Portfolio."""
-    return MagicMock(spec=Portfolio)
+    """Mocks the Portfolio (it applies no fill, so none is saved)."""
+    portfolio = MagicMock(spec=Portfolio)
+    portfolio.update_order_status.return_value = None
+    return portfolio
 
 
 @pytest.fixture
@@ -64,6 +67,7 @@ def engine(
     return ExecutionEngine(
         execution_handler=mock_handler,
         portfolio=mock_portfolio,
+        recorder=SqlRunRecorder(run_id="test_run", kind="live"),
         max_retry_attempts=3,
         enable_auto_reconciliation=True,
     )
@@ -221,9 +225,7 @@ class TestExecutionEngine:
 
         # 3. Portfolio was updated
         mock_portfolio.add_open_order.assert_not_called()
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, sample_result_filled
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(sample_result_filled)
 
         # 4. Result is correct
         assert result == sample_result_filled
@@ -272,9 +274,7 @@ class TestExecutionEngine:
 
         # 4. Portfolio was updated with the FAILED result
         mock_portfolio.add_open_order.assert_not_called()
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(result)
 
     def test_execute_order_database_failure(
         self,
@@ -370,9 +370,7 @@ class TestExecutionEngine:
         assert mock_db_session.commit.call_count == 2
 
         # 2. Portfolio update was called
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, sample_result_filled
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(sample_result_filled)
 
         # 3. Error was logged
         assert "Portfolio update failed" in caplog.text
@@ -450,9 +448,7 @@ class TestExecutionEngine:
         assert sample_order_log_open.filled_quantity == filled_result.filled_quantity
 
         # 3. Portfolio was updated
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, filled_result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(filled_result)
 
         # 4. Result is correct
         assert result == filled_result
@@ -536,9 +532,7 @@ class TestExecutionEngine:
         assert sample_order_log_open.status == OrderStatus.CANCELLED
 
         # 3. Portfolio was updated
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, cancelled_result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(cancelled_result)
 
         # 4. Result is correct
         assert result == cancelled_result
@@ -578,9 +572,7 @@ class TestExecutionEngine:
         assert sample_order_log_open.status == OrderStatus.FAILED
 
         # 4. Portfolio was updated with FAILED status
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(result)
 
     # --- Reconciliation Queue Test ---
 
@@ -647,9 +639,7 @@ class TestExecutionEngine:
         mock_db_session.commit.assert_called_once()
 
         # 3. Portfolio was updated
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, filled_result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(filled_result)
 
         # 4. Queue is now empty
         assert len(engine._reconciliation_queue) == 0

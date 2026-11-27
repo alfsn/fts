@@ -16,20 +16,10 @@ from trading_bot.backtesting.readers import SQLBacktestDataReader
 from trading_bot.config import settings
 from trading_bot.core.database import SessionLocal, init_db
 from trading_bot.core.loop import HistoricalReplayLoop
-from trading_bot.core.models import (
-    BacktestPredictionLog,
-    ModelRegistryLog,
-    OrderLog,
-    Position,
-    TimeSeriesDataset,
-    TradeLog,
-)
+from trading_bot.core.models import ModelRegistryLog, TimeSeriesDataset
+from trading_bot.core.performance import trade_win_rate
 from trading_bot.core.pipeline import TradingPipeline
-from trading_bot.core.repository import (
-    ModelRepository,
-    OrderRepository,
-    PositionRepository,
-)
+from trading_bot.core.repository import ModelRepository
 from trading_bot.core.schemas import BarData
 from trading_bot.execution.delay import KBarExecuteDelay
 from trading_bot.execution.engine import ExecutionEngine
@@ -39,6 +29,7 @@ from trading_bot.monitoring.prediction_logger import DatabasePredictionLogger
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_percentage import FixedPercentageSizer
+from trading_bot.runs import SqlRunRecorder
 from trading_bot.strategy.engine import StrategyEngine
 from trading_bot.utils.run_id import generate_backtest_run_id
 
@@ -75,13 +66,6 @@ def run_model_backtest(
             test_dataset_sha=test_dataset_sha,
             params=backtest_params,
         )
-
-        # Clear prior backtest logs for clean calculation
-        db.query(BacktestPredictionLog).filter_by(run_id=run_id).delete()
-        db.query(OrderLog).filter_by(run_id=run_id).delete()
-        db.query(TradeLog).filter_by(run_id=run_id).delete()
-        db.query(Position).filter_by(run_id=run_id).delete()
-        db.commit()
 
         # Build Strategy Components
         onnx_path = model_entry.onnx_path
@@ -131,15 +115,10 @@ def run_model_backtest(
         strategy_engine = StrategyEngine(strategies=[strategy])
 
         # Build Portfolio & Risk Management
-        pos_repo = PositionRepository(db)
-        order_repo = OrderRepository(db)
         portfolio = Portfolio(
             initial_balance=backtest_params.get("initial_balance", 10000.0),
             quote_currency="USD",
-            pos_repo=pos_repo,
-            order_repo=order_repo,
         )
-        portfolio._positions = {}
         sizer = FixedPercentageSizer(
             default_percentage=backtest_params.get("position_size_pct", 0.10)
         )
@@ -154,13 +133,15 @@ def run_model_backtest(
             delay_model=exec_delay,
             slippage_model=slippage,
         )
+        # BacktestEngine.run rebinds both to the run's recorder
+        recorder = SqlRunRecorder(run_id=run_id, kind="backtest")
         exec_engine = ExecutionEngine(
             execution_handler=handler,
             portfolio=portfolio,
-            run_id=run_id,
+            recorder=recorder,
         )
 
-        prediction_logger = DatabasePredictionLogger(db=db, run_id=run_id)
+        prediction_logger = DatabasePredictionLogger(db=db, recorder=recorder)
 
         pipeline = TradingPipeline(
             ingestion=None,
@@ -184,20 +165,19 @@ def run_model_backtest(
             data_reader=data_reader,
             db=db,
             instrument_id=model_entry.instrument_id,
+            model_id=model_entry.model_id,
         )
         bt_result = bt_engine.run(run_id=run_id, clear_previous_run=True)
 
         total_pnl = bt_result.final_equity - bt_result.initial_equity
-        trades = db.query(TradeLog).filter_by(run_id=run_id).all()
-        winning_trades = [t for t in trades if t.realized_pnl > 0] if trades else []
-        win_rate = (len(winning_trades) / len(trades)) if trades else 0.0
 
         return {
             "run_id": run_id,
             "final_equity": bt_result.final_equity,
             "total_pnl": total_pnl,
-            "total_trades": len(trades) if trades else bt_result.total_trades,
-            "win_rate": win_rate,
+            "total_trades": bt_result.total_trades,
+            # Closed round trips only (quant_core); NaN with none
+            "win_rate": trade_win_rate(bt_result.record.fills),
             "sharpe_ratio": bt_result.sharpe_ratio,
             "max_drawdown": abs(bt_result.max_drawdown_pct),
         }

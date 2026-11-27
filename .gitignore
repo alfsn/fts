@@ -9,6 +9,8 @@ __pycache__/
 .antigravitycli/*
 
 **/runs/*
+# ...but not the fts runs package (M1: RunRecorder / RunStore)
+!apps/fts/src/trading_bot/runs/*
 notebooks/runs/*
 **/models/**/*.onnx
 models/registry/**/*.onnx

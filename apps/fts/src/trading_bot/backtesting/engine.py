@@ -8,17 +8,17 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from ..backtesting.abc import BaseBacktestDataReader
-from ..config import settings
-from ..core.database import Base
 from ..core.loop import HistoricalReplayLoop
-from ..core.models import (
-    BacktestEquityLog,
-    BacktestPredictionLog,
-    OrderLog,
-    Position,
-    TradeLog,
-)
 from ..core.pipeline import TradingPipeline
+from ..runs import (
+    EquityPoint,
+    RunHeader,
+    Segment,
+    SqlRunRecorder,
+    check_fills_match,
+    delete_run,
+    load_record,
+)
 from ..utils.run_id import generate_backtest_run_id
 from .results import BacktestResult
 
@@ -40,15 +40,17 @@ class BacktestEngine:
         data_reader: BaseBacktestDataReader,
         db: Session,
         instrument_id: Optional[str] = None,
+        model_id: Optional[str] = None,
     ):
         """
         Initializes the Backtest Engine.
 
         :param pipeline: The fully wired trading pipeline (strategy, risk, execution).
         :param data_reader: The historical data provider streaming chronological ticks.
-        :param db: SQLAlchemy database session for order persistence.
+        :param db: The one session every row of the run is written to (D16).
         :param instrument_id: Optional market identifier. If omitted, it will be inferred
                           from the data reader if possible.
+        :param model_id: The model that trades the run (saved as its segment).
         """
         self.pipeline = pipeline
         self.data_reader = data_reader
@@ -56,6 +58,7 @@ class BacktestEngine:
         self.instrument_id = instrument_id or getattr(
             data_reader, "instrument_id", None
         )
+        self.model_id = model_id
 
     def run(
         self, run_id: Optional[str] = None, clear_previous_run: bool = False
@@ -63,146 +66,108 @@ class BacktestEngine:
         """
         Executes the backtest simulation run.
 
-        - Connects dynamically to an isolated backtests.db physical SQLite database.
-        - Purges historical logs for this run_id if requested.
-        - Synchronizes run_id across pipeline components.
-        - Runs the replay loop while tracking cash, positions, and equity.
-        - Returns a detailed BacktestResult.
+        - Writes every row of the run (card, segment, orders, fills,
+          predictions, equity) to the session given at construction.
+        - Deletes the previous rows of this run_id first if requested.
+        - Checks that the saved fills replay to the Portfolio's final state.
 
         :param run_id: Unique identifier for this backtest run. Auto-generated if omitted or 'backtest_run'.
-        :param clear_previous_run: If True, deletes database records matching run_id before starting.
+        :param clear_previous_run: If True, deletes every row of run_id before starting.
         :return: Compiled BacktestResult object.
         """
         if not run_id or run_id == "backtest_run":
-            model_id = getattr(self.pipeline, "model_id", None) or getattr(
-                self, "model_id", None
-            )
             dataset_sha = getattr(self.data_reader, "dataset_sha", None)
-            if model_id and dataset_sha:
-                run_id = generate_backtest_run_id(model_id, dataset_sha)
+            if self.model_id and dataset_sha:
+                run_id = generate_backtest_run_id(self.model_id, dataset_sha)
             else:
                 ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 short_uid = uuid.uuid4().hex[:8]
                 run_id = f"bt_adhoc_{ts}_{short_uid}"
 
-        db_url = str(self.db.bind.url) if self.db and self.db.bind else ""
-        is_test_env = ":memory:" in db_url or "test" in db_url
-        orig_db = self.db
-
-        if not is_test_env:
-            from ..core.database import create_db_session, init_db
-
-            backtest_db_url = settings.BACKTEST_DATABASE_URL
-            logger.info(
-                f"Isolating backtest data by binding database session to: {backtest_db_url}"
-            )
-            self.db = create_db_session(backtest_db_url)
-
-        try:
-            # Self-healing database tables creation
-            try:
-                if not is_test_env:
-                    init_db(bind_engine=self.db.bind)
-                else:
-                    from ..core.database import init_db
-
-                    init_db(bind_engine=self.db.bind)
-            except Exception as err:
-                logger.error(
-                    f"Failed to auto-initialize isolated backtest database: {err}"
-                )
-
-            if clear_previous_run:
-                logger.info(f"Clearing previous database logs for run_id: {run_id}")
-                try:
-                    self.db.query(BacktestPredictionLog).filter_by(
-                        run_id=run_id
-                    ).delete()
-                    self.db.query(OrderLog).filter_by(run_id=run_id).delete()
-                    self.db.query(TradeLog).filter_by(run_id=run_id).delete()
-                    self.db.query(Position).filter_by(run_id=run_id).delete()
-                    self.db.query(BacktestEquityLog).filter_by(run_id=run_id).delete()
-                    self.db.commit()
-                except Exception as e:
-                    self.db.rollback()
-                    logger.error(
-                        f"Failed to clear database logs for run_id {run_id}: {e}"
-                    )
-                    raise e
-
-            # Synchronize run_id configuration in pipeline components
-            if (
-                hasattr(self.pipeline, "prediction_logger")
-                and self.pipeline.prediction_logger
-            ):
-                self.pipeline.prediction_logger.run_id = run_id
-                self.pipeline.prediction_logger.db = self.db
-                self.pipeline.prediction_logger.commit = False
-
-            if hasattr(self.pipeline, "execution") and self.pipeline.execution:
-                self.pipeline.execution.run_id = run_id
-
-            equity_curve: List[Dict[str, Any]] = []
-
-            def on_tick_callback(tick_data: Any) -> None:
-                # Equity comes from the portfolio's single valuation (PR 7b):
-                # every position at its last close, carried over missing bars.
-                portfolio = self.pipeline.portfolio
-                market_data_map = {m.instrument_id: m for m in tick_data.market_data}
-                equity = portfolio.equity(market_data_map)
-                current_cash = portfolio.cash_balance
-
-                pos_size = 0.0
-                close_price = 0.0  # no single traded instrument: no close column
-                if self.instrument_id:
-                    close = portfolio.last_close(self.instrument_id)
-                    if close is None:
-                        return  # no price seen yet: nothing to value
-                    close_price = close
-                    pos = portfolio.positions.get(self.instrument_id)
-                    if pos:
-                        pos_size = pos.quantity
-
-                equity_curve.append(
-                    {
-                        "timestamp": tick_data.timestamp,
-                        "cash": current_cash,
-                        "position": pos_size,
-                        "close": close_price,
-                        "equity": equity,
-                    }
-                )
-
-                # Persist the actual equity curve point to the database
-                equity_log = BacktestEquityLog(
-                    run_id=run_id,
-                    timestamp=tick_data.timestamp,
-                    cash=current_cash,
-                    position=pos_size,
-                    close=close_price,
-                    equity=equity,
-                )
-                self.db.add(equity_log)
-
-            logger.info(f"Starting backtest engine simulation for run_id: {run_id}")
-            loop_driver = HistoricalReplayLoop(data_reader=self.data_reader)
-            loop_driver.start(self.pipeline, db=self.db, on_tick=on_tick_callback)
-
-            # Explicitly commit to ensure all logged predictions, orders, and equity logs are persisted
+        if clear_previous_run:
+            logger.info(f"Clearing previous database rows for run_id: {run_id}")
+            delete_run(self.db, run_id)
             self.db.commit()
 
-            result = BacktestResult(
+        portfolio = self.pipeline.portfolio
+        strategy_name = (
+            self.pipeline.strategy.strategies[0].name
+            if (self.pipeline.strategy and self.pipeline.strategy.strategies)
+            else "Unknown"
+        )
+        recorder = SqlRunRecorder(run_id=run_id, kind="backtest")
+        recorder.start(
+            self.db,
+            RunHeader(
                 run_id=run_id,
-                instrument_id=self.instrument_id or "Unknown",
-                strategy_name=(
-                    self.pipeline.strategy.strategies[0].name
-                    if (self.pipeline.strategy and self.pipeline.strategy.strategies)
-                    else "Unknown"
-                ),
-                db_session=self.db,
+                kind="backtest",
+                strategy_name=strategy_name,
+                instrument_id=self.instrument_id,
+                initial_cash=portfolio.cash_balance,
+            ),
+        )
+
+        # Every component writes this run through the same recorder and session
+        if getattr(self.pipeline, "prediction_logger", None):
+            self.pipeline.prediction_logger.recorder = recorder
+            self.pipeline.prediction_logger.db = self.db
+            self.pipeline.prediction_logger.commit = False
+        if getattr(self.pipeline, "execution", None):
+            self.pipeline.execution.recorder = recorder
+
+        equity_curve: List[Dict[str, Any]] = []
+
+        def on_tick_callback(tick_data: Any) -> None:
+            # Equity comes from the portfolio's single valuation (PR 7b):
+            # every position at its last close, carried over missing bars.
+            market_data_map = {m.instrument_id: m for m in tick_data.market_data}
+            equity = portfolio.equity(market_data_map)
+
+            pos_size = 0.0
+            close_price = 0.0  # no single traded instrument: no close column
+            if self.instrument_id:
+                close = portfolio.last_close(self.instrument_id)
+                if close is None:
+                    return  # no price seen yet: nothing to value
+                close_price = close
+                pos = portfolio.positions.get(self.instrument_id)
+                if pos:
+                    pos_size = pos.quantity
+
+            point = EquityPoint(
+                timestamp=tick_data.timestamp,
+                cash=portfolio.cash_balance,
+                position=pos_size,
+                close=close_price,
+                equity=equity,
             )
-            return result
-        finally:
-            if not is_test_env:
-                self.db.close()
-            self.db = orig_db
+            equity_curve.append(point.model_dump())
+            recorder.record_equity(self.db, point)
+
+        logger.info(f"Starting backtest engine simulation for run_id: {run_id}")
+        loop_driver = HistoricalReplayLoop(data_reader=self.data_reader)
+        loop_driver.start(self.pipeline, db=self.db, on_tick=on_tick_callback)
+
+        start = equity_curve[0]["timestamp"] if equity_curve else None
+        end = equity_curve[-1]["timestamp"] if equity_curve else None
+        recorder.add_segment(
+            self.db, Segment(model_id=self.model_id, start_time=start, end_time=end)
+        )
+        recorder.finish(self.db, start, end)
+        self.db.commit()
+
+        # Fills are the truth (D19): they must replay to the final portfolio
+        record = load_record(self.db, run_id, predictions=False)
+        check_fills_match(
+            record,
+            positions={k: p.quantity for k, p in portfolio.positions.items()},
+            cash=portfolio.cash_balance,
+            currency=portfolio.quote_currency,
+        )
+
+        return BacktestResult(
+            run_id=run_id,
+            instrument_id=self.instrument_id or "Unknown",
+            strategy_name=strategy_name,
+            record=record,
+        )

@@ -2,26 +2,33 @@
 
 import os
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 import pytest
 from quant_core.enums import BarType
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 from trading_bot.backtesting.exporter import HTMLBacktestExporter
-from trading_bot.core.database import Base, SessionLocal
-from trading_bot.core.database import engine as dev_engine
-from trading_bot.core.models import BacktestPredictionLog, BarDataLog, Market
+from trading_bot.core.database import Base
+from trading_bot.core.models import BarDataLog, Market
+from trading_bot.runs.tables import BacktestPredictionLog, RunLog
 
 
 @pytest.fixture
-def db_session():
-    test_engine = create_engine("sqlite:///:memory:")
+def db_url(tmp_path):
+    """One research database (D16) holding bars and one run."""
+    url = f"sqlite:///{tmp_path / 'research.db'}"
+    test_engine = create_engine(url)
     Base.metadata.create_all(bind=test_engine)
 
-    with patch("trading_bot.core.database.engine", test_engine):
-        SessionLocal.configure(bind=test_engine)
-        db = SessionLocal()
+    with sessionmaker(bind=test_engine)() as db:
+        db.add(
+            RunLog(
+                run_id="test_run_123",
+                kind="backtest",
+                strategy_name="cnn",
+                instrument_id="BTC/USDT",
+            )
+        )
 
         market = Market(
             instrument_id="BTC/USDT",
@@ -63,15 +70,12 @@ def db_session():
             db.add(pred)
 
         db.commit()
-        yield db
-        db.close()
-        SessionLocal.configure(bind=dev_engine)
+    yield url
+    test_engine.dispose()
 
 
-def test_html_exporter(db_session: Session, tmp_path):
-    exporter = HTMLBacktestExporter(db_url="sqlite:///:memory:")
-    # Inject our active test session into the visualizer SessionLocal config
-    exporter.visualizer.SessionLocal = lambda: db_session
+def test_html_exporter(db_url, tmp_path):
+    exporter = HTMLBacktestExporter(db_url=db_url)
 
     output_file = tmp_path / "report.html"
 
@@ -94,9 +98,8 @@ def test_html_exporter(db_session: Session, tmp_path):
         assert "simulated from signals" in html_content
 
 
-def test_html_exporter_directory_output(db_session: Session, tmp_path):
-    exporter = HTMLBacktestExporter(db_url="sqlite:///:memory:")
-    exporter.visualizer.SessionLocal = lambda: db_session
+def test_html_exporter_directory_output(db_url, tmp_path):
+    exporter = HTMLBacktestExporter(db_url=db_url)
 
     output_dir = tmp_path / "test_reports"
     result_path = exporter.export(
@@ -111,9 +114,8 @@ def test_html_exporter_directory_output(db_session: Session, tmp_path):
     assert result_path.endswith(".html")
 
 
-def test_html_exporter_empty_dataframe_raises(db_session: Session):
-    exporter = HTMLBacktestExporter(db_url="sqlite:///:memory:")
-    exporter.visualizer.SessionLocal = lambda: db_session
+def test_html_exporter_empty_dataframe_raises(db_url):
+    exporter = HTMLBacktestExporter(db_url=db_url)
 
     with pytest.raises(ValueError, match="No backtest prediction data found"):
         # Querying market that has no logs raises

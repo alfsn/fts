@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 # Import your project's components
 from trading_bot.core.database import Base
-from trading_bot.core.models import Position as PositionModel
 from trading_bot.core.schemas import (
     ExecutionResult,
     Instrument,
@@ -89,17 +88,11 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     1. A Signal is processed by RiskManager.
     2. An OrderRequest is created.
     3. The Portfolio is updated with a (fake) ExecutionResult.
-    4. The Portfolio's in-memory and DB state are verified.
+    4. The Portfolio's in-memory state is verified (positions are not stored: D19).
     5. A second (closing) trade is processed to check P&L.
     """
 
-    from trading_bot.core.repository import OrderRepository, PositionRepository
-
-    portfolio = Portfolio(
-        initial_balance=10000.0,
-        pos_repo=PositionRepository(db_session),
-        order_repo=OrderRepository(db_session),
-    )
+    portfolio = Portfolio(initial_balance=10000.0)
 
     sizer = FixedAmountSizer(default_amount_quote=600.0)
     risk_manager = RiskManager(portfolio=portfolio, sizer=sizer)
@@ -140,8 +133,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     )
 
     #
-    portfolio.update_order_status(db_session, fill_result)
-    db_session.commit()
+    portfolio.update_order_status(fill_result)
 
     # --- 5. ASSERT (Post-Trade State & DB) ---
 
@@ -160,12 +152,6 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     # its entry price, 9400 + 1000 x 0.60. The bid (0.59) is for limits only.
     assert post_buy_state.cash_balances[0].total == 10000.0
     assert post_buy_state.cash_balances[0].available == 9400.0
-
-    # Check database state
-    db_pos = db_session.query(PositionModel).filter_by(instrument_id="MKT-01").one()
-    assert db_pos.quantity == 1000.0
-    assert db_pos.cost_basis == 0.60
-    assert db_pos.status == PositionStatus.OPEN
 
     # --- 6. ACT (Second Trade: SELL to close) ---
 
@@ -195,8 +181,7 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
         avg_price=0.70,
         timestamp=datetime.now(timezone.utc),
     )
-    portfolio.update_order_status(db_session, fill_result_2)
-    db_session.commit()
+    portfolio.update_order_status(fill_result_2)
 
     # --- 7. ASSERT (Final State) ---
 
@@ -210,10 +195,3 @@ def test_full_trade_loop_signal_to_fill_to_state_update(
     final_pos = final_state.positions[0]
     assert final_pos.quantity == pytest.approx(1000 - (600 / 0.7))
     assert final_pos.cost_basis == 0.60
-
-    # Check DB
-    db_pos_final = (
-        db_session.query(PositionModel).filter_by(instrument_id="MKT-01").one()
-    )
-    assert db_pos_final.quantity == pytest.approx(1000 - (600 / 0.7))
-    assert db_pos_final.status == PositionStatus.OPEN

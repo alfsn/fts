@@ -5,30 +5,29 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from quant_core.enums import BarType
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 from trading_bot.backtesting.visualizer import BacktestVisualizer
-from trading_bot.core.database import Base, SessionLocal
-from trading_bot.core.database import engine as dev_engine
-from trading_bot.core.models import (
-    BacktestEquityLog,
-    BacktestPredictionLog,
-    BarDataLog,
-    Market,
-    OrderLog,
-    OrderSide,
-    OrderStatus,
-)
+from trading_bot.core.database import Base
+from trading_bot.core.models import BarDataLog, Market
+from trading_bot.runs.tables import BacktestEquityLog, BacktestPredictionLog, RunLog
 
 
 @pytest.fixture
-def db_session():
-    test_engine = create_engine("sqlite:///:memory:")
+def db_url(tmp_path):
+    """One research database (D16) holding bars and one run."""
+    url = f"sqlite:///{tmp_path / 'research.db'}"
+    test_engine = create_engine(url)
     Base.metadata.create_all(bind=test_engine)
 
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("trading_bot.core.database.engine", test_engine)
-        SessionLocal.configure(bind=test_engine)
-        db = SessionLocal()
+    with sessionmaker(bind=test_engine)() as db:
+        db.add(
+            RunLog(
+                run_id="run_123",
+                kind="backtest",
+                strategy_name="cnn",
+                instrument_id="BTC/USDT",
+            )
+        )
 
         market = Market(
             instrument_id="BTC/USDT",
@@ -78,16 +77,14 @@ def db_session():
             db.add(equity)
 
         db.commit()
-        yield db
-        db.close()
-        SessionLocal.configure(bind=dev_engine)
+    yield url
+    test_engine.dispose()
 
 
-def test_backtest_visualizer_load_data_with_none_run_id(db_session: Session):
-    viz = BacktestVisualizer(db_url="sqlite:///:memory:")
-    viz.SessionLocal = lambda: db_session
+def test_backtest_visualizer_load_data_with_none_run_id(db_url):
+    viz = BacktestVisualizer(db_url=db_url)
 
-    # When run_id is None, load_data should still load bar logs and join predictions/equity
+    # When run_id is None, load_data still loads the bars (no run to join)
     df = viz.load_data(instrument_id="BTC/USDT", strategy_name="cnn", run_id=None)
     assert not df.empty
     assert len(df) == 5
@@ -95,19 +92,18 @@ def test_backtest_visualizer_load_data_with_none_run_id(db_session: Session):
     assert "predicted_signal" in df.columns
 
 
-def test_backtest_visualizer_load_data_with_specific_run_id(db_session: Session):
-    viz = BacktestVisualizer(db_url="sqlite:///:memory:")
-    viz.SessionLocal = lambda: db_session
+def test_backtest_visualizer_load_data_with_specific_run_id(db_url):
+    viz = BacktestVisualizer(db_url=db_url)
 
     df = viz.load_data(instrument_id="BTC/USDT", strategy_name="cnn", run_id="run_123")
     assert not df.empty
     assert len(df) == 5
     assert "actual_equity" in df.columns
+    assert (df["predicted_signal"] != "None").all()
 
 
-def test_backtest_visualizer_get_available_runs(db_session: Session):
-    viz = BacktestVisualizer(db_url="sqlite:///:memory:")
-    viz.SessionLocal = lambda: db_session
+def test_backtest_visualizer_get_available_runs(db_url):
+    viz = BacktestVisualizer(db_url=db_url)
 
     runs = viz.get_available_runs(instrument_id="BTC/USDT", strategy_name="None")
     assert runs == ["run_123"]
