@@ -9,6 +9,8 @@ Sample statistics use ddof=1.
 import numpy as np
 import pandas as pd
 
+from .volatility import annualise_variance, rolling_variance
+
 
 def compute_volatility(returns: pd.Series, periods_per_year: float) -> float:
     if len(returns) < 2:
@@ -19,8 +21,11 @@ def compute_volatility(returns: pd.Series, periods_per_year: float) -> float:
 def compute_rolling_vol(
     returns: pd.Series, window: int, periods_per_year: float
 ) -> pd.Series:
-    """Annualised rolling volatility; NaN until ``window`` observations exist."""
-    return returns.rolling(window).std(ddof=1) * np.sqrt(periods_per_year)
+    """Annualised rolling volatility (sample std, ddof=1); NaN until ``window``
+    observations exist."""
+    return annualise_variance(
+        rolling_variance(returns, window, zero_mean=False), periods_per_year
+    )
 
 
 def _annualised_ratio(numerator: pd.Series, denominator: float, ppy: float) -> float:

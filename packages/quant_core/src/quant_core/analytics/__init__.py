@@ -45,4 +45,5 @@ from .volatility import (
     evaluate_variance_forecast,
     ewma_variance,
     qlike,
+    rolling_variance,
 )

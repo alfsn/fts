@@ -4,7 +4,7 @@ series already computed by ``quant_core.analytics`` and does no math itself.
 """
 
 import math
-from typing import List, Mapping, Optional
+from typing import Callable, List, Mapping, Optional, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -179,7 +179,7 @@ def _estimate(value: float, se: float, low: float, high: float, pattern: str) ->
 
 
 def plot_benchmark_kpi_table(
-    metrics: BenchmarkMetrics, benchmark_name: str, min_obs: int
+    metrics: BenchmarkMetrics, benchmark_name: str
 ) -> go.Figure:
     m = metrics
     rows = [
@@ -196,7 +196,7 @@ def plot_benchmark_kpi_table(
         ("Up Capture (daily)", _fmt(m.up_capture, ".0%")),
         ("Down Capture (daily)", _fmt(m.down_capture, ".0%")),
         ("Information Ratio", _fmt(m.information_ratio, ".2f")),
-        ("Observations (daily)", f"{m.n_obs} (min {min_obs})"),
+        ("Observations (daily)", f"{m.n_obs} (min {m.min_obs})"),
         ("Newey-West lags", "n/a" if m.hac_lags is None else str(m.hac_lags)),
     ]
     return _kpi_table(
@@ -239,37 +239,40 @@ def plot_vol_forecast(frame: pd.DataFrame, metrics: VolForecastMetrics) -> go.Fi
     return fig
 
 
-def _evaluation_rows(e: ForecastEvaluation) -> List[str]:
-    slope = (
-        "n/a"
-        if math.isnan(e.mz_slope)
-        else f"{e.mz_slope:.2f} ± {_fmt(e.mz_slope_se, '.2f')}"
-    )
+def _slope(e: ForecastEvaluation) -> str:
+    if math.isnan(e.mz_slope):
+        return "n/a"
+    return f"{e.mz_slope:.2f} ± {_fmt(e.mz_slope_se, '.2f')}"
+
+
+def _evaluation_rows(
+    min_obs: int,
+) -> List[Tuple[str, Callable[[ForecastEvaluation], str]]]:
+    """Each row once: its label beside the formatter of its value."""
     return [
-        _fmt(e.qlike, ".3f"),
-        slope,
-        _fmt(e.mz_intercept, ".4f"),
-        _fmt(e.mz_r_squared, ".3f"),
-        _fmt(e.z_std, ".2f"),
-        str(e.n),
+        ("QLIKE (lower is better)", lambda e: _fmt(e.qlike, ".3f")),
+        ("Mincer-Zarnowitz slope ± HAC SE (ideal 1)", _slope),
+        (
+            "Mincer-Zarnowitz intercept (ann. variance, ideal 0)",
+            lambda e: _fmt(e.mz_intercept, ".4f"),
+        ),
+        (
+            "Mincer-Zarnowitz R² (low by construction)",
+            lambda e: _fmt(e.mz_r_squared, ".3f"),
+        ),
+        ("RMS of standardized returns (ideal 1)", lambda e: _fmt(e.z_std, ".2f")),
+        (f"Out-of-sample days (min {min_obs})", lambda e: str(e.n)),
     ]
 
 
-def plot_vol_forecast_kpi_table(metrics: VolForecastMetrics, min_obs: int) -> go.Figure:
+def plot_vol_forecast_kpi_table(metrics: VolForecastMetrics) -> go.Figure:
     """Forecast quality, EWMA vs baseline, scored on the same days."""
-    labels = [
-        "QLIKE (lower is better)",
-        "Mincer-Zarnowitz slope ± HAC SE (ideal 1)",
-        "Mincer-Zarnowitz intercept (ann. variance, ideal 0)",
-        "Mincer-Zarnowitz R² (low by construction)",
-        "RMS of standardized returns (ideal 1)",
-        f"Out-of-sample days (min {min_obs})",
-    ]
     rows = [
         ("Next-day volatility (ann.)", _fmt(metrics.forecast_vol, ".2%"), ""),
         ("Decay λ", _fmt(metrics.lam, "g"), ""),
-        *zip(
-            labels, _evaluation_rows(metrics.ewma), _evaluation_rows(metrics.baseline)
+        *(
+            (label, value(metrics.ewma), value(metrics.baseline))
+            for label, value in _evaluation_rows(metrics.min_obs)
         ),
     ]
     return _kpi_table(

@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 from scipy import optimize
 
+from .rates import RiskFree, excess_returns
+
 _SECONDS_PER_YEAR = 365.25 * 24 * 3600
 
 
@@ -40,14 +42,18 @@ def to_daily(series: pd.Series) -> pd.Series:
     return series.groupby(series.index.normalize()).last()
 
 
-def daily_returns(levels: pd.Series) -> tuple[pd.Series, float]:
+def daily_returns(
+    levels: pd.Series, risk_free: RiskFree = 0.0
+) -> tuple[pd.Series, float]:
     """
     Returns of the daily closes of ``levels`` (e.g. a flow-adjusted wealth
-    index) and the observed periods per year of those closes: the input of
-    every dispersion statistic (volatility, Sharpe, EWMA forecast).
+    index) in excess of ``risk_free`` (0 by default: plain returns), and the
+    observed periods per year of those closes. The one path from levels to
+    returns for every single-series dispersion statistic (volatility, Sharpe,
+    Sortino, EWMA forecast). An interval without a risk-free quote stays NaN.
     """
     daily = to_daily(levels)
-    return daily.pct_change().dropna(), periods_per_year(daily.index)
+    return excess_returns(daily, risk_free), periods_per_year(daily.index)
 
 
 def _aligned_flows(values: pd.Series, cash_flows: Optional[pd.Series]) -> pd.Series:

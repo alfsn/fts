@@ -212,3 +212,38 @@ def test_models_reject_unknown_fields():
         VolForecastMetrics(volatility=0.1)
     with pytest.raises(ValidationError):
         ForecastEvaluation(slope=1.0)
+
+
+# --- rolling_variance / zero-mean consistency (PR 10b) -----------------------
+
+
+def test_rolling_variance_in_both_modes():
+    from quant_core.analytics import compute_rolling_vol, rolling_variance
+
+    r = _returns(60)
+    zero = rolling_variance(r, 20, zero_mean=True)
+    sample = rolling_variance(r, 20, zero_mean=False)
+    tail = r.iloc[-20:].to_numpy()
+    assert zero.iloc[-1] == pytest.approx(np.mean(tail**2))
+    assert sample.iloc[-1] == pytest.approx(np.var(tail, ddof=1))
+    assert zero.iloc[:19].isna().all() and sample.iloc[:19].isna().all()
+    pd.testing.assert_series_equal(
+        compute_rolling_vol(r, 20, 252), r.rolling(20).std(ddof=1) * np.sqrt(252)
+    )
+
+
+def test_baseline_and_realised_are_zero_mean_like_the_ewma():
+    # A constant 1% daily return has no dispersion around its mean (a demeaned
+    # variance would be 0) but r² = 1e-4 every day: zero-mean lines all agree.
+    idx = pd.bdate_range("2020-01-01", periods=600)
+    values = pd.Series(100 * 1.01 ** np.arange(600), index=idx)
+    frame = compute_vol_forecast(values).frame.dropna()
+    assert len(frame) > 100
+    for column in ("forecast", "realised", "baseline"):
+        np.testing.assert_allclose(frame[column], frame["baseline"].iloc[0], rtol=1e-9)
+    assert frame["baseline"].iloc[0] > 0
+
+
+def test_min_obs_is_reported_on_every_path():
+    for values in (_garch_values(1), _garch_values(200), _garch_values(800)):
+        assert compute_vol_forecast(values, min_obs=300).metrics.min_obs == 300

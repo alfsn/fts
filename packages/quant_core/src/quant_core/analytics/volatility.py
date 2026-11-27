@@ -29,6 +29,18 @@ def annualise_variance(
     return np.sqrt(variance * periods_per_year)
 
 
+def rolling_variance(returns: pd.Series, window: int, zero_mean: bool) -> pd.Series:
+    """
+    Per-period variance over the last ``window`` returns; NaN until ``window``
+    observations exist. ``zero_mean=True`` is the mean of r² (RiskMetrics: no
+    mean is estimated, so dividing by n is right, the one exception to
+    ddof=1); ``zero_mean=False`` is the sample variance (ddof=1).
+    """
+    if zero_mean:
+        return (returns.astype(float) ** 2).rolling(window).mean()
+    return returns.rolling(window).var(ddof=1)
+
+
 def ewma_variance(
     returns: pd.Series,
     lam: float = RISKMETRICS_DAILY_LAMBDA,
