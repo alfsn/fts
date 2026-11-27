@@ -193,7 +193,7 @@ Only the **market-data cache** is wiped. fts `dev.db` also holds things that are
 
 - **Script:** `quant_data.db.reset_market_cache(engine)` drops exactly these three tables and recreates them through `Base.metadata.create_all(tables=[...])`. A CLI wrapper is `uv run python -m quant_data.db.reset --db-url <url>`. It prints row counts before it drops anything and asks for confirmation (`--yes` skips the prompt).
 - **Repopulate.** No new backfill command; the existing entry points fill the cache on demand through the throttle:
-  - `uv run python apps/portfolio_analyser/main.py analyze --broker yaml` (the portfolio's symbols, the CCL pairs, and corporate actions);
+  - `uv run portfolio-analyser analyze --broker yaml --file apps/portfolio_analyser/portfolio.yaml` (the portfolio's symbols, the CCL pairs, and corporate actions);
   - `fts ingest` per ticker and interval for fts data (BTC/USDT 30m via CCXT, any Yahoo tickers).
 - This supersedes PR 2's manual `DELETE ... WHERE interval = '1d'` note.
 

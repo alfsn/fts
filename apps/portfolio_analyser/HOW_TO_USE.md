@@ -3,7 +3,7 @@
 The **Portfolio Analyser** is a standalone CLI tool for extracting your broker data, calculating your overall portfolio value (in a standardized base currency), and generating beautiful client-facing review dashboards.
 
 > [!IMPORTANT]
-> Always run these commands from the `portfolio_analyser` app folder!
+> Run these commands from the `portfolio_analyser` app folder: `--file` defaults to `portfolio.yaml` there and the report is written to the current folder. (The market-data cache is in the app folder wherever you run from.)
 > ```bash
 > cd /home/alfred/github/fts/apps/portfolio_analyser
 > ```
@@ -19,7 +19,7 @@ uv run portfolio-analyser analyze --broker yaml --file portfolio.yaml
 ```
 *(You can pass `--broker ibkr`, `--broker inviu`, `--broker iol` or `--broker yaml`; the first three are still mocks.)*
 
-Positions are valued at the **latest market close** on which every holding and the CCL rate have data (the date is printed). A `current_price` in the YAML is ignored. Market data is cached in `portfolio_analyser.db` (`--db-url` to change it).
+Positions are valued at the **latest market close** on which every holding and the CCL rate have data (the date is printed). A `current_price` in the YAML is ignored. Market data is cached in `apps/portfolio_analyser/portfolio_analyser.db` wherever you run the command from (`--db-url` or `PA_DATABASE_URL` to change it).
 
 ### 2. Generate a Client Dashboard
 The review is built from a **transactions ledger**, replayed day by day and valued at market, so it needs a `transactions:` list in the YAML (see below):

@@ -14,7 +14,7 @@ For each PR: search:
 
 Order: **W1**, **W2**, **M1**, **M2**, **W3**, **W4**, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps. Each PR ends by adding its guards (import-linter contracts or text tests), listed in the plan's "Guards per PR".
 
-*   **W1: Package the analyser.** :done Move it under `src/portfolio_analyser/`, add the `portfolio-analyser` script; no behaviour change. [plan](plans/UI-plan.md#w1-package-the-analyser-no-behaviour-change)
+*   **W1: Package the analyser.** :done Move it under `src/portfolio_analyser/`, add the `portfolio-analyser` script; no behaviour change, except that the default cache DB is now anchored to the app folder rather than the working directory. [plan](plans/UI-plan.md#w1-package-the-analyser-no-behaviour-change)
 *   **W2: Use cases + date window.** The analyser's `review` module: one pipeline the CLI and the workbench both call. [plan](plans/UI-plan.md#w2-use-cases--date-window-the-shared-pipeline)
 *   **M1: `RunStore` + one database.** One module saves, loads and deletes runs. Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch. [plan](plans/modularization.md#pr-sequence)
 *   **M2: Bars via `quant_data`.** fts stops importing `BarDataLog`. Last step: one price-cache file shared by fts and the analyser (plan D18). [plan](plans/modularization.md#pr-sequence)
@@ -193,11 +193,11 @@ Order: **W1**, **W2**, **M1**, **M2**, **W3**, **W4**, **M3**, **M4**, **R1**, *
 ## Epic 7: Delivery
 **PR 22: The Master Report Engine**
 *   **UI (`quant_ui`):** Create a robust Jinja2 templating system (`report_template.html`) that binds all 21 preceding components into a beautiful, multi-tab local web dashboard.
-*   **App Integration:** The final `main.py analyze --full-report` execution command.
+*   **App Integration:** The final `portfolio-analyser analyze --full-report` execution command.
 
 **PR 26: Local Dashboard & Deployment (`quant_ui`, fts dashboard, `portfolio_analyser`)**
 *   **Goal:** One locally deployed browser UX for both apps: the fts backtest catalog plus the analyser's `analyze` / `client-review`, without the CLI.
-*   **Prerequisite:** make the analyser importable. Move `main.py`, `data_layer/` and `visualization/` under a `portfolio_analyser/` package with a build backend, which also unblocks `[project.scripts] portfolio-analyser` (PR 7 D7). The Streamlit app can't cleanly import generic top-level `main` / `data_layer` / `visualization` modules. This is W1.
+*   **Prerequisite (done, W1):** the analyser is an importable `portfolio_analyser` package with a `portfolio-analyser` script, so the Streamlit app can import it.
 *   **Action:** Add Streamlit pages to `trading_bot/dashboard/app.py`, or lift the dashboard shell into a shared package if both apps' pages grow. Pages: upload/select a portfolio YAML, pick the benchmark / risk-free rate / withholding, and render the same `backward_analytics_figures`. No new maths: the pages call the same functions as the CLI. fts pages show PR 7's `benchmark_metrics`.
 *   **Deploy:** `uv run streamlit run …` for development; a `Dockerfile` + `docker-compose.yml` with the market-data cache DB on a mounted volume. Bind to localhost only (`--server.address 127.0.0.1`, `127.0.0.1:` port mapping) because reports contain client PII (Epic 8). No credentials baked into the image (PR 23).
 *   **fts:** the same container serves the existing backtest explorer.

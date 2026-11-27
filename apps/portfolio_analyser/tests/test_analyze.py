@@ -3,6 +3,7 @@ the YAML `current_price`, and reconciles the ledger against it."""
 
 from datetime import timedelta
 
+import portfolio_analyser.main as main_module
 import pytest
 from click.testing import CliRunner
 from portfolio_analyser.main import cli
@@ -136,3 +137,27 @@ def test_analyze_warns_on_a_cash_break_and_continues(monkeypatch, tmp_path):
         "cash break ARS" in result.output and "unexplained -10,000.00" in result.output
     )
     assert "Total Portfolio Value" in result.output
+
+
+def test_default_cache_is_one_db_whatever_the_working_directory(monkeypatch, tmp_path):
+    """Run from two folders: both use the same cache, the app folder's.
+    analyze and client-review share the option (`_broker_options`)."""
+    used = []
+
+    def record(portfolio, db_url, *args):
+        used.append(db_url)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(main_module, "prefetch_history", record)
+    monkeypatch.delenv("PA_DATABASE_URL", raising=False)
+    path = tmp_path / "portfolio.yaml"
+    path.write_text(PORTFOLIO)
+    for cwd in (tmp_path, main_module.APP_DIR.parent):
+        monkeypatch.chdir(cwd)
+        CliRunner().invoke(cli, ["analyze", "--broker", "yaml", "--file", str(path)])
+
+    expected = f"sqlite:///{main_module.APP_DIR / 'portfolio_analyser.db'}"
+    assert used == [expected, expected]
+    assert main_module.APP_DIR.name == "portfolio_analyser"
+    assert (main_module.APP_DIR / "pyproject.toml").exists()
+    assert not list(tmp_path.glob("*.db"))

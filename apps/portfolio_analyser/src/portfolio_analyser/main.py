@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import click
 from portfolio_analyser.data_layer.ledger_binding import (
     reconcile_snapshot,
@@ -20,6 +22,11 @@ from quant_data.providers.brokers import (
     IOLConnector,
     LocalYamlConnector,
 )
+
+# One cache for every run: anchored to the app folder (apps/portfolio_analyser),
+# not to the working directory, so running from elsewhere can't start a second DB.
+APP_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_DB_URL = f"sqlite:///{APP_DIR / 'portfolio_analyser.db'}"
 
 
 @click.group()
@@ -48,7 +55,7 @@ def _broker_options(command):
             click.option(
                 "--db-url",
                 envvar="PA_DATABASE_URL",
-                default="sqlite:///portfolio_analyser.db",
+                default=DEFAULT_DB_URL,
                 show_default=True,
                 help="Market-data cache database",
             ),
