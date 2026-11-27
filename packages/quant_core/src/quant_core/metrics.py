@@ -224,7 +224,7 @@ def compute_vol_forecast(
     if len(values) < 2:
         return VolForecastAnalysis(VolForecastMetrics(lam=lam))
     returns, ppy = daily_returns(wealth_index(values, cash_flows))
-    if not ppy > 0:
+    if returns.empty or not ppy > 0:
         return VolForecastAnalysis(VolForecastMetrics(lam=lam, n_obs=len(returns)))
     window, horizon = max(2, round(ppy)), max(2, round(ppy / 12))
 

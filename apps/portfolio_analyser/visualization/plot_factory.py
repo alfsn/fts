@@ -42,6 +42,7 @@ def backward_analytics_figures(
     level in the same currency, on any calendar: quant_core aligns it to the
     portfolio's dates before any return is taken.
     """
+    values = values.sort_index()
     wealth = wealth_index(values, cash_flows)
 
     figures = [

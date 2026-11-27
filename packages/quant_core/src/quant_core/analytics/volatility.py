@@ -71,19 +71,23 @@ def evaluate_variance_forecast(
 ) -> ForecastEvaluation:
     """
     Scores ``forecast`` (already aligned: the value at t forecasts ``r_t``)
-    on the dates where both are defined. Mincer-Zarnowitz regression
-    r_t² = a + b·h_t with Newey-West SEs, QLIKE, and the std of r_t/√h_t.
-    Below ``min_obs`` days (or with a non-positive forecast) only ``n`` is set.
+    on the dates where both are defined and the forecast is positive (a flat
+    stretch, e.g. a ledger in cash, forecasts exactly 0 and cannot be scored).
+    Mincer-Zarnowitz regression r_t² = a + b·h_t with Newey-West SEs, QLIKE,
+    and the RMS of z_t = r_t/√h_t. Below ``min_obs`` such days only ``n`` is set.
     """
     data = pd.concat({"r": returns, "h": forecast}, axis=1).dropna()
+    data = data[data["h"] > 0]
     n = len(data)
-    if n < min_obs or not (data["h"] > 0).all():
+    if n < min_obs:
         return ForecastEvaluation(n=n)
     r2 = data["r"] ** 2
     scores = dict(
         n=n,
         qlike=qlike(r2, data["h"]),
-        z_std=float((data["r"] / np.sqrt(data["h"])).std(ddof=1)),
+        # About zero, like the forecast: calibrated when E[z²] = 1. No mean is
+        # estimated, so there is no degree of freedom to correct for.
+        z_std=float(np.sqrt((data["r"] ** 2 / data["h"]).mean())),
     )
     # A constant forecast leaves the slope undefined (a singular design matrix
     # that inv() does not always reject).

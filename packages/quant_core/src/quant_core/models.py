@@ -475,7 +475,9 @@ class ForecastEvaluation(BaseModel):
     mz_slope_se: float = _nan("HAC standard error of the slope.")
     mz_r_squared: float = _nan("R² of the Mincer-Zarnowitz regression.")
     hac_lags: Optional[int] = Field(None, description="Newey-West lags used.")
-    z_std: float = _nan("Std of standardized returns r / sqrt(h) (ideal 1).")
+    z_std: float = _nan(
+        "RMS of standardized returns r / sqrt(h), about zero (ideal 1)."
+    )
 
 
 class VolForecastMetrics(BaseModel):

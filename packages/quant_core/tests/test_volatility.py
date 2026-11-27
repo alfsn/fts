@@ -114,6 +114,25 @@ def test_a_constant_forecast_has_no_slope_but_a_loss():
     assert np.isnan(e.mz_slope) and e.hac_lags is None
 
 
+def test_a_zero_forecast_day_is_dropped_not_fatal():
+    """A flat stretch (the bot in cash) forecasts exactly 0; those days
+    cannot be scored, but they must not void the rest of the sample."""
+    r = _returns(400)
+    h = pd.Series(1e-4, index=r.index)
+    h.iloc[:50] = 0.0
+    e = evaluate_variance_forecast(r, h, 252, 252)
+    assert e.n == 350
+    assert np.isfinite(e.qlike) and np.isfinite(e.z_std)
+
+
+def test_z_std_is_measured_about_zero_like_the_forecast():
+    """A forecast h = E[r²] is calibrated even when r has a mean: the check is
+    the RMS of z = r/√h, not its demeaned std."""
+    r = pd.Series(0.01, index=pd.bdate_range("2020-01-01", periods=300))
+    e = evaluate_variance_forecast(r, pd.Series(1e-4, index=r.index), 252, 252)
+    assert e.z_std == pytest.approx(1.0)
+
+
 # --- compute_vol_forecast ----------------------------------------------------
 
 
@@ -171,6 +190,21 @@ def test_short_history_reports_counts_and_nan():
     assert np.isnan(m.ewma.qlike) and np.isnan(m.baseline.qlike)
     assert m.forecast_vol > 0  # the forecast itself only needs the seed
     assert compute_vol_forecast(_garch_values(1)).metrics.n_obs == 0
+
+
+def test_a_ledger_that_starts_in_cash_is_still_scored():
+    values = _garch_values(1500)
+    values.iloc[:400] = 100.0  # flat: the EWMA seed and the baseline are 0
+    m = compute_vol_forecast(values).metrics
+    assert m.ewma.n >= MIN_VOL_EVAL_OBS
+    assert np.isfinite(m.ewma.qlike) and np.isfinite(m.baseline.qlike)
+
+
+def test_no_daily_returns_reports_counts_not_a_crash():
+    """An unpriced second day leaves no return (pct_change drops it)."""
+    values = pd.Series([100.0, np.nan], index=pd.date_range("2024-01-01", periods=2))
+    m = compute_vol_forecast(values).metrics
+    assert m.n_obs == 0 and np.isnan(m.forecast_vol)
 
 
 def test_models_reject_unknown_fields():

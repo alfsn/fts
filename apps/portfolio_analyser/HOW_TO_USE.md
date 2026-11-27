@@ -71,8 +71,8 @@ How to read it:
   - **QLIKE**: lower is better. Only the comparison between the two columns means something, not the level.
   - **Mincer-Zarnowitz slope** (regression of the realised squared return on the forecast, Newey-West SE): 1 is ideal. Below 1 the forecast over-reacts, and near 0 it carries no information.
   - **R²** is low by construction: one day's squared return is a very noisy measure of that day's variance. Don't judge the forecast by it.
-  - **Std of standardized returns** (return / forecast vol): about 1 if the forecast is calibrated. Above 1, it understates risk (or the returns have fat tails).
-- Below **252 common out-of-sample days** the scores show n/a; the day count is always shown. The baseline needs a year to start, so the scores need about two years of history.
+  - **RMS of standardized returns** (root mean square of return / forecast vol, taken about zero like the forecast): about 1 if the forecast is calibrated. Above 1, it understates risk (or the returns have fat tails).
+- Below **252 common out-of-sample days** the scores show n/a; the day count is always shown. Days with a zero forecast (a flat stretch, e.g. all cash) are left out of the count. The baseline needs a year to start, so the scores need about two years of history.
 - Limits: λ = 0.94 is tuned on developed markets, not re-estimated for ARS assets. EWMA has no mean reversion, so after a shock the annualised number overstates a true 1-year volatility. It describes the portfolio as it was held, not today's weights. Stale BYMA prices make it look calmer.
 
 ---

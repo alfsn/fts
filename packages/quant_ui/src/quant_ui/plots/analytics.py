@@ -262,7 +262,7 @@ def plot_vol_forecast_kpi_table(metrics: VolForecastMetrics, min_obs: int) -> go
         "Mincer-Zarnowitz slope ± HAC SE (ideal 1)",
         "Mincer-Zarnowitz intercept (ann. variance, ideal 0)",
         "Mincer-Zarnowitz R² (low by construction)",
-        "Std of standardized returns (ideal 1)",
+        "RMS of standardized returns (ideal 1)",
         f"Out-of-sample days (min {min_obs})",
     ]
     rows = [

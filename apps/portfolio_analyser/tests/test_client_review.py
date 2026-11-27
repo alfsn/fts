@@ -24,6 +24,19 @@ def test_backward_analytics_figures_without_a_baseline():
     assert table.layout.title.text == "Volatility Forecast vs Realised"
 
 
+def test_backward_analytics_figures_do_not_depend_on_ledger_order():
+    dates = pd.bdate_range("2022-01-03", periods=400)
+    values = pd.Series(
+        100 * np.cumprod(1 + np.random.default_rng(3).normal(0, 0.01, 400)),
+        index=dates,
+    )
+    shuffled = values.sample(frac=1, random_state=0)
+    for a, b in zip(
+        backward_analytics_figures(values), backward_analytics_figures(shuffled)
+    ):
+        assert a.to_json() == b.to_json()
+
+
 def test_backward_analytics_figures_against_an_unaligned_benchmark():
     """The benchmark has its own calendar (a US holiday the portfolio values
     through); its line starts at 0 on the portfolio's first date."""
