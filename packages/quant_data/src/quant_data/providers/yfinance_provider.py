@@ -163,8 +163,10 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider, CorporateActionProvider
             cl = float(row["Close"])
             vol = float(row["Volume"])
 
-            # Enforce schemas constraints (gt=0 for prices)
-            if op <= 0 or hi <= 0 or lo <= 0 or cl <= 0:
+            # Enforce schema constraints (gt=0 for prices). Written so a NaN
+            # price fails too: Yahoo sends all-NaN rows for some BYMA sessions,
+            # and one would reject the whole download.
+            if not (op > 0 and hi > 0 and lo > 0 and cl > 0):
                 continue
 
             # yfinance index can be datetime index or date index

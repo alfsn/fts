@@ -18,6 +18,7 @@ from quant_core.analytics import (
     round_trip_pnls,
     to_daily,
     top_drawdowns,
+    window,
 )
 
 
@@ -47,6 +48,51 @@ def test_twr_rejects_flows_without_valuation():
     values = _series([100, 110])
     with pytest.raises(ValueError):
         compute_twr(values, pd.Series([5.0], index=[pd.Timestamp("2030-01-01")]))
+
+
+def test_window_starts_from_the_prior_close_and_compounds_to_the_whole():
+    values = _series([100, 110, 99, 120, 132], start="2024-01-01")
+    flows = pd.Series([50.0], index=[values.index[3]])  # deposit on day 4
+    first, first_flows = window(values, flows, end="2024-01-03")
+    second, second_flows = window(values, flows, start="2024-01-04")
+
+    assert second.index[0] == pd.Timestamp("2024-01-03")  # the prior close
+    assert first_flows.empty and len(second_flows) == 1
+    growth = (1 + compute_twr(first, first_flows)) * (
+        1 + compute_twr(second, second_flows)
+    )
+    assert growth - 1 == pytest.approx(compute_twr(values, flows))
+
+
+def test_window_counts_a_base_day_flow_as_starting_capital():
+    # Deposit of 100 on the base day: the window grows 200 -> 220, +10%.
+    values = _series([100, 200, 220], freq="365D")
+    flows = pd.Series([100.0], index=[values.index[1]])
+    sliced, sliced_flows = window(values, flows, start=values.index[2])
+
+    assert compute_twr(sliced, sliced_flows) == pytest.approx(0.10)
+    assert compute_mwr(sliced, sliced_flows) == pytest.approx(0.10, abs=1e-3)
+
+
+def test_window_keeps_a_flow_on_an_unpriced_day_so_it_raises():
+    values = _series([100, np.nan, 120])
+    flows = pd.Series([10.0], index=[values.index[1]])
+    sliced, sliced_flows = window(values, flows, start="2024-01-02")
+
+    with pytest.raises(ValueError):
+        compute_twr(sliced, sliced_flows)
+
+
+def test_window_needs_two_valued_days():
+    with pytest.raises(ValueError):
+        window(_series([100, 110]), end="2024-01-01")
+
+
+def test_window_takes_naive_bounds_on_a_utc_index():
+    values = _series([100, 110, 121]).tz_localize("UTC")
+    sliced, _ = window(values, start="2024-01-03")
+
+    assert list(sliced) == [110, 121]
 
 
 def test_twr_undefined_for_single_point():

@@ -1,0 +1,36 @@
+# Demo ledger (W2): real tickers and real closing prices, SYNTHETIC trades.
+# The KPIs are illustrative only. A USD sleeve (AAPL, with dividends booked on
+# approximate pay dates, one partial sell and one withdrawal) and an ARS sleeve
+# (GGAL.BA, YPFD.BA) held across YPFD's 10:1 split on 2026-08-03: the split
+# comes from the cached corporate actions, so the snapshot holds 600 YPF.
+# Trade prices are the as-traded (raw) closes of the trade dates.
+base_currency: USD
+benchmark: {symbol: SPY, currency: USD}
+positions:
+  - {instrument_id: AAPL, currency: USD, quantity: 50, cost_basis: 177.57}
+  - {instrument_id: GGAL, provider_symbol: GGAL.BA, currency: ARS, quantity: 1000, cost_basis: 1035.1}
+  - {instrument_id: YPF, provider_symbol: YPFD.BA, currency: ARS, quantity: 600, cost_basis: 873.56}
+cash_balances:
+  - {currency: USD, total: 8144.2, available: 8144.2}
+  - {currency: ARS, total: 1440764.0, available: 1440764.0}
+transactions:
+  - {date: 2023-11-01, type: deposit, currency: USD, amount: 20000}
+  - {date: 2023-11-02, type: buy, currency: USD, instrument_id: AAPL, quantity: 80, price: 177.57, fees: 1.0}
+  - {date: 2023-11-07, type: deposit, currency: ARS, amount: 3000000}
+  - {date: 2023-11-07, type: buy, currency: ARS, instrument_id: GGAL, provider_symbol: GGAL.BA, quantity: 1000, price: 1035.1}
+  - {date: 2023-11-07, type: buy, currency: ARS, instrument_id: YPF, provider_symbol: YPFD.BA, quantity: 60, price: 8735.6}
+  - {date: 2023-11-16, type: dividend, currency: USD, instrument_id: AAPL, amount: 19.2}
+  - {date: 2024-02-15, type: dividend, currency: USD, instrument_id: AAPL, amount: 19.2}
+  - {date: 2024-05-16, type: dividend, currency: USD, instrument_id: AAPL, amount: 20.0}
+  - {date: 2024-08-16, type: dividend, currency: USD, instrument_id: AAPL, amount: 20.0}
+  - {date: 2024-11-14, type: dividend, currency: USD, instrument_id: AAPL, amount: 20.0}
+  - {date: 2025-02-14, type: dividend, currency: USD, instrument_id: AAPL, amount: 20.0}
+  - {date: 2025-03-03, type: sell, currency: USD, instrument_id: AAPL, quantity: 30, price: 238.03, fees: 1.0}
+  - {date: 2025-05-16, type: dividend, currency: USD, instrument_id: AAPL, amount: 13.0}
+  - {date: 2025-06-02, type: withdrawal, currency: USD, amount: 5000}
+  - {date: 2025-08-15, type: dividend, currency: USD, instrument_id: AAPL, amount: 13.0}
+  - {date: 2025-11-14, type: dividend, currency: USD, instrument_id: AAPL, amount: 13.0}
+  - {date: 2026-02-13, type: dividend, currency: USD, instrument_id: AAPL, amount: 13.0}
+  - {date: 2026-05-15, type: dividend, currency: USD, instrument_id: AAPL, amount: 13.5}
+  - {date: 2026-08-14, type: dividend, currency: USD, instrument_id: AAPL, amount: 13.5}
+  - {date: 2026-11-18, type: dividend, currency: USD, instrument_id: AAPL, amount: 13.5}

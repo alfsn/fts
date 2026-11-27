@@ -175,9 +175,9 @@ def test_client_review_values_follow_the_market(monkeypatch, tmp_path):
     path = tmp_path / "portfolio.yaml"
     path.write_text(PORTFOLIO + at_market % 100)
     portfolio = LocalYamlConnector(str(path)).get_portfolio()
-    from portfolio_analyser.main import prefetch_history
+    from portfolio_analyser.review import prepare_history
 
-    closes, actions = prefetch_history(portfolio, "sqlite://")
+    closes, actions = prepare_history(portfolio, "sqlite://")
     fx = usd_per_unit(ccl_series(closes, actions), closes.index)
     as_of = valuation_date(portfolio, closes, fx)
 
@@ -227,3 +227,30 @@ def test_benchmark_level_is_total_return_in_the_base_currency():
 
     ars = benchmark_level(closes, actions, Benchmark(), fx, Currency.ARS)
     assert ars.iloc[-1] / ars.iloc[0] == pytest.approx(1100 / 1000)
+
+
+def test_client_review_windows_the_period_from_the_prior_close(monkeypatch, tmp_path):
+    result = _review(
+        monkeypatch,
+        tmp_path,
+        PORTFOLIO + LEDGER % 100,
+        extra_args=["--start", "2025-01-01", "--end", "2025-06-30"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Valued from 2024-12-" in result.output  # last weekly bar before start
+    assert "to 2025-06-" in result.output
+    assert "Window starts" not in result.output
+
+
+def test_client_review_clips_a_window_outside_the_ledger(monkeypatch, tmp_path):
+    result = _review(
+        monkeypatch,
+        tmp_path,
+        PORTFOLIO + LEDGER % 100,
+        extra_args=["--start", "2000-01-01", "--end", "2100-01-01"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Window starts at 2024-01" in result.output
+    assert "Window ends at" in result.output

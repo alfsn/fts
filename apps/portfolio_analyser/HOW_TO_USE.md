@@ -75,6 +75,26 @@ How to read it:
 - Below **252 common out-of-sample days** (about 8 months of crypto) the scores show n/a; the day count is always shown. Days with a zero forecast (a flat stretch, e.g. all cash) are left out of the count. The baseline needs a year to start, so the scores need about two years of history.
 - Limits: λ = 0.94 is tuned on developed markets, not re-estimated for ARS assets. EWMA has no mean reversion, so after a shock the annualised number overstates a true 1-year volatility. It describes the portfolio as it was held, not today's weights. Stale BYMA prices make it look calmer.
 
+### 6. A date window
+`client-review` can report on one period instead of the whole ledger:
+```bash
+uv run portfolio-analyser client-review --broker yaml --file examples/demo_ledger.yaml \
+    --start 2025-01-01 --end 2025-12-31
+```
+- Returns start from the **last close before `--start`** (for 2025: the close of 2024-12-31), so the first day's move counts and back-to-back periods compound exactly to the longer one. Money deposited on that close is the starting capital.
+- Every KPI and chart is rebased on the window: the benchmark and the T-bill are lined up with it, the EWMA forecast restarts (30 days), and the rolling-volatility lines start again.
+- A short window shows n/a below the minimum sample printed next to each table (`min 252` for the benchmark statistics), with the day count. A calendar year can fall just short: on the demo, 2025 has 250 days shared with SPY, so its alpha is n/a.
+- A window reaching before the first ledger day or after the valuation date is trimmed to the ledger, with a warning. Fewer than two valued days is an error.
+- Reconciliation still checks the ledger against today's snapshot, whatever the window.
+
+### 7. The demo ledger
+`examples/demo_ledger.yaml` has real tickers and real closing prices, but the trades are **synthetic**, so its numbers are illustrative only. It has a USD sleeve (AAPL with dividends, a partial sell and a withdrawal) and an ARS sleeve (GGAL.BA, YPFD.BA held across YPFD's 10:1 split on 2026-08-03):
+```bash
+uv run portfolio-analyser analyze --broker yaml --file examples/demo_ledger.yaml
+uv run portfolio-analyser client-review --broker yaml --file examples/demo_ledger.yaml
+```
+The first run downloads the prices from Yahoo into the cache.
+
 ---
 
 ## 🛠️ How to Add a Portfolio (Without Real Broker Data)

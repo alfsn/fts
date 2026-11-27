@@ -72,6 +72,47 @@ def _aligned_flows(values: pd.Series, cash_flows: Optional[pd.Series]) -> pd.Ser
     return flows.reindex(values.index, fill_value=0.0)
 
 
+def _bound(timestamp, index: pd.DatetimeIndex) -> pd.Timestamp:
+    timestamp = pd.Timestamp(timestamp)
+    if index.tz is not None and timestamp.tz is None:
+        return timestamp.tz_localize(index.tz)
+    return timestamp
+
+
+def window(
+    values: pd.Series,
+    cash_flows: Optional[pd.Series] = None,
+    start=None,
+    end=None,
+) -> tuple[pd.Series, Optional[pd.Series]]:
+    """
+    ``values`` and ``cash_flows`` from the base row to ``end``, both inclusive.
+    The base is the last priced row strictly before ``start`` (the prior close,
+    as in a calendar-year return), so the first day's move counts and adjacent
+    windows compound to the whole period; without an earlier row it is the
+    first priced row. A flow on the base row is part of the starting capital
+    (``period_returns`` and ``compute_mwr`` drop it). Flows are cut by the same
+    dates, not reindexed, so a flow on an unpriced row in the window still
+    raises downstream. Naive bounds take the index's timezone.
+    """
+    values = values.sort_index()
+    priced = values.dropna()
+    first = priced.index[0] if len(priced) else None
+    if start is not None and len(priced):
+        before = priced.index[priced.index < _bound(start, priced.index)]
+        first = before[-1] if len(before) else priced.index[0]
+    last = None if end is None else _bound(end, values.index)
+    values = values.loc[first:last]
+    if values.count() < 2:
+        raise ValueError(
+            f"Fewer than 2 valued days between {start} and {end}: no returns."
+        )
+    if cash_flows is None:
+        return values, None
+    flows = cash_flows.sort_index()
+    return values, flows.loc[values.index[0] : values.index[-1]]
+
+
 def period_returns(
     values: pd.Series, cash_flows: Optional[pd.Series] = None
 ) -> pd.Series:

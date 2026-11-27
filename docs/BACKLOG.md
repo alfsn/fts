@@ -15,7 +15,7 @@ For each PR: search:
 Order: **W1**, **W2**, **M1**, **M2**, **W3**, **W4**, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps. Each PR ends by adding its guards (import-linter contracts or text tests), listed in the plan's "Guards per PR".
 
 *   **W1: Package the analyser.** :done Move it under `src/portfolio_analyser/`, add the `portfolio-analyser` script; no behaviour change, except that the default cache DB is now anchored to the app folder rather than the working directory. [plan](plans/UI-plan.md#w1-package-the-analyser-no-behaviour-change)
-*   **W2: Use cases + date window.** The analyser's `review` module: one pipeline the CLI and the workbench both call. [plan](plans/UI-plan.md#w2-use-cases--date-window-the-shared-pipeline)
+*   **W2: Use cases + date window.** :done The analyser's `review` module: one pipeline the CLI and the workbench both call; `client-review --start/--end` (KPIs rebase on the last close before the start, `quant_core.analytics.window`); the demo ledger. The cache helpers and the fts backtest curves moved to W3. [plan](plans/UI-plan.md#w2-use-cases--date-window-the-shared-pipeline)
 *   **M1: `RunStore` + one database.** One module saves, loads and deletes runs. Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch. [plan](plans/modularization.md#pr-sequence)
 *   **M2: Bars via `quant_data`.** fts stops importing `BarDataLog`. Last step: one price-cache file shared by fts and the analyser (plan D18). [plan](plans/modularization.md#pr-sequence)
 *   **W3: Workbench shell.** `apps/workbench`, a Streamlit shell over both apps' use cases. [plan](plans/UI-plan.md#w3-the-workbench-shell)

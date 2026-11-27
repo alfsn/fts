@@ -4,6 +4,7 @@ the YAML `current_price`, and reconciles the ledger against it."""
 from datetime import timedelta
 
 import portfolio_analyser.main as main_module
+import portfolio_analyser.review as review
 import pytest
 from click.testing import CliRunner
 from portfolio_analyser.main import cli
@@ -148,7 +149,7 @@ def test_default_cache_is_one_db_whatever_the_working_directory(monkeypatch, tmp
         used.append(db_url)
         raise SystemExit(0)
 
-    monkeypatch.setattr(main_module, "prefetch_history", record)
+    monkeypatch.setattr(review, "prepare_history", record)
     monkeypatch.delenv("PA_DATABASE_URL", raising=False)
     path = tmp_path / "portfolio.yaml"
     path.write_text(PORTFOLIO)
@@ -161,3 +162,31 @@ def test_default_cache_is_one_db_whatever_the_working_directory(monkeypatch, tmp
     assert main_module.APP_DIR.name == "portfolio_analyser"
     assert (main_module.APP_DIR / "pyproject.toml").exists()
     assert not list(tmp_path.glob("*.db"))
+
+
+def test_the_demo_ledger_reconciles_across_the_ypfd_split(monkeypatch, tmp_path):
+    """examples/demo_ledger.yaml holds YPFD.BA across its 10:1 split: the
+    snapshot's 600 shares only match the ledger's 60 if the split is applied."""
+    from datetime import datetime, timezone
+
+    from quant_core.enums import CorporateActionType
+    from quant_core.models import CorporateAction
+
+    split = CorporateAction(
+        instrument_id="YPFD.BA",
+        action_type=CorporateActionType.SPLIT,
+        ex_date=datetime(2026, 8, 3, tzinfo=timezone.utc),
+        ratio=10.0,
+    )
+    demo = (main_module.APP_DIR / "examples" / "demo_ledger.yaml").read_text()
+    closes = {**CLOSES, "AAPL": 200.0}
+
+    result = _analyze(
+        monkeypatch, tmp_path, closes, yaml=demo, actions={"YPFD.BA": [split]}
+    )
+    assert result.exit_code == 0, result.output
+    assert "Reconciliation: OK" in result.output
+    assert "cash break" not in result.output
+
+    without_split = _analyze(monkeypatch, tmp_path, closes, yaml=demo)
+    assert "quantity break YPF (ARS)" in without_split.output
