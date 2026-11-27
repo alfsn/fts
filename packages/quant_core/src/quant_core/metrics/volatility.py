@@ -70,6 +70,8 @@ def compute_vol_forecast(
     if len(values) < 2:
         return VolForecastAnalysis(VolForecastMetrics(lam=lam, min_obs=min_obs))
     returns, ppy = daily_returns(wealth_index(values, cash_flows))
+    # An unpriced day leaves a NaN return; the EWMA recursion cannot carry one.
+    returns = returns.dropna()
     if returns.empty or not ppy > 0:
         return VolForecastAnalysis(
             VolForecastMetrics(lam=lam, min_obs=min_obs, n_obs=len(returns))

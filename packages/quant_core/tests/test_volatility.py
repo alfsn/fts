@@ -207,6 +207,18 @@ def test_no_daily_returns_reports_counts_not_a_crash():
     assert m.n_obs == 0 and np.isnan(m.forecast_vol)
 
 
+def test_one_unpriced_day_does_not_blank_the_forecast():
+    values = _garch_values(1500)
+    gap = values.copy()
+    gap.iloc[700] = np.nan
+    clean, holed = (
+        compute_vol_forecast(values).metrics,
+        compute_vol_forecast(gap).metrics,
+    )
+    assert holed.forecast_vol == pytest.approx(clean.forecast_vol, rel=0.05)
+    assert holed.ewma.n >= MIN_VOL_EVAL_OBS and np.isfinite(holed.ewma.qlike)
+
+
 def test_models_reject_unknown_fields():
     with pytest.raises(ValidationError):
         VolForecastMetrics(volatility=0.1)
