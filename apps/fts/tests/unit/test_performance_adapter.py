@@ -82,3 +82,24 @@ def test_benchmark_metrics_short_backtest_and_unpriced_ticks_are_nan():
 
     short = build_benchmark_metrics(_equity_log(60))
     assert short.n_obs == 59 and short.beta != short.beta  # NaN below 252
+
+
+def test_vol_forecast_of_a_long_backtest():
+    import math
+
+    from trading_bot.core.performance import build_vol_forecast
+
+    m = build_vol_forecast(_equity_log(800))
+    assert m.n_obs == 799
+    assert (m.baseline_window, m.horizon) == (365, 30)  # crypto calendar
+    # equity daily vol ≈ 0.5 x 3% → ~29% annualised over 365 days
+    assert 0.15 < m.forecast_vol < 0.45
+    assert m.ewma.n == m.baseline.n >= 252
+    assert math.isfinite(m.ewma.qlike) and math.isfinite(m.baseline.qlike)
+
+
+def test_vol_forecast_of_a_short_backtest_is_nan():
+    from trading_bot.core.performance import build_vol_forecast
+
+    m = build_vol_forecast(_equity_log(100))
+    assert m.ewma.n == 0 and m.ewma.qlike != m.ewma.qlike

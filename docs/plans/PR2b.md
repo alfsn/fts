@@ -1,6 +1,6 @@
 # PR 2b: Transaction Ledger & Real Holdings History
 
-**Status:** done (PRs #45, #46, #47; 2026-11-16) · **Depends on:** PR 2a (raw prices, cached splits) · **Unblocks:** PR 7 onwards
+**Shipped in:** PRs #45, #46, #47 (2026-11-16) · **Depends on:** PR 2a (raw prices, cached splits) · **Unblocks:** PR 7 onwards
 **Packages:** `quant_core` (ledger model + pure replay/valuation), `quant_data` (YAML), analyser (`analyze`, `client-review`)
 
 ## Why

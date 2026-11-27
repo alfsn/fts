@@ -1,10 +1,46 @@
-# Portfolio Analyser: Master PR Backlog (The "JIRA")
+# Workspace Backlog (The "JIRA")
 
-*This is the complete, unfiltered backlog translating every single feature from our original brainstorming session into vertical-slice Pull Requests. It adheres to Clean Architecture (`quant_core` for math, `quant_data` for DB/API, `portfolio_analyser` for orchestration).*
+*The workspace's single source of truth for PR order and status (fts, portfolio_analyser and `packages/`). Each entry links to its design in `plans/`. It adheres to Clean Architecture (`quant_core` for math, `quant_data` for DB/API, the apps for orchestration).*
 
 For each PR: search:
 1. is this (loosely) implemented in fts already? Or something similar? If so, we must extract and generalize usage for both apps.
 2. Is this something we could apply in fts? If so, how?
+
+## Architecture ideals (not yet scheduled)
+
+*   **One ID per deployment.** A deployment is strategy + model + config. Its ID is derived from the code commit, the model artifact hash and the config hash, so it survives restarts, and any change to one of the three makes a new deployment (a retrained model is a new deployment). Backtests, paper trading and live orders all carry it, which is what lets live results be compared with the backtest of the same deployment. Today fts makes a new ID from the start time on every process start (`trading_bot/__main__.py`), and only predictions are saved with it.
+
+## Modularization (Parnas review): plans in [`plans/modularization.md`](plans/modularization.md) and [`plans/UI-plan.md`](plans/UI-plan.md)
+
+Order: **W1**, **W2**, **M1**, **M2**, **W3**, **W4**, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps. Each PR ends by adding its guards (import-linter contracts or text tests), listed in the plan's "Guards per PR".
+
+*   **W1: Package the analyser.** Move it under `src/portfolio_analyser/`, add the `portfolio-analyser` script; no behaviour change. [plan](plans/UI-plan.md#w1-package-the-analyser-no-behaviour-change)
+*   **W2: Use cases + date window.** The analyser's `review` module: one pipeline the CLI and the workbench both call. [plan](plans/UI-plan.md#w2-use-cases--date-window-the-shared-pipeline)
+*   **M1: `RunStore` + one database.** One module saves, loads and deletes runs. Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch. [plan](plans/modularization.md#pr-sequence)
+*   **M2: Bars via `quant_data`.** fts stops importing `BarDataLog`. Last step: one price-cache file shared by fts and the analyser (plan D18). [plan](plans/modularization.md#pr-sequence)
+*   **W3: Workbench shell.** `apps/workbench`, a Streamlit shell over both apps' use cases. [plan](plans/UI-plan.md#w3-the-workbench-shell)
+*   **W4: Workbench cleanups.** [plan](plans/UI-plan.md#w4-cleanups)
+*   **M3: Deployment ID.** hash(commit, model file, config), plus a strategy-line ID. [plan](plans/modularization.md#pr-sequence)
+*   **M4: Configurable fills.** `ExecutionSpec` + pluggable `FillPrice` (default next-bar open) / `PriceSlip` / `CommissionModel`, and one builder for `SimVenue`. [plan](plans/modularization.md#pr-sequence)
+*   **R1: Forecast maths in `quant_core`.** Rank IC, Newey-West SE, fold aggregates. [plan](plans/modularization.md#pr-sequence)
+*   **R2: One experiment loop.** Optuna-only search, walk-forward `Splitter`, pluggable objective / aggregate / acceptance; replaces the sweep runner. [plan](plans/modularization.md#pr-sequence)
+*   **M8: Generic training out of `nets`.** Into `trading_bot.modeling`. [plan](plans/modularization.md#pr-sequence)
+*   **M5: `quant_broker` package.** `AccountReader` + `Venue`; IBKR via `ib_async`. [plan](plans/modularization.md#pr-sequence)
+*   **M6: Live book.** Append-only IBKR fills as `Transaction`s; a quantity break stops trading. [plan](plans/modularization.md#pr-sequence)
+*   **M7: IBKR paper deployment.** [plan](plans/modularization.md#pr-sequence)
+*   **M9: Shadow backtest + Live page.** [plan](plans/modularization.md#pr-sequence)
+*   **A1: Analyser what-if backtest.** Weights + `quant_core.rebalance` → `ledger.replay`. [plan](plans/modularization.md#pr-sequence)
+
+## Future stuff (nice to have)
+
+*   **Multi-instrument models.** Today a model, a search and a backtest cover one `instrument_id`. A pooled model trains one network on several symbols at once. It needs per-symbol scaling (or returns-only features), a symbol identifier or embedding as an input, walk-forward folds cut on a shared calendar, and per-symbol IC reported next to the pooled IC, so that one easy symbol can't carry the score.
+
+### Research ideas (from `docs/fts/presentation.md` §17)
+
+*   **Target realism.** Align the training target with the fill: with a 1-bar execution delay, train on the return from the fill onward (e.g. r_{t+2}), not r_{t+1}. Now a must-verify item before R2 (`plans/modularization.md`).
+*   **Latency-aware loss.** Put non-fill probability, execution-latency distributions and slippage penalties into the training loss.
+*   **Volatility-scaled sizing.** Use the volatility forecast (PR 10, EWMA) to scale position size and confidence thresholds across volatility regimes.
+*   **Model ensembles.** A `PortfolioStrategy` that combines single-feature (1D) and multi-feature (5D) models into one ensemble.
 
 ---
 
@@ -96,8 +132,12 @@ For each PR: search:
 > *   **PR 11:** Lead with **historical** VaR/CVaR. Parametric Gaussian VaR understates ARS tail risk, so show it only next to the historical figure, labelled as such. State the horizon (1-day) and the sign convention (loss as a positive fraction). With fewer than about 250 observations, 99% figures rest on 2–3 points: show the observation count, and NaN below a minimum.
 > *   **PR 19:** Correlations on aligned daily returns in base currency (pairwise-complete obs, minimum overlap, otherwise NaN). Expect ARS listings to look highly correlated, because they share the CCL factor. Optionally show local-currency correlations next to them.
 > *   **PR 18:** Drift = actual − target weights at market value (PR 2b prices). An unpriced position is a violation, not weight 0.
-**PR 10: Expected Volatility Forecast**
+**PR 10: Expected Volatility Forecast** :done
 *   **Math (`quant_core`):** Implement an Exponentially Weighted Moving Average (EWMA) volatility forecaster.
+
+> **PR 10 notes (2026-11-18).** Maths in `quant_core.analytics.volatility` (`ewma_variance`, `qlike`, `evaluate_variance_forecast`, `annualise_variance`; `RISKMETRICS_DAILY_LAMBDA = 0.94` as the default of a `lam` parameter, `EWMA_SEED_OBS = 30`), composed by `quant_core.metrics.compute_vol_forecast` into `VolForecastMetrics` holding two `ForecastEvaluation`s (both `extra="forbid"`). Decisions: **D1** baseline = rolling one-year zero-mean variance (mean r², `analytics.rolling_variance`; was the sample variance until PR 10b); **D2** fts exposes it on `BacktestDetailDTO.vol_forecast` only (not computed per catalog row); **D3** the chart's realised line = zero-mean vol of the next month; **D4** seed = mean r² of the first 30 returns, NaN before; **D5** zero-mean EWMA (RiskMetrics); **D6** EWMA and baseline are scored on the *same* out-of-sample days, NaN below 252 (`MIN_VOL_EVAL_OBS`), counts always shown; **D8** baseline window = `round(ppy)` and horizon = `round(ppy/12)` obs (252/21 equities, 365/30 crypto). Method: daily returns of the flow-adjusted wealth index → pandas `ewm(alpha=1−λ, adjust=False)` from the seed; the value at t forecasts t+1, shifted by one before scoring (no look-ahead). Scores: QLIKE `r²/h + ln h` (Patton 2011, finite at r = 0), Mincer-Zarnowitz r² on h with Newey-West SEs, std of r/√h. On a simulated GARCH(1,1) the EWMA beats the baseline (QLIKE −8.44 vs −8.34) with slope 0.71 ± 0.10 (λ over-reacts vs that process); on a live AAPL ledger (972 days) −8.19 vs −8.10, slope 0.64 ± 0.34 vs 0.14. **Refactors (one home for the maths):** `hac_ols` / `HacFit` / `newey_west_lags` moved to `analytics.regression`; `analytics.daily_returns(wealth)` replaces the copies in `compute_performance_metrics` and `plot_factory`; `metrics.compute_rolling_vols` replaces the app's own rolling-vol loop; `quant_ui` KPI tables share `_kpi_table`. **Known limits:** λ not re-estimated for ARS assets (fitting it by min QLIKE is a follow-up, watch in-sample bias); no mean reversion (IGARCH), so the annualised figure overstates a 1-year vol after shocks; history as held, not current weights (PR 12/19); stale BYMA prices understate vol; fat tails dominate QLIKE; pay-date dividends add small jumps; scores need ~2 years of history; the (30, 90, 252) rolling-vol chart windows are still fixed obs counts (kept on purpose); 252 obs is ~8 months of crypto (kept on purpose).
+
+> **PR 10b notes (2026-11-18).** Follow-up to the PR 50 review (DRY / SSOT). `analytics.daily_returns(levels, risk_free)` is the one path from levels to daily returns (it calls `excess_returns`; a stale rate stays NaN), used for volatility, Sharpe and Sortino. `BenchmarkMetrics.min_obs` / `VolForecastMetrics.min_obs` are set on every path and the `quant_ui` tables print them (no `min_obs` argument). The forecast table writes each row once (label beside its formatter). `analytics.rolling_variance(returns, window, zero_mean)` is the one home for rolling dispersion: `compute_rolling_vol` = sample variance (unchanged numbers); the forecast's baseline and realised line are zero-mean like EWMA. `quant_core.metrics` is a package (`performance`, `benchmark`, `volatility`, `_common.MIN_SAMPLE_OBS = 252`) that re-exports the old names. Effect: GARCH test unchanged at 2 dp; live AAPL+YPF ledger baseline QLIKE −9.087 → −9.088, slope −0.65 → −0.66 (EWMA unchanged: −9.277, 0.63 ± 0.41).
 
 **PR 11: Tail Risk Modeling (VaR & CVaR)**
 *   **Math (`quant_core`):** Parametric Value at Risk (VaR) and Historical Expected Shortfall (CVaR) at 95% and 99%.
@@ -157,7 +197,7 @@ For each PR: search:
 
 **PR 26: Local Dashboard & Deployment (`quant_ui`, fts dashboard, `portfolio_analyser`)**
 *   **Goal:** One locally deployed browser UX for both apps: the fts backtest catalog plus the analyser's `analyze` / `client-review`, without the CLI.
-*   **Prerequisite:** make the analyser importable. Move `main.py`, `data_layer/`, `domain/`, `visualization/` and `config/` under a `portfolio_analyser/` package with a build backend, which also unblocks `[project.scripts] portfolio-analyser` (PR 7 D7). The Streamlit app can't cleanly import generic top-level `config` / `domain` modules.
+*   **Prerequisite:** make the analyser importable. Move `main.py`, `data_layer/` and `visualization/` under a `portfolio_analyser/` package with a build backend, which also unblocks `[project.scripts] portfolio-analyser` (PR 7 D7). The Streamlit app can't cleanly import generic top-level `main` / `data_layer` / `visualization` modules. This is W1.
 *   **Action:** Add Streamlit pages to `trading_bot/dashboard/app.py`, or lift the dashboard shell into a shared package if both apps' pages grow. Pages: upload/select a portfolio YAML, pick the benchmark / risk-free rate / withholding, and render the same `backward_analytics_figures`. No new maths: the pages call the same functions as the CLI. fts pages show PR 7's `benchmark_metrics`.
 *   **Deploy:** `uv run streamlit run …` for development; a `Dockerfile` + `docker-compose.yml` with the market-data cache DB on a mounted volume. Bind to localhost only (`--server.address 127.0.0.1`, `127.0.0.1:` port mapping) because reports contain client PII (Epic 8). No credentials baked into the image (PR 23).
 *   **fts:** the same container serves the existing backtest explorer.

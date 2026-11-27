@@ -4,18 +4,25 @@ series already computed by ``quant_core.analytics`` and does no math itself.
 """
 
 import math
-from typing import List, Mapping, Optional
+from typing import Callable, List, Mapping, Optional, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from quant_core.models import BenchmarkMetrics, DrawdownEpisode, PerformanceMetrics
+from quant_core.models import (
+    BenchmarkMetrics,
+    DrawdownEpisode,
+    ForecastEvaluation,
+    PerformanceMetrics,
+    VolForecastMetrics,
+)
 from quant_ui.plots.theme import BBG_DOWN, BBG_TEXT, setup_bloomberg_theme
 
 setup_bloomberg_theme()
 
 _PORTFOLIO_COLOR = "#2196f3"
 _BASELINE_COLOR = "#78909c"
+_REALISED_COLOR = "#ffb300"
 
 
 def plot_cumulative_returns(
@@ -98,6 +105,22 @@ def _fmt(value: float, pattern: str) -> str:
     return "n/a" if math.isnan(value) else format(value, pattern)
 
 
+def _count(value: Optional[int]) -> str:
+    return "n/a" if value is None else str(value)
+
+
+def _kpi_table(rows: List[tuple], header: List[str], title: str) -> go.Figure:
+    """A label/value(s) table: ``rows`` are tuples, one cell per header column."""
+    fig = go.Figure(
+        go.Table(
+            header=dict(values=header, fill_color="#1a1a1a"),
+            cells=dict(values=list(zip(*rows)), fill_color="#000000", align="left"),
+        )
+    )
+    fig.update_layout(title=title)
+    return fig
+
+
 def plot_risk_kpi_table(metrics: PerformanceMetrics) -> go.Figure:
     rows = [
         ("Total Return (TWR)", _fmt(metrics.total_return, ".2%")),
@@ -109,14 +132,9 @@ def plot_risk_kpi_table(metrics: PerformanceMetrics) -> go.Figure:
         ("Max Drawdown", _fmt(metrics.max_drawdown, ".2%")),
         ("Longest Time Underwater", _fmt(metrics.time_underwater_days, ".0f") + " d"),
     ]
-    fig = go.Figure(
-        go.Table(
-            header=dict(values=["Risk KPI", "Value"], fill_color="#1a1a1a"),
-            cells=dict(values=list(zip(*rows)), fill_color="#000000", align="left"),
-        )
-    )
-    fig.update_layout(title="Risk KPIs")
-    return fig
+    if metrics.unpriced_obs:
+        rows.append(("Unpriced valuations skipped", str(metrics.unpriced_obs)))
+    return _kpi_table(rows, ["Risk KPI", "Value"], "Risk KPIs")
 
 
 def plot_benchmark_scatter(
@@ -167,7 +185,7 @@ def _estimate(value: float, se: float, low: float, high: float, pattern: str) ->
 
 
 def plot_benchmark_kpi_table(
-    metrics: BenchmarkMetrics, benchmark_name: str, min_obs: int
+    metrics: BenchmarkMetrics, benchmark_name: str
 ) -> go.Figure:
     m = metrics
     rows = [
@@ -184,14 +202,87 @@ def plot_benchmark_kpi_table(
         ("Up Capture (daily)", _fmt(m.up_capture, ".0%")),
         ("Down Capture (daily)", _fmt(m.down_capture, ".0%")),
         ("Information Ratio", _fmt(m.information_ratio, ".2f")),
-        ("Observations (daily)", f"{m.n_obs} (min {min_obs})"),
+        ("Observations (daily)", f"{m.n_obs} (min {_count(m.min_obs)})"),
         ("Newey-West lags", "n/a" if m.hac_lags is None else str(m.hac_lags)),
     ]
-    fig = go.Figure(
-        go.Table(
-            header=dict(values=["Benchmark KPI", "Value"], fill_color="#1a1a1a"),
-            cells=dict(values=list(zip(*rows)), fill_color="#000000", align="left"),
-        )
+    return _kpi_table(
+        rows, ["Benchmark KPI", "Value"], f"Benchmark KPIs vs {benchmark_name}"
     )
-    fig.update_layout(title=f"Benchmark KPIs vs {benchmark_name}")
+
+
+def plot_vol_forecast(frame: pd.DataFrame, metrics: VolForecastMetrics) -> go.Figure:
+    """EWMA next-day forecast vs the volatility realised over the following
+    ``metrics.horizon`` days, with the rolling one-year baseline (``frame``
+    columns forecast, realised, baseline: annualised fractions)."""
+    lines = [
+        ("forecast", f"EWMA forecast (λ = {metrics.lam:g})", _PORTFOLIO_COLOR, None),
+        ("realised", f"Realised, next {metrics.horizon} days", _REALISED_COLOR, None),
+        (
+            "baseline",
+            f"{metrics.baseline_window}-day baseline",
+            _BASELINE_COLOR,
+            "dash",
+        ),
+    ]
+    fig = go.Figure()
+    for column, name, color, dash in lines:
+        fig.add_trace(
+            go.Scatter(
+                x=frame.index,
+                y=frame[column],
+                mode="lines",
+                name=name,
+                line=dict(color=color, width=1.5, dash=dash),
+            )
+        )
+    fig.update_layout(
+        title=(
+            "Expected Volatility (ann.): next day "
+            f"{_fmt(metrics.forecast_vol, '.1%')}"
+        ),
+        yaxis_tickformat=".0%",
+    )
     return fig
+
+
+def _slope(e: ForecastEvaluation) -> str:
+    if math.isnan(e.mz_slope):
+        return "n/a"
+    return f"{e.mz_slope:.2f} ± {_fmt(e.mz_slope_se, '.2f')}"
+
+
+def _evaluation_rows(
+    min_obs: Optional[int],
+) -> List[Tuple[str, Callable[[ForecastEvaluation], str]]]:
+    """Each row once: its label beside the formatter of its value."""
+    return [
+        ("QLIKE (lower is better)", lambda e: _fmt(e.qlike, ".3f")),
+        ("Mincer-Zarnowitz slope ± HAC SE (ideal 1)", _slope),
+        (
+            "Mincer-Zarnowitz intercept (ann. variance, ideal 0)",
+            lambda e: _fmt(e.mz_intercept, ".4f"),
+        ),
+        (
+            "Mincer-Zarnowitz R² (low by construction)",
+            lambda e: _fmt(e.mz_r_squared, ".3f"),
+        ),
+        ("RMS of standardized returns (ideal 1)", lambda e: _fmt(e.z_std, ".2f")),
+        (f"Out-of-sample days (min {_count(min_obs)})", lambda e: str(e.n)),
+    ]
+
+
+def plot_vol_forecast_kpi_table(metrics: VolForecastMetrics) -> go.Figure:
+    """Forecast quality, EWMA vs baseline, scored on the same days."""
+    rows = [
+        ("Next-day volatility (ann.)", _fmt(metrics.forecast_vol, ".2%"), ""),
+        ("Decay λ", _fmt(metrics.lam, "g"), ""),
+        *(
+            (label, value(metrics.ewma), value(metrics.baseline))
+            for label, value in _evaluation_rows(metrics.min_obs)
+        ),
+    ]
+    return _kpi_table(
+        rows,
+        ["Forecast KPI", "EWMA", f"{metrics.baseline_window}-day baseline"],
+        "Volatility Forecast vs Realised",
+    )

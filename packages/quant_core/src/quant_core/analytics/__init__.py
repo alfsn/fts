@@ -1,10 +1,4 @@
-from .benchmark import (
-    HacFit,
-    align_daily,
-    compute_capture_ratios,
-    hac_ols,
-    newey_west_lags,
-)
+from .benchmark import align_daily, compute_capture_ratios
 from .corporate_actions import (
     adjust,
     adjust_frame,
@@ -31,10 +25,12 @@ from .ratios import (
     compute_sortino,
     compute_volatility,
 )
+from .regression import HacFit, hac_ols, newey_west_lags
 from .returns import (
     compute_cagr,
     compute_mwr,
     compute_twr,
+    daily_returns,
     period_returns,
     periods_per_year,
     to_daily,
@@ -42,3 +38,12 @@ from .returns import (
     years_between,
 )
 from .trades import compute_win_rate, round_trip_pnls
+from .volatility import (
+    EWMA_SEED_OBS,
+    RISKMETRICS_DAILY_LAMBDA,
+    annualise_variance,
+    evaluate_variance_forecast,
+    ewma_variance,
+    qlike,
+    rolling_variance,
+)

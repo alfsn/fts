@@ -18,7 +18,23 @@ def test_backward_analytics_figures_without_a_baseline():
         index=dates,
     )
     figures = backward_analytics_figures(values)
-    assert len(figures) == 4
+    assert len(figures) == 6
+    forecast, table = figures[3], figures[4]  # after rolling vol (PR 10)
+    assert forecast.layout.title.text.startswith("Expected Volatility")
+    assert table.layout.title.text == "Volatility Forecast vs Realised"
+
+
+def test_backward_analytics_figures_do_not_depend_on_ledger_order():
+    dates = pd.bdate_range("2022-01-03", periods=400)
+    values = pd.Series(
+        100 * np.cumprod(1 + np.random.default_rng(3).normal(0, 0.01, 400)),
+        index=dates,
+    )
+    shuffled = values.sample(frac=1, random_state=0)
+    for a, b in zip(
+        backward_analytics_figures(values), backward_analytics_figures(shuffled)
+    ):
+        assert a.to_json() == b.to_json()
 
 
 def test_backward_analytics_figures_against_an_unaligned_benchmark():
@@ -34,7 +50,7 @@ def test_backward_analytics_figures_against_an_unaligned_benchmark():
 
     figures = backward_analytics_figures(values, benchmark=spy, benchmark_name="SPY")
 
-    assert len(figures) == 6
+    assert len(figures) == 8
     cumulative = figures[1]
     assert [t.name for t in cumulative.data] == ["Portfolio", "SPY"]
     assert cumulative.data[0].y[0] == cumulative.data[1].y[0] == 0

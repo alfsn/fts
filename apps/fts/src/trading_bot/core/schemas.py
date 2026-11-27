@@ -26,6 +26,7 @@ from quant_core.models import (
     Position,
     PriceLevel,
     Trade,
+    VolForecastMetrics,
 )
 
 # Refactored: MarketOutcome removed
@@ -290,6 +291,10 @@ class BacktestDetailDTO(BaseModel):
     benchmark_metrics: BenchmarkMetrics = Field(
         default_factory=BenchmarkMetrics,
         description="Alpha/beta vs buy-and-hold of the traded instrument (PR 7).",
+    )
+    vol_forecast: VolForecastMetrics = Field(
+        default_factory=VolForecastMetrics,
+        description="EWMA volatility forecast and its out-of-sample check (PR 10).",
     )
     equity_curve: List[Dict] = Field(
         default_factory=list, description="Time-series tick equity logs."

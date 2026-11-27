@@ -256,7 +256,7 @@ class Portfolio:
         """
         Last close of the position's instrument. Before any close is seen, and
         for prediction-market outcome positions (the bars are the instrument's,
-        not the YES/NO side's; see MASTER_PR_BACKLOG PR 7b), the cost basis.
+        not the YES/NO side's; see docs/BACKLOG.md PR 7b), the cost basis.
         """
         close = None if pos.outcome else self._last_close.get(pos.instrument_id)
         return pos.cost_basis if close is None else close
