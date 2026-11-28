@@ -206,6 +206,16 @@ def test_backtest_catalog_repository_metrics(db_session_factory):
     assert len(detail.equity_curve) == 4
     assert len(detail.trades) == 1
 
+    # The charts come from the same equity as the KPIs (W3a), so they agree.
+    curves = repo.run_curves("run_test")
+    assert curves.cumulative.iloc[-1] == pytest.approx(run.metrics.total_return)
+    assert curves.drawdown.min() == pytest.approx(run.metrics.max_drawdown)
+    assert list(curves.fills["side"]) == [OrderSide.BUY.value]
+
+    # Compared by days since each run's own first bar, never by bar number.
+    (elapsed,) = repo.compare_curves(["run_test"], align="elapsed").values()
+    assert list(elapsed.index) == pytest.approx([m / 1440 for m in range(4)])
+
 
 def test_catalog_query_service_summary(db_session_factory):
     service = CatalogQueryService(db_session_factory, db_session_factory)

@@ -9,10 +9,12 @@ is `quant_core`, the mapping to it is `data_layer`.
     prepare_snapshot → both of the above
     prepare_review   → the snapshot, plus the ledger replayed over a date window,
                        the benchmark and the risk-free rate
+    load_portfolio, cash_rows, position_rows → what a front end shows of it
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Sequence, Union
 
 import pandas as pd
@@ -41,6 +43,9 @@ from quant_core.ledger import Breaks
 from quant_core.models import Benchmark, FXContext, Portfolio
 
 Date = Union[datetime, pd.Timestamp, str, None]
+
+# The committed demo (W2): real tickers, synthetic trades, reconciles exactly.
+DEMO_LEDGER = Path(__file__).resolve().parents[2] / "examples" / "demo_ledger.yaml"
 
 
 class ReviewError(ValueError):
@@ -82,6 +87,31 @@ class Snapshot:
     total_value: float
     breaks: Optional[Breaks]  # None without a ledger; quantity breaks raise
 
+    @property
+    def ars_per_usd(self) -> Optional[float]:
+        """The CCL at the as-of close (ARS per USD), when ARS is held."""
+        if Currency.ARS not in self.fx_context.rates:
+            return None
+        return 1 / self.fx.at[self.as_of, Currency.ARS]
+
+
+@dataclass(frozen=True)
+class CashRow:
+    currency: str
+    total: float
+    available: float
+    value_in_base: float
+
+
+@dataclass(frozen=True)
+class PositionRow:
+    instrument_id: str
+    currency: str
+    quantity: float
+    cost_basis: float
+    close: Optional[float]  # at the snapshot's as-of date
+    value_in_base: float  # NaN when unpriced
+
 
 @dataclass(frozen=True)
 class Review:
@@ -97,6 +127,41 @@ class Review:
     @property
     def period(self) -> tuple[pd.Timestamp, pd.Timestamp]:
         return self.values.index[0], self.values.index[-1]
+
+
+def load_portfolio(path: str) -> Portfolio:
+    """A portfolio (snapshot and optional ledger) from a YAML file."""
+    from quant_data.providers.brokers import LocalYamlConnector
+
+    return LocalYamlConnector(file_path=path).get_portfolio()
+
+
+def cash_rows(snapshot: Snapshot) -> list[CashRow]:
+    """Each cash balance, valued in the base currency at the as-of FX."""
+    return [
+        CashRow(
+            currency=cb.currency.value,
+            total=cb.total,
+            available=cb.available,
+            value_in_base=cb.total * snapshot.fx_context.get_rate(cb.currency),
+        )
+        for cb in snapshot.portfolio.cash_balances
+    ]
+
+
+def position_rows(snapshot: Snapshot) -> list[PositionRow]:
+    """Each position at the as-of close, valued in the base currency."""
+    return [
+        PositionRow(
+            instrument_id=p.instrument_id,
+            currency=p.currency.value,
+            quantity=p.quantity,
+            cost_basis=p.cost_basis,
+            close=p.current_price,
+            value_in_base=p.market_value(snapshot.fx_context),
+        )
+        for p in snapshot.portfolio.positions
+    ]
 
 
 def prepare_history(

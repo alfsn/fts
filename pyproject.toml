@@ -12,7 +12,6 @@ dependencies = [
     "pre-commit>=4.3.0",
     "pandas",
     "plotly",
-    "streamlit",
     "ipywidgets",
     "anywidget",
     "nbformat",
@@ -42,6 +41,7 @@ root_packages = [
     "trading_bot",
     "nets",
     "argentina",
+    "workbench",
 ]
 include_external_packages = true
 
@@ -84,7 +84,6 @@ source_modules = [
     "trading_bot.backtesting",
     "trading_bot.config",
     "trading_bot.core",
-    "trading_bot.dashboard",
     "trading_bot.data_ingestion",
     "trading_bot.execution",
     "trading_bot.monitoring",
@@ -104,6 +103,41 @@ type = "forbidden"
 source_modules = ["trading_bot", "nets", "argentina"]
 forbidden_modules = ["quant_data.db.models"]
 # quant_data.db's __init__ imports its models; fts uses the repository, cache_url and init_cache.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "streamlit only in the workbench (W3a)"
+type = "forbidden"
+source_modules = [
+    "quant_core",
+    "quant_data",
+    "quant_ui",
+    "portfolio_analyser",
+    "trading_bot",
+    "nets",
+    "argentina",
+]
+forbidden_modules = ["streamlit"]
+
+[[tool.importlinter.contracts]]
+name = "The workbench never calculates or opens data: it calls use cases (W3a)"
+type = "forbidden"
+source_modules = ["workbench"]
+forbidden_modules = [
+    "quant_core.analytics",
+    "quant_core.metrics",
+    "quant_data.db",
+    "quant_data.providers",
+    "quant_data.history",
+    "sqlalchemy",
+    "portfolio_analyser.data_layer",
+    "portfolio_analyser.main",
+    "trading_bot.runs",
+    "trading_bot.backtesting",
+    "nets",
+    "argentina",
+]
+# The use cases themselves reach these; the rule is about the workbench's own imports.
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
@@ -132,6 +166,7 @@ members = [
     "apps/fts/src/plugins/yfinance",
     "apps/fts/src/plugins/ccxt",
     "apps/portfolio_analyser",
+    "apps/workbench",
     "packages/*"
 ]
 

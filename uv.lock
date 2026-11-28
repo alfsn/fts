@@ -26,6 +26,7 @@ members = [
     "quant-core",
     "quant-data",
     "quant-ui",
+    "workbench",
 ]
 
 [[package]]
@@ -992,7 +993,6 @@ dependencies = [
     { name = "quant-data" },
     { name = "quant-ui" },
     { name = "sqlalchemy" },
-    { name = "streamlit" },
 ]
 
 [package.metadata]
@@ -1005,7 +1005,6 @@ requires-dist = [
     { name = "quant-data", editable = "packages/quant_data" },
     { name = "quant-ui", editable = "packages/quant_ui" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
-    { name = "streamlit" },
 ]
 
 [[package]]
@@ -1066,7 +1065,6 @@ dependencies = [
     { name = "pandas" },
     { name = "plotly" },
     { name = "pre-commit" },
-    { name = "streamlit" },
 ]
 
 [package.optional-dependencies]
@@ -1098,7 +1096,6 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pycln", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
-    { name = "streamlit" },
 ]
 provides-extras = ["dev"]
 
@@ -4433,6 +4430,27 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/02/0dddf67968e25c44fe112ac8652eb83c86e8d5c75ae333b2795ee6da4a6f/winloop-0.6.3-cp314-cp314-win_arm64.whl", hash = "sha256:e04cc1bf248919444afa5aefe04328c2064a89a6d98fe3c0fcb9e65323068126", size = 547130, upload-time = "2026-04-27T16:08:04.394Z" },
     { url = "https://files.pythonhosted.org/packages/83/26/68e5efa454b418a2df92ece323029f2f917573726ab8b1a98e334c77d367/winloop-0.6.3-cp314-cp314t-win_amd64.whl", hash = "sha256:d8fe1fce02c390836248f97403666d3b2e20c661820535e9b60330a60e86ffe6", size = 805006, upload-time = "2026-04-27T16:08:05.654Z" },
     { url = "https://files.pythonhosted.org/packages/0f/8d/52eaa9187b88596b0a8b646874cfec5a5c3fce8c52b5182be1a0253203a3/winloop-0.6.3-cp314-cp314t-win_arm64.whl", hash = "sha256:447006f38f13827ff4600e7beeda70367370cb8dab8ea84042e8fa1749f32b1c", size = 576206, upload-time = "2026-04-27T16:08:07.007Z" },
+]
+
+[[package]]
+name = "workbench"
+version = "0.1.0"
+source = { editable = "apps/workbench" }
+dependencies = [
+    { name = "fts" },
+    { name = "pandas" },
+    { name = "portfolio-analyser" },
+    { name = "quant-ui" },
+    { name = "streamlit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fts", editable = "apps/fts/src/trading_bot" },
+    { name = "pandas" },
+    { name = "portfolio-analyser", editable = "apps/portfolio_analyser" },
+    { name = "quant-ui", editable = "packages/quant_ui" },
+    { name = "streamlit" },
 ]
 
 [[package]]

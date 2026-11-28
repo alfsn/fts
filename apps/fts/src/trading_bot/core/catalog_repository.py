@@ -8,10 +8,14 @@ computing performance metrics dynamically, and managing model promotion lifecycl
 """
 
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, Sequence
 
-from quant_data.db import MarketDataRepository
+import pandas as pd
+from quant_core.analytics import drawdown_series, top_drawdowns, wealth_index
+from quant_core.models import DrawdownEpisode
+from quant_data.db import MarketDataRepository, cache_url, init_cache
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -22,6 +26,8 @@ from .performance import (
     build_benchmark_metrics,
     build_performance_metrics,
     build_vol_forecast,
+    close_series,
+    equity_series,
 )
 from .schemas import (
     BacktestDetailDTO,
@@ -29,6 +35,30 @@ from .schemas import (
     ModelCatalogItem,
     ModelDetailDTO,
 )
+
+TOP_DRAWDOWNS = 5
+
+
+@dataclass(frozen=True)
+class RunCurves:
+    """The time series a run's charts draw, already computed (W3a): the UI
+    only plots them. ``cumulative`` and ``drawdown`` are fractions at full
+    resolution, from the same equity series as the run's KPIs."""
+
+    cumulative: pd.Series  # growth of 1 from the first bar, minus 1
+    drawdown: pd.Series  # <= 0, below the running high
+    episodes: List[DrawdownEpisode]
+    close: pd.Series  # the traded instrument's close; NaN where none was logged
+    fills: pd.DataFrame  # fill_timestamp, side, quantity, fill_price
+    predictions: (
+        pd.DataFrame
+    )  # timestamp, predicted_signal, confidence, actual_future_return
+
+
+def _cumulative(equity: pd.Series) -> pd.Series:
+    """A backtest has no external cash flows: its starting cash is in the
+    first equity row, so the wealth index needs no ``cash_flows``."""
+    return wealth_index(equity) - 1
 
 
 class ModelCatalogRepository:
@@ -219,6 +249,78 @@ class BacktestCatalogRepository:
             ],
         )
 
+    def run_curves(self, run_id: str) -> Optional[RunCurves]:
+        """The run's charts: cumulative return, drawdown, close, fills and
+        predictions. None if the run doesn't exist or has no equity."""
+        record = self.store.load(run_id)
+        if record is None or not record.equity:
+            return None
+        equity = equity_series(record.equity)
+        wealth = wealth_index(equity)
+        fills = pd.DataFrame(
+            [
+                {
+                    "fill_timestamp": f.fill_timestamp,
+                    "side": f.side.value,
+                    "quantity": f.quantity,
+                    "fill_price": f.fill_price,
+                }
+                for f in record.fills
+            ],
+            columns=["fill_timestamp", "side", "quantity", "fill_price"],
+        )
+        predictions = pd.DataFrame(
+            [
+                {
+                    "timestamp": p.timestamp,
+                    "predicted_signal": p.predicted_signal,
+                    "confidence": p.confidence,
+                    "actual_future_return": p.actual_future_return,
+                }
+                for p in record.predictions
+            ],
+            columns=[
+                "timestamp",
+                "predicted_signal",
+                "confidence",
+                "actual_future_return",
+            ],
+        )
+        return RunCurves(
+            cumulative=wealth - 1,
+            drawdown=drawdown_series(wealth),
+            episodes=top_drawdowns(wealth, TOP_DRAWDOWNS),
+            close=close_series(record.equity),
+            fills=fills,
+            predictions=predictions,
+        )
+
+    def compare_curves(
+        self,
+        run_ids: Sequence[str],
+        align: Literal["calendar", "elapsed"] = "calendar",
+    ) -> Dict[str, pd.Series]:
+        """
+        Each run's cumulative return, rebased at its own first bar, keyed by
+        "run_id (strategy)". ``elapsed`` indexes each curve by days since that
+        run's first bar, so runs on different dates or intervals line up by
+        real time (never by bar number: a 1h run would look 24x a 1d run).
+        """
+        curves = {}
+        for run_id in run_ids:
+            record = self.store.load(run_id, predictions=False)
+            if record is None or not record.equity:
+                continue
+            cumulative = _cumulative(equity_series(record.equity))
+            if align == "elapsed":
+                elapsed = (cumulative.index - cumulative.index[0]) / pd.Timedelta(
+                    days=1
+                )
+                cumulative = pd.Series(cumulative.to_numpy(), index=elapsed)
+            label = f"{run_id} ({record.header.strategy_name or 'unknown'})"
+            curves[label] = cumulative
+        return curves
+
 
 class CatalogQueryService:
     """
@@ -236,6 +338,26 @@ class CatalogQueryService:
         self.cache_session_factory = cache_session_factory
         self.model_repo = ModelCatalogRepository(session_factory)
         self.backtest_repo = BacktestCatalogRepository(session_factory)
+
+    @classmethod
+    def open(
+        cls, research_url: Optional[str] = None, market_cache_url: Optional[str] = None
+    ) -> "CatalogQueryService":
+        """
+        The catalog over fts's research DB and the shared price cache, for a
+        front end that knows neither sessions nor defaults (the workbench).
+        Blank means the default: ``DATABASE_URL`` (fts settings) and
+        ``quant_data.db.cache_url`` (``MARKET_CACHE_URL``, else the workspace
+        cache). Missing tables are created, so a fresh file opens empty.
+        """
+        from ..config import get_settings
+        from .database import create_db_engine, init_db
+
+        engine = create_db_engine(research_url or get_settings().DATABASE_URL)
+        init_db(bind_engine=engine)
+        cache_engine = create_db_engine(cache_url(market_cache_url or None))
+        init_cache(cache_engine)
+        return cls(sessionmaker(bind=engine), sessionmaker(bind=cache_engine))
 
     def get_database_summary(self) -> Dict[str, int]:
         """Retrieve total counts across core database tables."""

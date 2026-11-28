@@ -1,0 +1,45 @@
+"""Smoke tests: every page renders on the temp databases without an exception."""
+
+from pathlib import Path
+
+import pytest
+from streamlit.testing.v1 import AppTest
+
+SRC = Path(__file__).resolve().parents[1] / "src" / "workbench"
+
+
+def _run(script: str) -> AppTest:
+    app = AppTest.from_file(str(SRC / script), default_timeout=60)
+    app.run()
+    assert not app.exception, app.exception
+    return app
+
+
+@pytest.mark.usefixtures("databases")
+def test_the_shell_renders_the_portfolio_page_first():
+    app = _run("app.py")
+    assert app.title[0].value == "Portfolio review"
+
+
+@pytest.mark.usefixtures("databases")
+def test_models_page_lists_the_model_and_can_promote_it(databases):
+    app = _run("views/models.py")
+    assert app.dataframe[0].value["Model ID"].tolist() == ["model_1"]
+    app.button[0].click().run()
+    assert not app.exception
+    assert databases.model_repo.get_model_details("model_1").status == "production"
+
+
+@pytest.mark.usefixtures("databases")
+def test_backtests_page_draws_the_run():
+    app = _run("views/backtests.py")
+    assert app.dataframe[0].value["Run ID"].tolist() == ["run_1"]
+
+
+@pytest.mark.usefixtures("databases")
+def test_portfolio_page_shows_an_error_for_a_missing_file(tmp_path):
+    app = _run("views/portfolio.py")
+    app.text_input[0].set_value(str(tmp_path / "missing.yaml"))
+    app.button[0].click().run()
+    assert not app.exception
+    assert "not found" in app.error[0].value

@@ -35,19 +35,24 @@ def equity_series(equity_records: Iterable[EquityPoint]) -> pd.Series:
     return _log_series(equity_records, "equity")
 
 
+def close_series(equity_records: Iterable[EquityPoint]) -> pd.Series:
+    """The traded instrument's logged close. Runs logged before PR 7b hold
+    ``close = 0.0`` on ticks without a bar (and multi-instrument runs still
+    log 0.0): a missing price, so it becomes NaN, never a 0 price."""
+    close = _log_series(equity_records, "close")
+    return close.where(close > 0)
+
+
 def build_benchmark_metrics(
     equity_records: List[EquityPoint],
 ) -> BenchmarkMetrics:
     """
     Alpha/beta of the strategy against buy-and-hold of the instrument it
-    traded (the logged ``close``), on daily closes, risk-free 0 (PR 7). The
-    close is raw: right for crypto, wrong across an equity split. Runs logged
-    before PR 7b hold ``close = 0.0`` on ticks without a bar (and multi-
-    instrument runs still log 0.0): a missing price, not 0.
+    traded (``close_series``), on daily closes, risk-free 0 (PR 7). The
+    close is raw: right for crypto, wrong across an equity split.
     """
-    close = _log_series(equity_records, "close")
     return compute_benchmark_metrics(
-        equity_series(equity_records), None, close.where(close > 0)
+        equity_series(equity_records), None, close_series(equity_records)
     ).metrics
 
 
