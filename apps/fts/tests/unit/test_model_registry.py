@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.core.models import ModelRegistryLog, TimeSeriesDataset
 from trading_bot.core.repository import ModelRepository
 
@@ -13,7 +13,7 @@ from trading_bot.core.repository import ModelRepository
 def test_db():
     """Sets up an in-memory SQLite database and creates the schema."""
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
+    ResearchBase.metadata.create_all(bind=engine)
     SessionClass = sessionmaker(bind=engine)
     session = SessionClass()
     try:

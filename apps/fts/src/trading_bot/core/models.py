@@ -19,11 +19,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .database import Base
+from .database import ResearchBase
 from .enums import AlertSeverity
 
 
-class EventLog(Base):
+class EventLog(ResearchBase):
     """
     SQLAlchemy ORM Model for generic, text-based event logging.
 
@@ -53,7 +53,7 @@ class EventLog(Base):
         )
 
 
-class TimeSeriesDataset(Base):
+class TimeSeriesDataset(ResearchBase):
     """
     SQLAlchemy ORM Model representing a dataset.
     Identifies a specific versioned slice of time-series bar data.
@@ -74,7 +74,7 @@ class TimeSeriesDataset(Base):
         return f"<TimeSeriesDataset(dataset_id='{self.dataset_id}', instrument_id='{self.instrument_id}', interval='{self.interval}')>"
 
 
-class ModelRegistryLog(Base):
+class ModelRegistryLog(ResearchBase):
     """
     SQLAlchemy ORM Model representing the model registry.
     Stores metadata, serialized paths, hyperparameters, and evaluation metrics.

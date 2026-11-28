@@ -47,11 +47,12 @@ class HTMLBacktestExporter(BaseBacktestExporter):
         self,
         visualizer: Optional[BacktestVisualizer] = None,
         db_url: Optional[str] = None,
+        cache_db_url: Optional[str] = None,
     ) -> None:
         """
         Initializes the HTML exporter. Supports dependency injection of the visualizer.
         """
-        self.visualizer = visualizer or BacktestVisualizer(db_url)
+        self.visualizer = visualizer or BacktestVisualizer(db_url, cache_db_url)
         self.logger = logging.getLogger(__name__)
 
     def export(

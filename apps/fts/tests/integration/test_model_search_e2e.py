@@ -8,7 +8,7 @@ from quant_core.enums import AssetType, BarType, Geography
 from quant_core.models import Instrument, TradFiDetails
 from quant_data.db.repositories import MarketDataRepository
 from trading_bot.config import settings
-from trading_bot.core.database import Base, create_db_session, init_db
+from trading_bot.core.database import ResearchBase, create_db_session, init_db
 from trading_bot.core.repository import ModelRepository
 from trading_bot.core.schemas import BarData
 
@@ -29,8 +29,10 @@ def temp_db_and_config(tmp_path):
     SessionLocal.configure(bind=engine)
     init_db(extra_models=["trading_bot.core.models"], bind_engine=engine)
 
-    # 2. Add mock bar data so training can run
-    db = create_db_session(settings.DATABASE_URL)
+    # 2. Add mock bar data (in the temp price cache) so training can run
+    from trading_bot.core.database import CacheSessionLocal
+
+    db = CacheSessionLocal()
     market_repo = MarketDataRepository(db)
 
     # Ensure market exists

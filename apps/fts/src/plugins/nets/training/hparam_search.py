@@ -84,10 +84,16 @@ def run_hparam_search(
     else:
         spec = HParamStudySpec.from_yaml(config_path)
 
-    from trading_bot.core.database import SessionLocal, init_db
+    from trading_bot.core.database import (
+        CacheSessionLocal,
+        SessionLocal,
+        init_db,
+        init_market_cache,
+    )
 
     # Initialize DB (creates model_registry table if not exists)
     init_db(extra_models=["trading_bot.core.models"])
+    init_market_cache()
 
     # Load data ONCE with short-lived session to prevent session leak
     instrument_id = spec.market.instrument_id
@@ -95,16 +101,17 @@ def run_hparam_search(
     start_dt = parse_datetime_param(start_date) or spec.dates.start_date
     end_dt = parse_datetime_param(end_date) or spec.dates.end_date
 
-    with SessionLocal() as db:
+    with CacheSessionLocal() as cache_db:
         bar_schemas = load_research_bars(
-            MarketDataRepository(db), instrument_id, interval, start_dt, end_dt
+            MarketDataRepository(cache_db), instrument_id, interval, start_dt, end_dt
         ).bars
-        if not bar_schemas:
-            raise ValueError(
-                f"No bar data found in database for market {instrument_id}"
-            )
+    if not bar_schemas:
+        raise ValueError(
+            f"No bar data found in the price cache for market {instrument_id}"
+        )
 
-        dataset_full_hash = calculate_dataset_hash(bar_schemas)
+    dataset_full_hash = calculate_dataset_hash(bar_schemas)
+    with SessionLocal() as db:
         model_repo = ModelRepository(db)
         dataset_obj = model_repo.get_or_create_dataset(
             instrument_id=instrument_id,

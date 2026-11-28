@@ -19,11 +19,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..core.database import Base
+from ..core.database import ResearchBase
 from ..core.enums import OrderSide, OrderStatus
 
 
-class RunLog(Base):
+class RunLog(ResearchBase):
     """The run card: one row per run."""
 
     __tablename__ = "runs"
@@ -46,7 +46,7 @@ class RunLog(Base):
     )
 
 
-class RunSegmentLog(Base):
+class RunSegmentLog(ResearchBase):
     """Which model traded a run, from when to when (one row per backtest
     today; one per walk-forward fold in R2)."""
 
@@ -63,7 +63,7 @@ class RunSegmentLog(Base):
     )
 
 
-class OrderLog(Base):
+class OrderLog(ResearchBase):
     """
     SQLAlchemy ORM Model for logging every order request and its state.
 
@@ -79,9 +79,7 @@ class OrderLog(Base):
         String, unique=True, index=True, nullable=False
     )
     run_id: Mapped[Optional[str]] = mapped_column(String, index=True)
-    instrument_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
-    )
+    instrument_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     # Store the strategy name for performance attribution
     strategy_name: Mapped[Optional[str]] = mapped_column(String, index=True)
 
@@ -114,7 +112,7 @@ class OrderLog(Base):
         return f"<OrderLog(order_id='{self.order_id}', status='{self.status}')>"
 
 
-class TradeLog(Base):
+class TradeLog(ResearchBase):
     """
     SQLAlchemy ORM Model for logging individual fill events.
 
@@ -132,9 +130,7 @@ class TradeLog(Base):
         String, ForeignKey("order_logs.order_id"), index=True
     )
 
-    instrument_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
-    )
+    instrument_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide), nullable=False)
     outcome: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
@@ -159,7 +155,7 @@ class TradeLog(Base):
         )
 
 
-class PredictionLog(Base):
+class PredictionLog(ResearchBase):
     """
     SQLAlchemy ORM Model for machine learning prediction logs.
     Maps all prediction logs to a single table.
@@ -195,9 +191,7 @@ class PredictionLog(Base):
     # Optional actual outcome for visual analysis
     actual_future_return: Mapped[Optional[float]] = mapped_column(nullable=True)
 
-    instrument_id: Mapped[str] = mapped_column(
-        String, ForeignKey("markets.instrument_id"), index=True, nullable=False
-    )
+    instrument_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
 
     log_type: Mapped[str] = mapped_column(String, index=True, nullable=False)
 
@@ -235,7 +229,7 @@ class BacktestPredictionLog(PredictionLog):
         )
 
 
-class BacktestEquityLog(Base):
+class BacktestEquityLog(ResearchBase):
     """Logs cash, position quantity, and overall equity per tick for a backtest simulation run."""
 
     __tablename__ = "backtest_equity_logs"
@@ -276,4 +270,6 @@ _RUN_TABLE_SET = {
     PredictionLog.__table__,
     BacktestEquityLog.__table__,
 }
-RUN_TABLES = tuple(t for t in Base.metadata.sorted_tables if t in _RUN_TABLE_SET)
+RUN_TABLES = tuple(
+    t for t in ResearchBase.metadata.sorted_tables if t in _RUN_TABLE_SET
+)

@@ -6,16 +6,18 @@ import pytest
 from quant_core.enums import OrderSide, OrderStatus, PositionStatus
 from quant_core.models import Position as PositionSchema
 from quant_data.db import Market as MarketModel
+from quant_data.db import init_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 
 
 @pytest.fixture
 def in_memory_db():
     """Sets up an in-memory SQLite database and creates the schema."""
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
+    ResearchBase.metadata.create_all(bind=engine)
+    init_cache(engine)
     SessionClass = sessionmaker(bind=engine)
     session = SessionClass()
 

@@ -27,7 +27,7 @@ cd /home/alfred/github/fts/apps/fts
 
 ## Step 2: Get the Market Data 📊
 
-The bot needs to know what happened in the past so it can guess the future. Run this to download historical bars into `apps/fts/dev.db`:
+The bot needs to know what happened in the past so it can guess the future. Run this to download historical bars into the shared price cache, `market_cache.db` at the repo root (the analyser uses the same file; `apps/fts/dev.db` only gets the dataset entry):
 
 ```bash
 uv run python -m trading_bot.utils.ingest_historical -p yfinance -t AAPL -f 1d -d 1y
@@ -85,7 +85,7 @@ The backtest's `data_reader` needs an `interval` (e.g. `"30m"`), the same one th
 
 ## Step 6: Click Around in the Dashboard 🖥️
 
-Want a UI to inspect your SQLite database, filter models by hyperparameters, promote a model with a button click, or compare backtest equity curves side-by-side?
+Want a UI to inspect your SQLite databases (`dev.db` and the price cache), filter models by hyperparameters, promote a model with a button click, or compare backtest equity curves side-by-side?
 
 ```bash
 uv run python -m trading_bot.dashboard.cli --db dev.db --port 8501

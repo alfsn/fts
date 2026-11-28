@@ -42,7 +42,7 @@ docs/
 ### Shared Packages (`packages/`)
 
 * **`quant_core`**: Pure domain schemas (Pydantic), FIFO trade/ledger replay (`ledger.py`), split & total-return corporate-action adjustments, CCL FX extraction, returns/drawdown/ratio/benchmark math (`analytics/`), and unified KPI composition (`compute_performance_metrics`, `compute_benchmark_metrics`).
-* **`quant_data`**: SQLAlchemy cache (`bar_data_logs`, `corporate_actions`, `fx_rates`), `TieredDataProvider` with rate-limiting throttle and cache-integrity checks, Yahoo Finance & CCXT adapters, and broker connectors (`LocalYamlConnector` + mock `IBKR`, `Inviu`, `IOL`).
+* **`quant_data`**: SQLAlchemy cache (`markets`, `bar_data_logs`, `corporate_actions`, `fx_rates`) in one `market_cache.db` at the workspace root shared by both apps (`MARKET_CACHE_URL` to move it), `TieredDataProvider` with rate-limiting throttle and cache-integrity checks, Yahoo Finance & CCXT adapters, and broker connectors (`LocalYamlConnector` + mock `IBKR`, `Inviu`, `IOL`).
 * **`quant_ui`**: Reusable Plotly figures for performance curves, drawdowns, rolling volatility, benchmark regressions, and hyperparameter sweeps.
 
 ### `apps/fts` (Automated Trading & Research System)
@@ -58,7 +58,7 @@ Data Ingestion (Bars) → Strategy Engine (TradeSignal) → Risk Manager (OrderR
 3. **Risk & Position Management** (`trading_bot/risk_management/`): Single market-close portfolio equity tracking (in memory; positions are derived from fills, never stored), allocation limits, and sizing (Fixed amount, Fixed %, Kelly Criterion).
 4. **Execution Engine** (`trading_bot/execution/`): Order routing, bar-delay simulation, slippage models, and handlers (Simulated, Polymarket CLOB).
 5. **Monitoring** (`trading_bot/monitoring/`): Structured logging and SQLite prediction tracking (`DatabasePredictionLogger`).
-6. **Runs** (`trading_bot/runs/`): The only module that knows the run tables. `RunRecorder` writes a run (run card, model segments, orders, one row per fill at its bar time, predictions, equity); `RunStore` lists, loads and deletes whole runs. Everything lives in the one research database (`DATABASE_URL`). Each backtest ends by replaying its saved fills, which must give the Portfolio's final positions and cash.
+6. **Runs** (`trading_bot/runs/`): The only module that knows the run tables. `RunRecorder` writes a run (run card, model segments, orders, one row per fill at its bar time, predictions, equity); `RunStore` lists, loads and deletes whole runs. Everything lives in the one research database (`DATABASE_URL`, `dev.db`); bars come from the shared price cache (`market_cache.db`). Each backtest ends by replaying its saved fills, which must give the Portfolio's final positions and cash.
 7. **Backtesting & Dashboard** (`trading_bot/backtesting/`, `trading_bot/dashboard/`): Historical replay loop, HTML report/sweep exporters, and a Streamlit explorer for the model registry and backtest runs.
 
 Plugins in `apps/fts/src/plugins/`:
@@ -103,7 +103,7 @@ All `fts` commands assume `apps/fts/` as the working directory:
 cd apps/fts
 ```
 
-1. **Ingest Historical Market Data** into `dev.db` (raw bars, plus splits and dividends for `yfinance`):
+1. **Ingest Historical Market Data** into the shared price cache `market_cache.db` at the workspace root (raw bars, plus splits and dividends for `yfinance`; the dataset is registered in `dev.db`):
 
    ```bash
    uv run python -m trading_bot.utils.ingest_historical -p yfinance -t AAPL -f 1d -d 1y
@@ -130,7 +130,7 @@ cd apps/fts
 5. **Launch the Interactive Streamlit Dashboard** (browse DB counts, promote/archive models, compare backtest equity curves):
 
    ```bash
-   uv run python -m trading_bot.dashboard.cli --db dev.db --port 8501
+   uv run python -m trading_bot.dashboard.cli --db dev.db --port 8501  # --cache <file> for another price cache
    ```
 
 ---

@@ -12,7 +12,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.config import settings
 from trading_bot.core.bars import load_research_bars
-from trading_bot.core.database import SessionLocal, create_db_engine, init_db
+from trading_bot.core.database import (
+    CacheSessionLocal,
+    SessionLocal,
+    create_db_engine,
+    init_db,
+    init_market_cache,
+)
 from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import ModelRepository
 from trading_bot.core.transforms import BaseTransform
@@ -70,21 +76,23 @@ def train_and_register_candidate(
     train_params = train_params or {}
 
     init_db(extra_models=["trading_bot.core.models"])
+    init_market_cache()
 
     start_dt = parse_datetime_param(start_date)
     end_dt = parse_datetime_param(end_date)
 
     # 1. Fetch bar data & register dataset
-    with SessionLocal() as db:
+    with CacheSessionLocal() as cache_db:
         bar_schemas = load_research_bars(
-            MarketDataRepository(db), instrument_id, interval, start_dt, end_dt
+            MarketDataRepository(cache_db), instrument_id, interval, start_dt, end_dt
         ).bars
-        if not bar_schemas:
-            raise ValueError(
-                f"No bar data found in database for market {instrument_id}"
-            )
+    if not bar_schemas:
+        raise ValueError(
+            f"No bar data found in the price cache for market {instrument_id}"
+        )
 
-        dataset_full_hash = calculate_dataset_hash(bar_schemas)
+    dataset_full_hash = calculate_dataset_hash(bar_schemas)
+    with SessionLocal() as db:
         model_repo = ModelRepository(db)
         dataset_obj = model_repo.get_or_create_dataset(
             instrument_id=instrument_id,

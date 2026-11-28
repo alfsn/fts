@@ -13,7 +13,7 @@ from quant_core.enums import (
 from quant_core.models import Instrument, TradFiDetails
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.core.schemas import (
     ExecutionResult,
     Instrument,
@@ -50,14 +50,16 @@ def in_memory_db_session() -> Session:
     rollbacks are tested properly.
     """
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)  # Create all tables (OrderLog, Position, etc.)
+    ResearchBase.metadata.create_all(
+        engine
+    )  # Create all tables (OrderLog, Position, etc.)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-        Base.metadata.drop_all(engine)
+        ResearchBase.metadata.drop_all(engine)
 
 
 @pytest.fixture

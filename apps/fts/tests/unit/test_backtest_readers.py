@@ -164,13 +164,12 @@ def test_historical_replay_loop_backwards_compatibility_fallback(temp_csv_file):
 def sql_db_session():
     """Sets up an in-memory SQLite database and creates the schema."""
     from quant_core.enums import BarType
-    from quant_data.db import BarDataLog, Market
+    from quant_data.db import BarDataLog, Market, init_cache
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from trading_bot.core.database import Base
 
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
+    init_cache(engine)
     SessionClass = sessionmaker(bind=engine)
     session = SessionClass()
 

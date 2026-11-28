@@ -14,7 +14,7 @@ from quant_core.enums import BarType
 from quant_data.db import BarDataLog, Market, MarketDataRepository
 from sqlalchemy import create_engine
 from trading_bot.config import settings
-from trading_bot.core.database import SessionLocal, init_db
+from trading_bot.core.database import CacheSessionLocal, SessionLocal, init_db
 
 
 @pytest.fixture(scope="module")
@@ -31,7 +31,7 @@ def e2e_db_session(tmp_path_factory):
     SessionLocal.configure(bind=engine)
     init_db(bind_engine=engine)
 
-    db = SessionLocal()
+    db = CacheSessionLocal()
     try:
         db.add(
             Market(

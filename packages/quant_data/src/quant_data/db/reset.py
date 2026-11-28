@@ -1,11 +1,12 @@
 """
-Reset the market-data cache (PR 2a, D10).
+Reset the shared market-data cache (D10, D18).
 
-Only the three cache tables are dropped and recreated. Everything else in the
-same file (fts's model registry, Optuna studies, order/trade/prediction logs,
-backtest equity) is untouched: it is not a cache.
+Only the cache tables (``markets``, ``bar_data_logs``, ``corporate_actions``,
+``fx_rates``) are dropped and recreated; anything else in the same file is
+untouched. The cache is ``market_cache.db`` in the workspace root unless
+``MARKET_CACHE_URL`` or ``--db-url`` says otherwise.
 
-    uv run python -m quant_data.db.reset --db-url sqlite:///apps/fts/dev.db
+    uv run python -m quant_data.db.reset
 """
 
 import argparse
@@ -13,13 +14,8 @@ import argparse
 from sqlalchemy import func, inspect, select
 from sqlalchemy.engine import Engine
 
-from .models import BarDataLog, Base, CorporateActionRecord, FXRateRecord
-
-CACHE_TABLES = (
-    BarDataLog.__table__,
-    CorporateActionRecord.__table__,
-    FXRateRecord.__table__,
-)
+from .cache import CACHE_TABLES, cache_url
+from .models import Base
 
 
 def cache_row_counts(engine: Engine) -> dict[str, int]:
@@ -44,17 +40,21 @@ def reset_market_cache(engine: Engine) -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--db-url", required=True, help="SQLAlchemy URL of the DB")
+    parser.add_argument(
+        "--db-url",
+        default=None,
+        help="SQLAlchemy URL of the cache (default: $MARKET_CACHE_URL, else market_cache.db)",
+    )
     parser.add_argument("--yes", action="store_true", help="Skip the confirmation")
     args = parser.parse_args(argv)
 
     from .session import create_db_engine
 
-    engine = create_db_engine(args.db_url)
+    db_url = cache_url(args.db_url)
+    engine = create_db_engine(db_url)
     counts = cache_row_counts(engine)
     print(
-        f"{args.db_url}: dropping "
-        + ", ".join(f"{t} ({n} rows)" for t, n in counts.items())
+        f"{db_url}: dropping " + ", ".join(f"{t} ({n} rows)" for t, n in counts.items())
     )
     if not args.yes and input("Type 'yes' to continue: ").strip() != "yes":
         print("Aborted.")

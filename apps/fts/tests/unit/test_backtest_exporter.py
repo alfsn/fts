@@ -5,11 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from quant_core.enums import BarType
-from quant_data.db import BarDataLog, Market
+from quant_data.db import BarDataLog, Market, init_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.backtesting.exporter import HTMLBacktestExporter
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.runs.tables import BacktestPredictionLog, RunLog
 
 
@@ -18,7 +18,8 @@ def db_url(tmp_path):
     """One research database (D16) holding bars and one run."""
     url = f"sqlite:///{tmp_path / 'research.db'}"
     test_engine = create_engine(url)
-    Base.metadata.create_all(bind=test_engine)
+    ResearchBase.metadata.create_all(bind=test_engine)
+    init_cache(test_engine)
 
     with sessionmaker(bind=test_engine)() as db:
         db.add(
@@ -76,7 +77,7 @@ def db_url(tmp_path):
 
 
 def test_html_exporter(db_url, tmp_path):
-    exporter = HTMLBacktestExporter(db_url=db_url)
+    exporter = HTMLBacktestExporter(db_url=db_url, cache_db_url=db_url)
 
     output_file = tmp_path / "report.html"
 
@@ -100,7 +101,7 @@ def test_html_exporter(db_url, tmp_path):
 
 
 def test_html_exporter_directory_output(db_url, tmp_path):
-    exporter = HTMLBacktestExporter(db_url=db_url)
+    exporter = HTMLBacktestExporter(db_url=db_url, cache_db_url=db_url)
 
     output_dir = tmp_path / "test_reports"
     result_path = exporter.export(
@@ -116,7 +117,7 @@ def test_html_exporter_directory_output(db_url, tmp_path):
 
 
 def test_html_exporter_empty_dataframe_raises(db_url):
-    exporter = HTMLBacktestExporter(db_url=db_url)
+    exporter = HTMLBacktestExporter(db_url=db_url, cache_db_url=db_url)
 
     with pytest.raises(ValueError, match="No backtest prediction data found"):
         # Querying market that has no logs raises
@@ -153,7 +154,7 @@ def test_html_exporter_picks_the_runs_interval_when_two_are_cached(db_url, tmp_p
         db.commit()
     engine.dispose()
 
-    exporter = HTMLBacktestExporter(db_url=db_url)
+    exporter = HTMLBacktestExporter(db_url=db_url, cache_db_url=db_url)
     df = exporter.visualizer.load_data("BTC/USDT", "cnn", "test_run_123")
     assert len(df) == 5
     assert exporter.export(

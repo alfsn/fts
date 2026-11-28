@@ -85,10 +85,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # --- Database Configuration ---
-    # TheDATABASE_URL is used by SQLAlchemy in core/database.py.
+    # DATABASE_URL is fts's research database (models, datasets, runs, Optuna).
     # Example for dev (SQLite): "sqlite+pysqlite:///./dev.db"
     # Example for prod (PostgreSQL): "postgresql+psycopg2://user:pass@db:5432/trading"
     DATABASE_URL: str = "sqlite+pysqlite:///./dev.db"
+    # The shared price cache (bars, corporate actions, FX; D18). None means
+    # quant_data's default (quant_data.db.cache.cache_url).
+    MARKET_CACHE_URL: str | None = None
 
     # --- Path Configuration ---
     # Central repository paths, resolved relative to project root

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from quant_core.enums import OrderSide, OrderStatus
-from quant_data.db import Market
+from quant_data.db import Market, init_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.core.catalog_repository import (
@@ -12,7 +12,7 @@ from trading_bot.core.catalog_repository import (
     CatalogQueryService,
     ModelCatalogRepository,
 )
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.core.models import ModelRegistryLog
 from trading_bot.runs.tables import (
     BacktestEquityLog,
@@ -26,7 +26,8 @@ from trading_bot.runs.tables import (
 @pytest.fixture
 def db_session_factory():
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
+    ResearchBase.metadata.create_all(engine)
+    init_cache(engine)
     factory = sessionmaker(bind=engine)
     return factory
 
@@ -207,7 +208,7 @@ def test_backtest_catalog_repository_metrics(db_session_factory):
 
 
 def test_catalog_query_service_summary(db_session_factory):
-    service = CatalogQueryService(db_session_factory)
+    service = CatalogQueryService(db_session_factory, db_session_factory)
 
     with db_session_factory() as session:
         m = Market(
@@ -227,7 +228,9 @@ def test_summary_counts_zero_after_a_cache_reset(db_session_factory):
     # quant_data.db.reset drops the cache tables; the summary reports 0.
     engine = db_session_factory.kw["bind"]
     Market.__table__.drop(engine)
-    summary = CatalogQueryService(db_session_factory).get_database_summary()
+    summary = CatalogQueryService(
+        db_session_factory, db_session_factory
+    ).get_database_summary()
     assert summary["markets"] == 0
     assert summary["bar_logs"] == 0
 
@@ -272,7 +275,9 @@ def test_the_model_comes_from_the_run_segment(db_session_factory):
         )
         session.commit()
 
-    service = CatalogQueryService(session_factory=db_session_factory)
+    service = CatalogQueryService(
+        session_factory=db_session_factory, cache_session_factory=db_session_factory
+    )
 
     runs = service.backtest_repo.list_runs()
     assert len(runs) == 1

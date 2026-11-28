@@ -12,7 +12,7 @@ from plotly.subplots import make_subplots
 from quant_core.analytics import wealth_index
 from quant_core.enums import OrderSide, SignalType
 from quant_core.intervals import interval_to_timedelta
-from quant_data.db import MarketDataRepository
+from quant_data.db import MarketDataRepository, cache_url, init_cache
 from sqlalchemy.orm import sessionmaker
 from trading_bot.config import get_settings
 from trading_bot.core.database import create_db_engine
@@ -37,19 +37,30 @@ class BacktestVisualizer:
     and neural network filters/weights.
     """
 
-    def __init__(self, db_url: Optional[str] = None) -> None:
+    def __init__(
+        self, db_url: Optional[str] = None, cache_db_url: Optional[str] = None
+    ) -> None:
         """
-        Initializes the visualizer on the research database (D16).
+        Initializes the visualizer on the research database (runs, D16) and
+        the shared price cache (bars, D18).
         """
-        self.engine = create_db_engine(db_url or get_settings().DATABASE_URL)
+        settings = get_settings()
+        self.engine = create_db_engine(db_url or settings.DATABASE_URL)
         self.SessionLocal = sessionmaker(
             bind=self.engine, autocommit=False, autoflush=False
         )
         self.store = RunStore(self.SessionLocal)
+        cache_engine = create_db_engine(
+            cache_url(cache_db_url or settings.MARKET_CACHE_URL)
+        )
+        init_cache(cache_engine)
+        self.CacheSessionLocal = sessionmaker(
+            bind=cache_engine, autocommit=False, autoflush=False
+        )
 
     def intervals(self, instrument_id: str) -> List[str]:
         """The intervals cached for one market, for the interval picker."""
-        with self.SessionLocal() as session:
+        with self.CacheSessionLocal() as session:
             return MarketDataRepository(session).intervals(instrument_id)
 
     def run_interval(self, instrument_id: str, run_id: Optional[str]) -> Optional[str]:
@@ -95,7 +106,7 @@ class BacktestVisualizer:
             if not cached:
                 return pd.DataFrame()
             interval = cached[0]
-        with self.SessionLocal() as session:
+        with self.CacheSessionLocal() as session:
             bars = MarketDataRepository(session).load_bars(instrument_id, interval)
         return pd.DataFrame(
             [
@@ -246,7 +257,7 @@ class BacktestVisualizer:
                 names.append(m.strategy_name)
         if result:
             return result
-        with self.SessionLocal() as session:
+        with self.CacheSessionLocal() as session:
             cached = MarketDataRepository(session).instruments()
         return {m: ["None"] for m in cached}
 

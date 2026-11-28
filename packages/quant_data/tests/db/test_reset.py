@@ -1,4 +1,4 @@
-"""PR 2a-3 (D10): the reset drops only the market-data cache tables."""
+"""D10, D18: the reset drops only the market-data cache tables (markets included)."""
 
 from quant_data.db import Base
 from quant_data.db.reset import CACHE_TABLES, cache_row_counts, reset_market_cache
@@ -33,14 +33,16 @@ def _engine_with_data():
     return engine
 
 
-def test_reset_drops_only_the_three_cache_tables():
+def test_reset_drops_only_the_cache_tables():
     engine = _engine_with_data()
     assert [t.name for t in CACHE_TABLES] == [
+        "markets",
         "bar_data_logs",
         "corporate_actions",
         "fx_rates",
     ]
     assert cache_row_counts(engine) == {
+        "markets": 1,
         "bar_data_logs": 1,
         "corporate_actions": 1,
         "fx_rates": 0,
@@ -49,6 +51,7 @@ def test_reset_drops_only_the_three_cache_tables():
     reset_market_cache(engine)
 
     assert cache_row_counts(engine) == {
+        "markets": 0,
         "bar_data_logs": 0,
         "corporate_actions": 0,
         "fx_rates": 0,
@@ -57,7 +60,6 @@ def test_reset_drops_only_the_three_cache_tables():
         assert (
             conn.execute(text("SELECT name FROM model_registry")).scalar() == "rnn-v1"
         )
-        assert conn.execute(text("SELECT count(*) FROM markets")).scalar() == 1
         # Recreated with the new schema.
         cols = {
             row[1] for row in conn.execute(text("PRAGMA table_info(bar_data_logs)"))
@@ -68,12 +70,14 @@ def test_reset_drops_only_the_three_cache_tables():
 def test_reset_tolerates_a_db_without_the_tables():
     engine = create_engine("sqlite:///:memory:")
     assert cache_row_counts(engine) == {
+        "markets": 0,
         "bar_data_logs": 0,
         "corporate_actions": 0,
         "fx_rates": 0,
     }
     reset_market_cache(engine)
     assert cache_row_counts(engine) == {
+        "markets": 0,
         "bar_data_logs": 0,
         "corporate_actions": 0,
         "fx_rates": 0,

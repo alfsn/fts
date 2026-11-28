@@ -9,7 +9,7 @@ from quant_core.enums import OrderSide, OrderStatus
 from quant_core.models import ExecutionResult, OrderRequest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from trading_bot.core.database import Base, create_db_session, init_db
+from trading_bot.core.database import ResearchBase, create_db_session, init_db
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.runs import RunHeader, SqlRunRecorder
 from trading_bot.runs.tables import (
@@ -48,24 +48,12 @@ def test_dynamic_db_session_and_init():
 def test_prediction_log_single_table_inheritance():
     """Verifies that ModelPredictionLog and BacktestPredictionLog share the same table via STI."""
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)
+    ResearchBase.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     db = Session()
 
     try:
         from datetime import datetime, timezone
-
-        from quant_data.db import Market
-
-        # Add a dummy market first for foreign key constraint
-        market = Market(
-            instrument_id="AAPL",
-            name="Apple Stock",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
-        )
-        db.add(market)
-        db.commit()
 
         # Create a live prediction log
         live_log = ModelPredictionLog(
@@ -113,7 +101,7 @@ def test_prediction_log_single_table_inheritance():
         assert len(all_records) == 2
     finally:
         db.close()
-        Base.metadata.drop_all(engine)
+        ResearchBase.metadata.drop_all(engine)
 
 
 def test_portfolio_public_property_accessors():
@@ -132,24 +120,12 @@ def test_the_run_recorder_never_commits():
     """The recorder writes into the caller's transaction; the loop or the
     execution engine decides when to commit."""
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)
+    ResearchBase.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     db = Session()
 
     try:
         from datetime import datetime, timezone
-
-        from quant_data.db import Market
-
-        db.add(
-            Market(
-                instrument_id="AAPL",
-                name="Apple Stock",
-                end_date=datetime.now(timezone.utc),
-                resolution_source="test",
-            )
-        )
-        db.commit()
 
         recorder = SqlRunRecorder(run_id="test_run", kind="backtest")
         order = OrderRequest(
@@ -172,19 +148,28 @@ def test_the_run_recorder_never_commits():
         assert db.query(RunLog).count() == 0
     finally:
         db.close()
-        Base.metadata.drop_all(engine)
+        ResearchBase.metadata.drop_all(engine)
 
 
-# --- M1 guards (text tests; the import rule is an import-linter contract) ---
+# --- Text guards (M1, M2b; the import rules are import-linter contracts) ---
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "trading_bot"
+REPO = Path(__file__).resolve().parents[4]
+APP_SOURCES = (
+    REPO / "apps" / "fts" / "src" / "trading_bot",
+    REPO / "apps" / "fts" / "src" / "plugins",
+    REPO / "apps" / "portfolio_analyser" / "src",
+)
+CACHE_MODULE = (
+    REPO / "packages" / "quant_data" / "src" / "quant_data" / "db" / "cache.py"
+)
 
 
-def _source_hits(pattern: str):
+def _source_hits(pattern: str, roots=APP_SOURCES):
     rx = re.compile(pattern)
     return [
-        f"{p.relative_to(SRC)}:{i}"
-        for p in SRC.rglob("*.py")
+        f"{p.relative_to(REPO)}:{i}"
+        for root in roots
+        for p in root.rglob("*.py")
         for i, line in enumerate(p.read_text().splitlines(), 1)
         if rx.search(line)
     ]
@@ -203,7 +188,7 @@ def test_positions_are_not_stored():
 
 def test_run_reset_drops_only_run_tables(tmp_path):
     """The reset drops the run tables and the retired ``positions`` table,
-    never what they point at (``markets``) or the model registry."""
+    never the model registry. The research DB holds no cache tables (D18)."""
     from sqlalchemy import inspect, text
     from trading_bot.runs.reset import reset_runs
     from trading_bot.runs.tables import RUN_TABLES
@@ -222,5 +207,25 @@ def test_run_reset_drops_only_run_tables(tmp_path):
 
     tables = set(inspect(engine).get_table_names())
     assert "positions" not in tables
-    assert {"markets", "model_registry", "bar_data_logs"} <= tables
+    assert "model_registry" in tables
+    assert not {"markets", "bar_data_logs", "corporate_actions", "fx_rates"} & tables
     assert {t.name for t in RUN_TABLES} <= tables
+
+
+def test_one_cache_file_resolved_only_by_quant_data():
+    """D18, M2-D3: no app names a cache file or the old analyser variable, and
+    only ``quant_data.db.cache`` gives ``MARKET_CACHE_URL`` a default."""
+    assert (
+        _source_hits(r"market_cache\.db|portfolio_analyser\.db|PA_DATABASE_URL") == []
+    )
+    default = (
+        r"""["']MARKET_CACHE_URL["']\s*,\s*(?!default\s*=\s*None)\S"""
+        r"|MARKET_CACHE_URL\s*:[^=\n]*=\s*(?!None\b)\S"
+    )
+    package_sources = [
+        p / "src" for p in (REPO / "packages").iterdir() if (p / "src").is_dir()
+    ]
+    hits = _source_hits(default, APP_SOURCES + tuple(package_sources))
+    assert [
+        h for h in hits if not h.startswith(str(CACHE_MODULE.relative_to(REPO)))
+    ] == []

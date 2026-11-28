@@ -654,11 +654,11 @@ def test_a_fill_whose_commit_fails_is_applied_later_exactly_once():
     the next status check saves and applies it once."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from trading_bot.core.database import Base
+    from trading_bot.core.database import ResearchBase
     from trading_bot.runs.tables import TradeLog
 
     engine_db = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine_db)
+    ResearchBase.metadata.create_all(engine_db)
     db = sessionmaker(bind=engine_db, autoflush=False)()
 
     order = OrderRequest(

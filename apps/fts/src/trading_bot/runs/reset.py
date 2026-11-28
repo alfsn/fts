@@ -2,8 +2,8 @@
 Reset the run tables (M1, D15: old runs are disposable).
 
 Only the run tables (and the retired ``positions`` table) are dropped and
-recreated. The model registry, datasets, Optuna studies and the price cache in
-the same file are untouched.
+recreated. The model registry, datasets and Optuna studies in the same file are
+untouched; the price cache lives in its own file (``MARKET_CACHE_URL``, D18).
 
     uv run python -m trading_bot.runs.reset --db-url sqlite:///apps/fts/dev.db
 """
@@ -13,7 +13,7 @@ import argparse
 from sqlalchemy import MetaData, Table, func, inspect, select
 from sqlalchemy.engine import Engine
 
-from ..core.database import Base
+from ..core.database import ResearchBase
 from .tables import RUN_TABLES
 
 # Positions are derived from fills since M1 (D19); the table is dropped, not recreated.
@@ -45,8 +45,8 @@ def reset_runs(engine: Engine) -> None:
             Table(name, MetaData(), autoload_with=engine, resolve_fks=False).drop(
                 engine
             )
-    Base.metadata.drop_all(engine, tables=list(RUN_TABLES), checkfirst=True)
-    Base.metadata.create_all(engine, tables=list(RUN_TABLES))
+    ResearchBase.metadata.drop_all(engine, tables=list(RUN_TABLES), checkfirst=True)
+    ResearchBase.metadata.create_all(engine, tables=list(RUN_TABLES))
 
 
 def main(argv=None) -> int:

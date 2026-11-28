@@ -5,10 +5,10 @@ from unittest.mock import patch
 
 import pytest
 from quant_core.enums import BarType
-from quant_data.db import BarDataLog, Market
+from quant_data.db import BarDataLog, Market, init_cache
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
-from trading_bot.core.database import Base, SessionLocal
+from trading_bot.core.database import ResearchBase, SessionLocal
 from trading_bot.core.database import engine as dev_engine
 from trading_bot.core.database import init_db
 
@@ -20,7 +20,8 @@ def setup_db(tmp_path_factory):
     test_db_url = f"sqlite+pysqlite:///{test_db}"
 
     test_engine = create_engine(test_db_url)
-    Base.metadata.create_all(bind=test_engine)
+    ResearchBase.metadata.create_all(bind=test_engine)
+    init_cache(test_engine)
 
     with patch("trading_bot.core.database.engine", test_engine):
         SessionLocal.configure(bind=test_engine)

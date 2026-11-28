@@ -225,8 +225,15 @@ class CatalogQueryService:
     Facade service exposing high-level data catalog query APIs and database health stats.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session]):
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        cache_session_factory: sessionmaker[Session],
+    ):
+        """``session_factory`` opens the research DB (models, runs);
+        ``cache_session_factory`` the shared price cache (D18)."""
         self.session_factory = session_factory
+        self.cache_session_factory = cache_session_factory
         self.model_repo = ModelCatalogRepository(session_factory)
         self.backtest_repo = BacktestCatalogRepository(session_factory)
 
@@ -239,12 +246,13 @@ class CatalogQueryService:
             except Exception:
                 return 0
 
-        with self.session_factory() as session:
+        with self.cache_session_factory() as cache_session:
             try:
-                cache = MarketDataRepository(session).counts()
+                cache = MarketDataRepository(cache_session).counts()
             except SQLAlchemyError:  # cache tables dropped by a reset
-                session.rollback()
+                cache_session.rollback()
                 cache = {"markets": 0, "bars": 0}
+        with self.session_factory() as session:
             models = _count(session, ModelRegistryLog)
             production_models = (
                 session.scalar(

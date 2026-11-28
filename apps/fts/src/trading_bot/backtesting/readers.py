@@ -129,9 +129,9 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
         :param lookback_limit: Maximum number of recent bars to retain in lookback window.
         """
         if session is None:
-            from trading_bot.core.database import SessionLocal
+            from trading_bot.core.database import CacheSessionLocal
 
-            session = SessionLocal()
+            session = CacheSessionLocal()
         self.repo = MarketDataRepository(session)
         self.instrument_id = instrument_id
         self.interval = interval

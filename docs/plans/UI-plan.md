@@ -36,7 +36,7 @@ small rule violations get fixed.
 | D6 | Date range included; it **rebases** (KPIs computed on the window only) |
 | D7 | FX tab shows the computed `ccl_series`; delete the dead `fx_rates` table |
 | D8 | Gap = two consecutive bars more than N calendar days apart (default 5) |
-| D9 | DB URLs come from the existing env vars (`DATABASE_URL`, `PA_DATABASE_URL`) and can be edited in the sidebar. Runs live in the one research database (`DATABASE_URL`, `modularization.md` D16); `BACKTEST_DATABASE_URL` is gone (M1) |
+| D9 | DB URLs come from the env vars (`DATABASE_URL` for fts research, `MARKET_CACHE_URL` for the shared price cache, `modularization.md` D18; `PA_DATABASE_URL` is gone, M2b) and can be edited in the sidebar. Runs live in the one research database (`DATABASE_URL`, `modularization.md` D16); `BACKTEST_DATABASE_URL` is gone (M1) |
 | D10 | Keep fts's Promote/Archive write action |
 | D11 | Cleanups in the stack: fts renderers → `quant_ui`, delete `fx_rates`, hide mock brokers, fix `visualizer.py` `fillna(0.0)` |
 

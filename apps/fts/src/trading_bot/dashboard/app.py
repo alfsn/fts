@@ -9,6 +9,7 @@ from typing import Dict, Optional
 
 import pandas as pd
 import streamlit as st
+from quant_data.db import cache_url, init_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.config import get_settings
@@ -30,12 +31,19 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# One research database holds models and runs (D16)
+# One research database holds models and runs (D16); bars live in the shared
+# price cache (D18).
 db_url = os.getenv("DATABASE_URL", get_settings().DATABASE_URL)
 engine = create_db_engine(db_url)
 SessionFactory = sessionmaker(bind=engine)
+cache_db_url = cache_url(get_settings().MARKET_CACHE_URL)
+cache_engine = create_db_engine(cache_db_url)
+init_cache(cache_engine)
+CacheSessionFactory = sessionmaker(bind=cache_engine)
 
-query_service = CatalogQueryService(session_factory=SessionFactory)
+query_service = CatalogQueryService(
+    session_factory=SessionFactory, cache_session_factory=CacheSessionFactory
+)
 
 
 # Caching wrappers for service calls
@@ -76,7 +84,7 @@ def get_cached_run_details(run_id: str) -> Optional[BacktestDetailDTO]:
 
 # Main Layout header
 st.title("⚡ Quant System Data Catalog & Model Registry")
-st.caption(f"Connected Database: `{db_url}`")
+st.caption(f"Connected Database: `{db_url}` · Price cache: `{cache_db_url}`")
 
 # Sidebar Metrics
 st.sidebar.header("System Health & Database Summary")

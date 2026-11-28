@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from trading_bot.backtesting.sweep_exporter import HTMLSweepExporter
 from trading_bot.backtesting.sweep_results import SweepResult, SweepTrialResult
 from trading_bot.backtesting.sweep_visualizer import SweepVisualizer
-from trading_bot.core.database import Base, SessionLocal
+from trading_bot.core.database import ResearchBase, SessionLocal
 from trading_bot.core.database import engine as dev_engine
 
 
