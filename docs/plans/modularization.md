@@ -208,6 +208,98 @@ Known limits:
 4. Nothing checks that a YAML backtest's interval matches the model's.
 5. The reader hardcodes `TradFiDetails(STOCK, US)`.
 
+## R1 design: forecast maths in `quant_core`
+
+> Written 2026-11-28 against `eb6bdc1` (W4).
+
+**In plain words.** "How good is this forecast, and how sure are we?" gets one home: `quant_core.analytics.forecast`
+holds the maths, and `quant_core.metrics.compute_forecast_metrics` puts it into one `ForecastMetrics` record. The
+headline score becomes the **rank IC** (Spearman): does a higher prediction go with a higher realised return? It
+always comes with a Newey-West standard error and the number of points behind it. When it can't be computed
+(constant predictions, too few points) it is NaN, never 0.0. The nets evaluator calls this instead of
+`np.corrcoef`, and the IC finally reaches the model registry and the Workbench Models page.
+
+**What we found**
+- `MetricsCalculator.calculate_metrics` (`plugins/nets/training/evaluator.py`) computes a **Pearson** IC with
+  `np.corrcoef`. It returns `0.0` when a series is constant, and `0.0` / `0.5` for every metric when the arrays
+  are empty. It has no SE and no sample size.
+- The same function computes `directional_accuracy` (`sign(pred) == sign(target)`: two zeros count as a hit),
+  `selector_accuracy` (`0.5` with no signals) and `ic_decay` (Pearson at lags 0–5, logged only to TensorBoard).
+- **The IC never reaches the registry.** `orchestrator.train_and_register_candidate` reads `trainer.last_val_ic`
+  and `last_val_loss`, which no trainer sets. So the registry's `val_ic` is always `None`, the Workbench "Val IC"
+  column is empty, and `sweep_runner` stores `0.0` for every trial. `hparam_search` stores `ic` (not `val_ic`) with
+  `0.0` / `0.5` fallbacks, and its composite ranking reads `ic` with a `0.0` default.
+- The target is `y[:, -1, 0]`: the **one-bar** log return `horizon` bars ahead, not the cumulative return over the
+  horizon. So today's targets don't overlap, and D12's reason for lags ≥ horizon − 1 doesn't apply yet. The rule
+  stays: it's conservative (more lags only widen the SE) and is right once R2 or the "target matches the fill
+  rule" check moves to cumulative targets.
+- Validation sets are chronological and unshuffled (`shuffle=False`; `split_train_val_purged_embargoed` puts
+  them at the end), so the Newey-West lag structure is meaningful.
+- `hac_ols` already gives Bartlett-kernel HAC SEs that match statsmodels (`test_hac_ols_matches_statsmodels`).
+  The slope of standardized target ranks on standardized prediction ranks **is** the Spearman correlation, so
+  its HAC SE is the IC's SE (as noted in "Does each call do what we intend?"). No new estimator is needed.
+- Every trainer outputs one value per sample (`nn.Linear(..., 1)`, sklearn, XGBoost). The 3-class
+  cross-entropy branch never runs. It isn't forecast maths, so R1 leaves it alone.
+- No other IC maths exists in fts, the analyser or the packages. `quant_ui.plots.sweeps` only draws `val_ic`.
+
+**Decisions**
+
+| # | Decision |
+|---|---|
+| R1-D1 | The objective and the displayed IC are the **rank IC** (Spearman, average ranks for ties), D11. Pearson goes. |
+| R1-D2 | The IC SE is the HAC SE of the standardized-rank slope via `hac_ols`, with lags `max(newey_west_lags(n), horizon − 1)` (D12). `ForecastMetrics.se_method = "newey_west"` records it, and `hac_lags` records the lags used. |
+| R1-D3 | `MIN_FORECAST_OBS = 30` (user, 2026-11-28): below 30 pairs the IC, its SE, the hit rate and the decay values are NaN, and `n_obs` / `min_obs` are always stored. It's lower than `MIN_SAMPLE_OBS` (252) because validation sets are about 100 points. The SE shows how noisy the number is. |
+| R1-D4 | The hit rate moves too (user): the share of pairs whose signs agree. Pairs with a zero sign on either side are left out (no direction), and the count is `hit_n`. The selector accuracy uses the same function on the selector's +1/0/−1 signals, so a flat signal is left out as today, and a zero realised return is now left out instead of counted as a miss. |
+| R1-D5 | IC decay moves too (user), as rank IC at lags 0–`decay_lags` (prediction i against target i + k). Values only: no SE per lag (known limit). |
+| R1-D6 | Fold aggregates (D11/D12) live in R1 as maths: `compute_fold_ic_summary(fold_ics)` → `FoldICSummary` (mean, median, std with ddof=1, SE = std/√folds with `se_method = "fold_std"`, IR = mean/std, share of positive folds, `n_folds`, `n_undefined`). NaN folds are left out and counted. The pluggable `FoldAggregate` that chooses the objective is R2. Nothing calls the fold summary until R2 has folds. |
+| R1-D7 | Fix the registry wiring (user): the orchestrator and `hparam_search` store the same keys from the evaluator's `ForecastMetrics`: `val_loss`, `val_ic`, `val_ic_se`, `val_ic_n`, `val_hit_rate`. These come from one helper, `registry_metrics`, in the evaluator module. `hparam_search`'s ranking reads `val_ic` / `val_hit_rate`, with NaN defaults. Old registry rows are disposable (D15). |
+| R1-D8 | The Workbench Models page shows "Val IC", "IC SE" and "n" (user; D12). It only reads stored fields. |
+| R1-D9 | `horizon` is a required argument of the evaluator and of `compute_forecast_metrics` (no default), like `periods_per_year`. |
+
+**Modules**
+
+| Where | Job |
+|---|---|
+| `quant_core.analytics.forecast` | `rank_ic(pred, target)`, `ic_hac_lags(n, horizon)`, `ic_se_newey_west(pred, target, horizon) -> (se, lags)`, `rank_ic_decay(pred, target, lags)`, `hit_rate(pred, target) -> (rate, n)` and `drop_unpaired(pred, target)`. Inputs are array-likes of equal length in time order. Pairs with a NaN on either side are dropped first. Every function returns NaN when undefined (fewer than 3 pairs, or constant ranks). Exported from `quant_core.analytics`. |
+| `quant_core.models` | `ForecastMetrics` (`extra="forbid"`): `n_obs`, `min_obs`, `horizon`, `rank_ic`, `rank_ic_se`, `se_method`, `hac_lags`, `hit_rate`, `hit_n`, `ic_decay`. `FoldICSummary` (`extra="forbid"`): the fields of R1-D6. Fractions, NaN by default. |
+| `quant_core.metrics.forecast` | `compute_forecast_metrics(pred, target, horizon, min_obs=MIN_FORECAST_OBS, decay_lags=5)` and `compute_fold_ic_summary(fold_ics)`. They apply `min_obs` and are the only place the record is filled in. |
+| `plugins/nets/training/evaluator.py` | `MetricsCalculator.calculate_metrics(preds, targets, horizon, …)` keeps the losses. It puts `forecast: ForecastMetrics` in the dict, and the old keys `ic`, `directional_accuracy`, `ic_decay` and `selector_accuracy` read from it. Empty arrays give NaN, never 0.0 or 0.5. `registry_metrics(metrics)` maps the dict to the registry keys (R1-D7). TensorBoard logs the IC SE too. |
+| Trainers (`abc.py`, `training.py`) | Pass `horizon` and keep `best_val_metrics`. The `hparam/val_ic` defaults become NaN. |
+| `orchestrator.py`, `hparam_search.py` | Store `registry_metrics(trainer.best_val_metrics)`. `TrainingResult.val_ic` comes from it. |
+| `sweep_runner.py`, `sweep_results.py`, `quant_ui.plots.sweeps` | `val_ic` defaults to NaN instead of 0.0 (R2 deletes the sweep). |
+| `workbench/views/models.py` | "IC SE" and "n" columns beside "Val IC". |
+| Guard | A text test in `apps/fts/tests/unit/test_architecture_cleanup.py`: no `corrcoef`, `spearmanr`, `pearsonr`, `.corr(` or `.corrwith(` in `trading_bot/` or `plugins/`. |
+
+**Quant pitfalls.**
+Handled:
+1. Constant predictions (a dead network) give NaN, not 0.0, so a search can't treat "no signal" as "zero skill".
+2. Overlapping targets: lags ≥ horizon − 1 (D12), whatever `newey_west_lags(n)` says.
+3. Small samples: below `MIN_FORECAST_OBS` everything is NaN, and `n_obs` is always shown.
+4. Ties (e.g. zero-filled returns, a classifier's discrete outputs) get average ranks, as in `spearmanr`.
+5. Rank IC is robust to the fat-tailed return outliers that dominate a Pearson IC.
+6. NaN pairs are dropped, never filled. Ranks are computed after dropping them, so a gap can't shift the ranks.
+7. Hit rate: a zero sign has no direction and is left out, so a model that outputs zeros scores NaN, not 50%.
+8. Fold SE uses `ddof=1` across folds. A single fold gives a mean but a NaN std, SE and IR.
+9. The SE method is stored with every IC, so a fold-std SE is never mistaken for a Newey-West SE (D12).
+
+Known limits:
+1. The validation IC is still in-sample for model selection: early stopping picks the epoch by validation loss,
+   and the search picks trials on the same split. Walk-forward folds and a once-scored holdout are R2 (D10, D13).
+2. IC decay has no SE per lag.
+3. `LogReturnTransform` turns NaN/inf returns into 0.0 (`nan_to_num`). Those zeros enter the targets as real
+   returns: they tie in the ranks and are left out of the hit rate. Fixing that is feature-pipeline work, outside R1.
+4. Newey-West with a Bartlett kernel is biased downwards in small samples with strong autocorrelation. At
+   n ≈ 100 the SE is a guide, not a test.
+5. The target is a single bar `horizon` bars ahead (see "What we found"). Whether it should be the cumulative
+   return from the fill bar is "Must verify before R2" item 4.
+
+**Tests.**
+1. `rank_ic` matches `scipy.stats.spearmanr`, with ties and NaN pairs.
+2. Constant predictions give NaN for the IC, its SE and the hit rate; fewer than `min_obs` pairs give NaN with `n_obs` set.
+3. `ic_se_newey_west` matches statsmodels' HAC SE (reference numbers, as in `test_hac_ols_matches_statsmodels`), and `hac_lags` is `horizon − 1` when that is larger.
+4. `hit_rate` leaves out zero signs. `compute_fold_ic_summary` gives std with ddof=1 and SE = std/√n, and leaves out NaN folds.
+5. A trained `LinearRegressionTrainer`'s `registry_metrics(best_val_metrics)` holds a finite `val_ic` and its SE (regression test for the `last_val_ic` bug).
+
 ## Search config (R2, sketch)
 
 ```yaml
@@ -319,7 +411,7 @@ can't quietly undo it. A guard arrives **in the PR that makes it true**; adding 
 | W3b | `quant_data.inspect` never reaches `quant_data.providers`, `yfinance` or `ccxt` (indirect imports included: the inspector only reads). Text test: only `quant_core.intervals.find_gaps` compares a hole with `max_gap` | contract + text test |
 | M3 | Text test: only the deployment-ID module computes the ID hash (no other `hashlib` use on commit/model/config) | test |
 | M4 | Text test: no `execution_delay_bars`, `slippage_bps` or `execution_price_source` in `trading_bot/` or `plugins/`; a spec test that every execution YAML loads with `extra="forbid"` | test |
-| R1 | Text test: no `np.corrcoef`, `spearmanr` or `pearsonr` in `trading_bot/` or `plugins/` (IC maths only in `quant_core`) | test |
+| R1 | Text test: no `corrcoef`, `spearmanr`, `pearsonr`, `.corr(` or `.corrwith(` in `trading_bot/` or `plugins/` (IC maths only in `quant_core`) | test |
 | R2 | `optuna` is imported only by the search module (`ignore_imports` lists nothing else); `sweep_runner`, `SweepSpec` and `run_model_backtest` don't exist (text test) | contract + test |
 | M8 | `trading_bot` never imports `nets` (core doesn't know the plugin); `trading_bot.modeling` never imports `torch` | contracts |
 | M5 | `quant_broker` may import `quant_core` only; `quant_core`/`quant_data`/`quant_ui` never import `quant_broker`; `ib_async` only in `quant_broker`'s IBKR module; `portfolio_analyser` imports the reader side only, never the `Venue` (order) module | contracts |

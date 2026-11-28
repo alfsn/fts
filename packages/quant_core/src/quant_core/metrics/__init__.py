@@ -1,7 +1,8 @@
 """
 Single entry point composing the analytics primitives into ``PerformanceMetrics``,
-``BenchmarkMetrics`` and ``VolForecastMetrics``. Both fts backtests and the
-portfolio analyser go through here so a KPI means the same thing everywhere.
+``BenchmarkMetrics``, ``VolForecastMetrics`` and ``ForecastMetrics``. Both fts
+backtests and the portfolio analyser go through here so a KPI means the same
+thing everywhere.
 One module per pipeline; the maths itself lives in ``quant_core.analytics``.
 """
 
@@ -11,6 +12,11 @@ from .benchmark import (
     MIN_BENCHMARK_OBS,
     BenchmarkAnalysis,
     compute_benchmark_metrics,
+)
+from .forecast import (
+    MIN_FORECAST_OBS,
+    compute_fold_ic_summary,
+    compute_forecast_metrics,
 )
 from .performance import compute_performance_metrics
 from .volatility import (

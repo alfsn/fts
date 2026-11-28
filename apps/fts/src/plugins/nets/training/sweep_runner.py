@@ -274,7 +274,7 @@ def run_parameter_sweep(
             param_value=val,
             model_id=str(train_res.model_id),
             run_id=bt_res["run_id"],
-            val_ic=train_res.val_ic if train_res.val_ic is not None else 0.0,
+            val_ic=train_res.val_ic if train_res.val_ic is not None else float("nan"),
             val_loss=train_res.val_loss if train_res.val_loss is not None else 0.0,
             oos_pnl=bt_res["total_pnl"],
             oos_sharpe=bt_res["sharpe_ratio"],

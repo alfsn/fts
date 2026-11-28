@@ -28,7 +28,9 @@ class SweepTrialResult(BaseModel):
     run_id: str = Field(
         ..., description="Backtest run identifier used in DB execution logs"
     )
-    val_ic: float = Field(default=0.0, description="Validation Information Coefficient")
+    val_ic: float = Field(
+        default=float("nan"), description="Validation rank IC (NaN when undefined)"
+    )
     val_loss: float = Field(default=0.0, description="Validation loss metric")
     oos_pnl: float = Field(default=0.0, description="Out-of-sample total realized P&L")
     oos_sharpe: float = Field(default=0.0, description="Out-of-sample Sharpe ratio")

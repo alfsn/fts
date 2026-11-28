@@ -169,8 +169,11 @@ class BaseONNXModelTrainer(BaseModelTrainer, ABC):
         # Build metric_dict
         metric_dict = {
             "hparam/val_loss": metrics.get("loss", 999.0),
-            "hparam/val_ic": metrics.get("ic", 0.0),
-            "hparam/val_directional_accuracy": metrics.get("directional_accuracy", 0.5),
+            "hparam/val_ic": metrics.get("ic", float("nan")),
+            "hparam/val_ic_se": metrics.get("ic_se", float("nan")),
+            "hparam/val_directional_accuracy": metrics.get(
+                "directional_accuracy", float("nan")
+            ),
         }
         if "selector_accuracy" in metrics:
             metric_dict["hparam/val_selector_accuracy"] = metrics["selector_accuracy"]
@@ -414,6 +417,7 @@ class BasePyTorchTrainer(BaseONNXModelTrainer):
                     model=model,
                     dataloader=val_loader,
                     criterion=criterion,
+                    horizon=self.training_config.horizon,
                     output_selector=self.output_selector,
                     val_bars=val_bars,
                 )
@@ -425,7 +429,7 @@ class BasePyTorchTrainer(BaseONNXModelTrainer):
                 val_loss = val_metrics["loss"]
                 logger.info(
                     f"Epoch {epoch}: Train Loss = {epoch_loss:.6f}, Val Loss = {val_loss:.6f}, "
-                    f"Val IC = {val_metrics['ic']:.4f}, Val Dir Acc = {val_metrics['directional_accuracy']:.4f}"
+                    f"Val IC = {val_metrics['ic']:.4f} ± {val_metrics['ic_se']:.4f}, Val Dir Acc = {val_metrics['directional_accuracy']:.4f}"
                 )
                 if "selector_accuracy" in val_metrics:
                     logger.info(

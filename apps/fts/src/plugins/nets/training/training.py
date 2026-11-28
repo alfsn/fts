@@ -107,12 +107,13 @@ class LinearRegressionTrainer(BaseONNXModelTrainer):
             metrics = MetricsCalculator.calculate_metrics(
                 preds=val_preds,
                 targets=y_val_flat,
+                horizon=self.config.horizon,
                 output_selector=self.output_selector,
                 val_bars=val_bars,
             )
             logger.info(
                 f"LinearRegression Validation: Loss = {metrics['loss']:.6f}, "
-                f"IC = {metrics['ic']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
+                f"IC = {metrics['ic']:.4f} ± {metrics['ic_se']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
             )
             if "selector_accuracy" in metrics:
                 logger.info(
@@ -221,12 +222,13 @@ class XGBoostTrainer(BaseONNXModelTrainer):
             metrics = MetricsCalculator.calculate_metrics(
                 preds=val_preds,
                 targets=y_val_flat,
+                horizon=self.config.horizon,
                 output_selector=self.output_selector,
                 val_bars=val_bars,
             )
             logger.info(
                 f"XGBoost Validation: Best Iteration = {model.best_iteration}, "
-                f"Loss = {metrics['loss']:.6f}, IC = {metrics['ic']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
+                f"Loss = {metrics['loss']:.6f}, IC = {metrics['ic']:.4f} ± {metrics['ic_se']:.4f}, Dir Acc = {metrics['directional_accuracy']:.4f}"
             )
             if "selector_accuracy" in metrics:
                 logger.info(

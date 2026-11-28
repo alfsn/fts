@@ -43,7 +43,7 @@ def test_validation_evaluator():
     model = SimpleModel()
     criterion = nn.MSELoss()
 
-    metrics = ValidationEvaluator.evaluate(model, loader, criterion)
+    metrics = ValidationEvaluator.evaluate(model, loader, criterion, horizon=1)
     assert "loss" in metrics
     assert "ic" in metrics
     assert "directional_accuracy" in metrics
