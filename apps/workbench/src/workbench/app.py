@@ -38,6 +38,8 @@ page = st.navigation(
         st.Page(VIEWS / "portfolio.py", title="Portfolio", icon="💼", default=True),
         st.Page(VIEWS / "models.py", title="Models", icon="🤖"),
         st.Page(VIEWS / "backtests.py", title="Backtests", icon="📈"),
+        st.Page(VIEWS / "cache.py", title="Cache", icon="🗄️"),
+        st.Page(VIEWS / "fx.py", title="FX", icon="💱"),
     ]
 )
 page.run()

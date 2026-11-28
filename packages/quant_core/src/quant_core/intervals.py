@@ -8,7 +8,10 @@ vendor declares its rule (``BaseMarketDataProvider.gap_rule``).
 """
 
 from abc import ABC, abstractmethod
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Iterable
+
+import pandas as pd
 
 _UNITS = {
     "s": timedelta(seconds=1),
@@ -67,3 +70,27 @@ class SessionGap(GapRule):
 
     def max_gap(self, interval: str) -> timedelta:
         return max(self.bars * interval_to_timedelta(interval), self.min_gap)
+
+
+def find_gaps(timestamps: Iterable[datetime], max_gap: timedelta) -> pd.DataFrame:
+    """
+    The holes in a sorted bar series: each pair of consecutive timestamps more
+    than ``max_gap`` apart (exactly ``max_gap`` is not a gap). Columns
+    ``start`` (last bar before the hole), ``end`` (first bar after it) and
+    ``length``; empty when there are none. The one home of the gap rule's
+    comparison (M2-D5): the cache refetch, ingest and the workbench use it.
+    """
+    index = pd.DatetimeIndex(pd.to_datetime(list(timestamps), utc=True))
+    if len(index) < 2:
+        return pd.DataFrame(
+            {"start": index[:0], "end": index[:0], "length": pd.to_timedelta([])}
+        )
+    length = pd.Series(index[1:] - index[:-1])
+    holes = (length > max_gap).to_numpy()
+    return pd.DataFrame(
+        {
+            "start": index[:-1][holes],
+            "end": index[1:][holes],
+            "length": length[holes].to_numpy(),
+        }
+    )

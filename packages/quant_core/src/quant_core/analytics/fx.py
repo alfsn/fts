@@ -23,6 +23,20 @@ def implied_ccl(local_price: PriceT, adr_price: PriceT, ratio: float) -> PriceT:
     return local_price * ratio / adr_price
 
 
+def implied_ccl_frame(
+    closes: pd.DataFrame, pairs: tuple[tuple[str, str, float], ...]
+) -> pd.DataFrame:
+    """The CCL each pair implies on its own, one column per pair available in
+    ``closes`` ("LOCAL/ADR"); empty when none is. Same inputs as
+    ``ccl_from_pairs`` (SPLIT-adjusted closes)."""
+    implied = {
+        f"{local}/{adr}": implied_ccl(closes[local], closes[adr], ratio)
+        for local, adr, ratio in pairs
+        if local in closes and adr in closes
+    }
+    return pd.DataFrame(implied) if implied else pd.DataFrame()
+
+
 def ccl_from_pairs(
     closes: pd.DataFrame,
     pairs: tuple[tuple[str, str, float], ...],
@@ -39,13 +53,8 @@ def ccl_from_pairs(
     The pairs' ratios are today's, so pass SPLIT-adjusted closes (`adjust`);
     the reference pairs live in `quant_data.reference.ARS_CCL_PAIRS`.
     """
-    implied = [
-        implied_ccl(closes[local], closes[adr], ratio)
-        for local, adr, ratio in pairs
-        if local in closes and adr in closes
-    ]
-    if not implied:
+    rates = implied_ccl_frame(closes, pairs)
+    if rates.empty:
         return pd.Series(dtype=float)
-    rates = pd.concat(implied, axis=1)
     divergence = rates.max(axis=1) / rates.min(axis=1) - 1
     return rates.mean(axis=1).where(~(divergence > max_divergence))
