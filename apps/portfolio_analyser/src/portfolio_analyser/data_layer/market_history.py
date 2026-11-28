@@ -4,11 +4,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Mapping, Sequence
 
 import pandas as pd
-from quant_core.analytics import adjust_frame, ccl_from_pairs
-from quant_core.enums import Currency, PriceAdjustment
+from quant_core.enums import Currency
 from quant_core.ledger import forward_fill
 from quant_core.models import CorporateAction, FXContext, MissingFXRateError, Portfolio
-from quant_data.reference import ARS_CCL_PAIRS
+from quant_data.reference import ARS_CCL_PAIRS, ars_ccl
 
 HISTORY_YEARS = 5
 LEDGER_LEAD_DAYS = 7  # history starts a week before the first transaction
@@ -54,14 +53,9 @@ def history_symbols(portfolio: Portfolio) -> set[str]:
 
 
 def ccl_series(closes: pd.DataFrame, actions: Actions) -> pd.Series:
-    """
-    Daily CCL in ARS per USD. The pairs' depositary ratios are today's, so the
-    raw closes are split-adjusted first (PR 2a §6): on raw closes the YPF pair
-    is 10x off before 2026-08-03 and the divergence check NaNs every day.
-    """
-    return ccl_from_pairs(
-        adjust_frame(closes, actions, PriceAdjustment.SPLIT), ARS_CCL_PAIRS
-    )
+    """Daily CCL in ARS per USD (``quant_data.reference.ars_ccl``: split-
+    adjusted first, because the pairs' ratios are today's)."""
+    return ars_ccl(closes, actions)
 
 
 def usd_per_unit(ccl: pd.Series, dates: pd.DatetimeIndex) -> pd.DataFrame:

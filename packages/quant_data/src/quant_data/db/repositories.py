@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence
 
+from pydantic import BaseModel, ConfigDict
 from quant_core.enums import BarType, Currency, RateType
 from quant_core.intervals import interval_to_timedelta
 from quant_core.models import BarData as BarDataSchema
@@ -32,6 +33,19 @@ def _closed(bar: BarDataSchema, now: datetime) -> bool:
     if bar.bar_type != BarType.TIME or not bar.interval:
         return True
     return _as_utc(bar.timestamp) + interval_to_timedelta(bar.interval) <= now
+
+
+class CachedSeries(BaseModel):
+    """One cached bar series: a symbol at one interval, from one vendor."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    instrument_id: str
+    interval: str
+    source: str
+    bars: int
+    first: datetime
+    last: datetime
 
 
 class BaseRepository:
@@ -236,6 +250,40 @@ class MarketDataRepository(BaseRepository):
         """Every symbol with cached bars, sorted."""
         rows = self.db.query(BarDataLogModel.instrument_id).distinct()
         return sorted(row[0] for row in rows)
+
+    def series_summary(self) -> List[CachedSeries]:
+        """Every cached time-bar series (symbol, interval, source) with its bar
+        count and first/last timestamp (UTC), sorted by symbol and interval.
+        Volume and dollar bars have no interval and are left out: the
+        inspector loads time bars only."""
+        rows = (
+            self.db.query(
+                BarDataLogModel.instrument_id,
+                BarDataLogModel.interval,
+                BarDataLogModel.source,
+                func.count(BarDataLogModel.id),
+                func.min(BarDataLogModel.timestamp),
+                func.max(BarDataLogModel.timestamp),
+            )
+            .filter(BarDataLogModel.bar_type == BarType.TIME)
+            .group_by(
+                BarDataLogModel.instrument_id,
+                BarDataLogModel.interval,
+                BarDataLogModel.source,
+            )
+            .order_by(BarDataLogModel.instrument_id, BarDataLogModel.interval)
+        )
+        return [
+            CachedSeries(
+                instrument_id=symbol,
+                interval=interval,
+                source=source,
+                bars=bars,
+                first=_as_utc(first),
+                last=_as_utc(last),
+            )
+            for symbol, interval, source, bars, first, last in rows
+        ]
 
     def market_name(self, instrument_id: str) -> Optional[str]:
         market = (

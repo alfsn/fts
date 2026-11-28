@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timezone
 
 from quant_core.interfaces import CorporateActionProvider
+from quant_core.intervals import find_gaps
 from quant_data.db import MarketDataRepository
 from quant_data.history import fetch_corporate_actions
 from trading_bot.core.database import (
@@ -201,21 +202,15 @@ def main() -> None:
             if all_bars_db:
                 # A gap is what the vendor's venue calls one (M2-D5).
                 max_gap = provider.gap_rule.max_gap(args.timeframe)
-                gaps = []
-                for i in range(1, len(all_bars_db)):
-                    prev_ts = all_bars_db[i - 1].timestamp
-                    curr_ts = all_bars_db[i].timestamp
-                    if curr_ts - prev_ts > max_gap:
-                        gap_hours = (curr_ts - prev_ts).total_seconds() / 3600.0
-                        gaps.append((prev_ts, curr_ts, gap_hours))
-
-                if gaps:
+                gaps = find_gaps((b.timestamp for b in all_bars_db), max_gap)
+                if not gaps.empty:
                     logger.warning(
                         f"WARNING: Detected {len(gaps)} significant gap(s) in stored bars for {args.ticker}!"
                     )
-                    for g_start, g_end, g_hrs in gaps:
+                    for gap in gaps.itertuples():
+                        hours = gap.length.total_seconds() / 3600.0
                         logger.warning(
-                            f"  Gap: {g_start} to {g_end} ({g_hrs:.1f} hours missing)"
+                            f"  Gap: {gap.start} to {gap.end} ({hours:.1f} hours missing)"
                         )
 
                 hash_val = calculate_dataset_hash(all_bars_db)
@@ -237,7 +232,7 @@ def main() -> None:
                 print(f"Total Bars: {len(all_bars_db)}")
                 print(f"Start Time: {dataset.start_time}")
                 print(f"End Time:   {dataset.end_time}")
-                if gaps:
+                if not gaps.empty:
                     print(f"WARNING: {len(gaps)} gap(s) detected in database timeline!")
                 print(f"Hash:       {dataset.hash}\n")
 

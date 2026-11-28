@@ -15,7 +15,7 @@ from .drawdown import (
     max_time_underwater_days,
     top_drawdowns,
 )
-from .fx import ccl_from_pairs, implied_ccl
+from .fx import ccl_from_pairs, implied_ccl, implied_ccl_frame
 from .rates import RiskFree, excess_returns, tbill_bond_equivalent_yield
 from .ratios import (
     compute_calmar,

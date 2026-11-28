@@ -1,6 +1,5 @@
 import click
 from portfolio_analyser import review
-from quant_core.enums import Currency
 from quant_core.models import MissingFXRateError
 from quant_data.providers.brokers import (
     IBKRConnector,
@@ -87,11 +86,11 @@ def analyze(broker, file_path, db_url):
     except ValueError as e:
         console.print(f"[bold red]Price error:[/bold red] {e}")
         return
-    as_of, fx_context = snapshot.as_of, snapshot.fx_context
+    as_of = snapshot.as_of
     console.print(f"Valued at market close {as_of.date()}")
-    if Currency.ARS in fx_context.rates:
+    if snapshot.ars_per_usd is not None:
         console.print(
-            f"FX ARS: {1 / fx_context.rates[Currency.ARS]:,.2f} per USD (CCL, close {as_of.date()})"
+            f"FX ARS: {snapshot.ars_per_usd:,.2f} per USD (CCL, close {as_of.date()})"
         )
     if snapshot.breaks is not None:
         _print_breaks(console, snapshot.breaks)
@@ -105,14 +104,12 @@ def analyze(broker, file_path, db_url):
     cash_table.add_column("Available", justify="right")
     cash_table.add_column(f"Value in {portfolio.base_currency.value}", justify="right")
 
-    for cb in portfolio.cash_balances:
-        rate = fx_context.get_rate(cb.currency)
-        val_in_base = cb.total * rate
+    for row in review.cash_rows(snapshot):
         cash_table.add_row(
-            cb.currency.value,
-            f"{cb.total:,.2f}",
-            f"{cb.available:,.2f}",
-            f"{val_in_base:,.2f}",
+            row.currency,
+            f"{row.total:,.2f}",
+            f"{row.available:,.2f}",
+            f"{row.value_in_base:,.2f}",
         )
     console.print(cash_table)
 
@@ -127,14 +124,14 @@ def analyze(broker, file_path, db_url):
     pos_table.add_column(f"Close {as_of.date()}", justify="right")
     pos_table.add_column(f"Value in {portfolio.base_currency.value}", justify="right")
 
-    for p in portfolio.positions:
+    for row in review.position_rows(snapshot):
         pos_table.add_row(
-            p.instrument_id,
-            p.currency.value,
-            f"{p.quantity:,.4f}",
-            f"{p.cost_basis:,.2f}",
-            f"{p.current_price:,.2f}",
-            f"{p.market_value(fx_context):,.2f}",
+            row.instrument_id,
+            row.currency,
+            f"{row.quantity:,.4f}",
+            f"{row.cost_basis:,.2f}",
+            f"{row.close:,.2f}",
+            f"{row.value_in_base:,.2f}",
         )
     console.print(pos_table)
 

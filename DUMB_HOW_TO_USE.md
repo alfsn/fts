@@ -4,7 +4,7 @@ Here is the simplest way to run this repo without blowing up your brain.
 
 > [!NOTE]
 > Looking for the **Portfolio Analyser** (`analyze` / `client-review` HTML reports)? Jump to [apps/portfolio_analyser/HOW_TO_USE.md](apps/portfolio_analyser/HOW_TO_USE.md).
-> The steps below walk through **FTS** (the trading bot, model training, backtesting, and dashboard).
+> The steps below walk through **FTS** (the trading bot, model training, backtesting, and the workbench UI).
 
 ---
 
@@ -57,7 +57,7 @@ uv run python -m nets.training.hparam_search --spec specs/train/BTCUSDT/lstm_hpa
 
 ## Step 4: Promote the Smartest Brain 🎓
 
-Once training is done, pick a candidate `model_id` and "promote" it to production (either via CLI or by clicking **Promote** in the Streamlit dashboard below):
+Once training is done, pick a candidate `model_id` and "promote" it to production (either via CLI or by clicking **Promote** in the workbench below):
 
 ```bash
 uv run python -m trading_bot.utils.promote <model_id_here>
@@ -83,26 +83,27 @@ The backtest's `data_reader` needs an `interval` (e.g. `"30m"`), the same one th
 
 ---
 
-## Step 6: Click Around in the Dashboard 🖥️
+## Step 6: Click Around in the Workbench 🖥️
 
-Want a UI to inspect your SQLite databases (`dev.db` and the price cache), filter models by hyperparameters, promote a model with a button click, or compare backtest equity curves side-by-side?
+Want a UI to review a portfolio, filter models by hyperparameters, promote a model with a button click, or compare backtest curves side by side?
 
 ```bash
-uv run python -m trading_bot.dashboard.cli --db dev.db --port 8501
+uv run workbench
 ```
 
-Then open `http://localhost:8501` in your browser.
+Then open `http://127.0.0.1:8501` in your browser. The sidebar shows which databases it reads (`dev.db` and the shared price cache) and lets you point it at others.
 
 ---
 
 ## Step 7: Did I Break It? (Testing) 🛠️
 
-Run the three test suites from the workspace root (each runs separately so `tests` package names don't collide):
+Run the four test suites from the workspace root (each runs separately so `tests` package names don't collide):
 
 ```bash
 cd /home/alfred/github/fts
 uv run pytest packages
 uv run pytest apps/portfolio_analyser/tests
+uv run pytest apps/workbench/tests
 cd apps/fts && uv run pytest tests
 ```
 

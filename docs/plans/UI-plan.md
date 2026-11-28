@@ -39,6 +39,8 @@ small rule violations get fixed.
 | D9 | DB URLs come from the env vars (`DATABASE_URL` for fts research, `MARKET_CACHE_URL` for the shared price cache, `modularization.md` D18; `PA_DATABASE_URL` is gone, M2b) and can be edited in the sidebar. Runs live in the one research database (`DATABASE_URL`, `modularization.md` D16); `BACKTEST_DATABASE_URL` is gone (M1) |
 | D10 | Keep fts's Promote/Archive write action |
 | D11 | Cleanups in the stack: fts renderers → `quant_ui`, delete `fx_rates`, hide mock brokers, fix `visualizer.py` `fillna(0.0)` |
+| D12 | (2026-11-28) W3 ships as two PRs: **W3a** shell + Portfolio, Models, Backtests; **W3b** Cache + FX. The cache inspector lives in `quant_data.inspect`, not the analyser: both apps share the cache, and fts's intraday series are in it. It is the one `quant_data` module the workbench may import |
+| D13 | (2026-11-28) The run comparison lines runs up by **days since each run's first bar**, never by bar number (a 1h run would look 24× longer than a 1d run) |
 
 ## Why charts and shell are separate (both are "UI")
 
@@ -116,6 +118,24 @@ Imports flow one way: packages ← apps.
 
 ## W3: the workbench shell
 
+> Re-planned 2026-11-28 against `2ab0656` and split (D12). **W3a** (shipped first): the shell, `settings`,
+> `state`, `filters` (written once, NaN-safe), `views/portfolio.py`, `views/models.py`, `views/backtests.py`;
+> `CatalogQueryService.open(research_url, market_cache_url)` builds the sessions and defaults, so the workbench
+> holds neither; `run_curves` (cumulative, drawdown, top episodes, `close_series`, fills, predictions, from the
+> same `equity_series` as the KPIs) and `compare_curves(align="calendar"|"elapsed")`; `review.load_portfolio`,
+> `cash_rows`, `position_rows`, `Snapshot.ars_per_usd` (the `analyze` CLI prints the same rows); `quant_ui.plots.backtest`
+> (trade overlay, prediction scatter that never puts a missing return at 0, comparison). The Backtests page's
+> minimum Sharpe defaults to blank: the old −10 hid every run too short for a Sharpe. Pages live in `views/`
+> (not `pages/`, which Streamlit would also auto-load). **W3b** (2026-11-28, stacked on W3a): `views/cache.py`,
+> `views/fx.py` on the read-only `quant_data.inspect` (`cached_series`, `inspect_series`, `ccl_view`). Three
+> things got one home each: the gap comparison (`quant_core.intervals.find_gaps`, now also used by
+> `TieredDataProvider` and `ingest_historical`), the CCL recipe (`quant_data.reference.ars_ccl` / `ars_implied`;
+> the analyser's `ccl_series` calls it) and bars → daily closes (`quant_data.history.daily_closes`). The vendor's
+> gap rule is looked up by source name in `quant_data.reference.gaps.GAP_RULES`, the one home of the rules:
+> each provider class takes its `gap_rule` from that table (a test checks every vendor in
+> `quant_data.providers`), so the inspector never imports the providers. The pages never fetch: fill the cache with
+> `ingest_historical` or a Portfolio review.
+
 ```
 apps/workbench/
   pyproject.toml          # deps: streamlit, fts, portfolio-analyser, quant-ui
@@ -138,12 +158,12 @@ apps/workbench/
   in `quant_ui` (fractions everywhere else). Minimum-sample captions print `metrics.min_obs`.
 - New `quant_ui` figures (draw-only): `plot_price_adjustments(raw, split, total_return)`, `plot_ccl(series, pairs)`,
   the fts trade overlay, the prediction scatter, and a multi-series `plot_cumulative_returns` for the run comparison.
-- **Cache use cases (moved from W2):** `MarketDataRepository.cached_series() -> list[CachedSeries]` (symbol,
-  interval, source, bar count, first/last), and analyser `review.inspect_symbol(db_url, symbol) -> SymbolView`
+- **Cache use cases (W3b, D12):** `MarketDataRepository.series_summary() -> list[CachedSeries]` (symbol,
+  interval, source, bar count, first/last) and `quant_data.inspect.inspect_series(symbol, interval) -> SeriesView`
   (raw closes, `adjust(..., SPLIT)`, `adjust(..., TOTAL_RETURN)`, the actions, gaps). It is read-only:
   `load_bars`/`load_corporate_actions`, never a provider. Gaps maths:
-  `quant_core.analytics.calendar_gaps(index, max_gap) -> DataFrame(start, end, days)`, with `max_gap` from the
-  vendor's `quant_core.intervals.GapRule` (M2-D5).
+  `quant_core.intervals.find_gaps(timestamps, max_gap) -> DataFrame(start, end, length)`, with `max_gap` from the
+  vendor's `GapRule` (M2-D5). `ccl_view()` gives the CCL, each pair's rate, and the rejected and single-pair days.
 - **fts backtest curves (moved from W2, on M1's `RunStore`):** `CatalogQueryService` stays the facade. It adds
   `wealth_index(equity)`, `drawdown_series(wealth)` and the T=0 alignment for comparisons, so no page or
   figure computes.
@@ -207,6 +227,8 @@ apps/workbench/
 - Manual: launch the workbench and click every tab; check the YPFD raw/SPLIT chart around 2026-08-03;
   check that a 1-year window changes the KPIs and a 3-month window shows n/a for alpha.
 - Guards (import-linter contracts, see `modularization.md` "Guards per PR"): W1 adds "the apps never import
-  each other"; W3 adds "`streamlit` only in the workbench" and "the workbench never imports `quant_data` or
-  `quant_core.analytics`, and reaches the apps only through their use-case modules". `quant_ui` ↛ `quant_data`
-  is already a contract.
+  each other"; W3a adds "`streamlit` only in the workbench" and "the workbench never imports `quant_core.analytics`
+  / `metrics`, `quant_data.db` / `providers` / `history`, `sqlalchemy`, or an app's internals" (`quant_data.inspect`
+  stays open for W3b), plus a text test: no `cummax`, `pct_change`, `cumprod` or `* 100` in the workbench. W3b adds "`quant_data.inspect`
+  never reaches `quant_data.providers` / `yfinance` / `ccxt`" (indirect imports included) and a text test: only
+  `find_gaps` compares a hole with `max_gap`. `quant_ui` ↛ `quant_data` is already a contract.
