@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Sequence
 
+from .intervals import GapRule, SessionGap
 from .models import (
     BarData,
     CorporateAction,
@@ -22,6 +23,9 @@ class BaseMarketDataProvider(ABC):
     # Declared request budget; None means the provider needs no throttling
     # (mocks, local files) or throttles itself (ccxt).
     rate_limit: Optional[RateLimit] = None
+    # When a hole in this vendor's cached bars is a gap (M2-D5). Exchange
+    # hours by default; a 24/7 venue sets ``BarGap()``.
+    gap_rule: GapRule = SessionGap()
 
     @classmethod
     def from_args(cls, args: Any) -> "BaseMarketDataProvider":

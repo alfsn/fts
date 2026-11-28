@@ -2,7 +2,7 @@
 
 """
 CLI Launcher for Quant Data Catalog & Streamlit Dashboard.
-Usage: python -m trading_bot.dashboard.cli --db dev.db --port 8501
+Usage: python -m trading_bot.dashboard.cli --db dev.db --cache path/to/cache.db --port 8501
 """
 
 import argparse
@@ -10,7 +10,16 @@ import os
 import subprocess
 import sys
 
+from quant_data.db import cache_url
 from trading_bot.config import get_settings
+
+
+def _as_url(path_or_url: str) -> str:
+    """A bare file path becomes a SQLite URL; a URL (any dialect and driver,
+    e.g. ``sqlite+pysqlite:///x.db``) is kept as given."""
+    if "://" in path_or_url:
+        return path_or_url
+    return f"sqlite:///{path_or_url}"
 
 
 def main():
@@ -22,6 +31,12 @@ def main():
         type=str,
         default=None,
         help="Database file path or connection URL (defaults to settings.DATABASE_URL)",
+    )
+    parser.add_argument(
+        "--cache",
+        type=str,
+        default=None,
+        help="Price-cache file path or URL; a relative path is from the workspace root (defaults to MARKET_CACHE_URL, else the shared workspace cache)",
     )
     parser.add_argument(
         "--port",
@@ -38,16 +53,12 @@ def main():
 
     args = parser.parse_args()
 
-    # Format database URL
-    db_url = args.db if args.db is not None else get_settings().DATABASE_URL
-    if not (
-        db_url.startswith("sqlite:")
-        or db_url.startswith("postgresql:")
-        or db_url.startswith("mysql:")
-    ):
-        db_url = f"sqlite:///{db_url}"
-
+    settings = get_settings()
+    db_url = _as_url(args.db if args.db is not None else settings.DATABASE_URL)
+    market_cache = cache_url(_as_url(args.cache) if args.cache is not None else None)
+    # The Streamlit subprocess reads both from its environment.
     os.environ["DATABASE_URL"] = db_url
+    os.environ["MARKET_CACHE_URL"] = market_cache
 
     app_path = os.path.join(os.path.dirname(__file__), "app.py")
 
@@ -67,6 +78,7 @@ def main():
         f"⚡ Launching Quant Data Catalog Dashboard on http://{args.host}:{args.port}..."
     )
     print(f"📂 Connected Database: {db_url}")
+    print(f"📂 Price cache: {market_cache}")
 
     try:
         subprocess.run(cmd, check=True)

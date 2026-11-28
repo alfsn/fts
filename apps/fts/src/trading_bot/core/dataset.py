@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Any, List, Sequence, Tuple
 
 import numpy as np
@@ -7,18 +8,20 @@ import numpy as np
 from .schemas import BarData
 
 
+def _naive_utc(ts: datetime) -> datetime:
+    return ts.astimezone(timezone.utc).replace(tzinfo=None) if ts.tzinfo else ts
+
+
 def calculate_dataset_hash(bars: Sequence[Any]) -> str:
     """
     Computes a deterministic SHA-256 hash for a sequence of bar objects.
     """
-    sorted_bars = sorted(bars, key=lambda b: b.timestamp)
+    sorted_bars = sorted(bars, key=lambda b: _naive_utc(b.timestamp))
     data_list = [
         (
-            (
-                b.timestamp.isoformat()
-                if hasattr(b.timestamp, "isoformat")
-                else str(b.timestamp)
-            ),
+            # Naive UTC, as the cache stores it: aware and naive bars of the
+            # same series hash alike, so dataset IDs survive M2a.
+            _naive_utc(b.timestamp).isoformat(),
             float(b.close),
             float(b.volume),
         )

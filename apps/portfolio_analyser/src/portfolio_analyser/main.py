@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import click
 from portfolio_analyser import review
 from quant_core.enums import Currency
@@ -10,11 +8,6 @@ from quant_data.providers.brokers import (
     IOLConnector,
     LocalYamlConnector,
 )
-
-# One cache for every run: anchored to the app folder (apps/portfolio_analyser),
-# not to the working directory, so running from elsewhere can't start a second DB.
-APP_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_DB_URL = f"sqlite:///{APP_DIR / 'portfolio_analyser.db'}"
 
 
 @click.group()
@@ -42,10 +35,10 @@ def _broker_options(command):
             ),
             click.option(
                 "--db-url",
-                envvar="PA_DATABASE_URL",
-                default=DEFAULT_DB_URL,
-                show_default=True,
-                help="Market-data cache database",
+                envvar="MARKET_CACHE_URL",
+                default=None,
+                help="Market-data cache URL (default: the workspace cache shared "
+                "with fts, quant_data.db.cache_url)",
             ),
         ]
     ):

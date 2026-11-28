@@ -108,9 +108,8 @@ def test_save_bars_records_the_source_and_updates_revised_rows(repo):
     # A late correction to an already cached bar is applied, not skipped.
     assert repo.save_bars("AAPL", [_bar(day, 101.0)], source="yahoo") == 0
 
-    (row,) = repo.get_bars("AAPL", interval="1d")
-    assert row.close == 101.0
-    assert row.source == "yahoo"
+    (bar,) = repo.load_bars("AAPL", "1d")
+    assert bar.close == 101.0
     assert repo.bar_source("AAPL", "1d") == "yahoo"
     assert repo.bar_source("AAPL", "1h") is None
 
@@ -136,9 +135,9 @@ def test_replace_bars_swaps_the_whole_series_for_that_interval(repo):
         "AAPL", "1d", [_bar(day + timedelta(days=1), 99.0)], source="ibkr"
     )
 
-    daily = repo.get_bars("AAPL", interval="1d")
-    assert [(r.close, r.source) for r in daily] == [(99.0, "ibkr")]
-    assert len(repo.get_bars("AAPL", interval="1h")) == 1  # other intervals untouched
+    assert [b.close for b in repo.load_bars("AAPL", "1d")] == [99.0]
+    assert repo.bar_source("AAPL", "1d") == "ibkr"
+    assert len(repo.load_bars("AAPL", "1h")) == 1  # other intervals untouched
 
 
 def test_save_corporate_actions_upserts_and_reads_back(repo):
@@ -182,3 +181,36 @@ def test_save_corporate_actions_from_a_new_source_replaces_the_old(repo):
     repo.save_corporate_actions("NVDA", [old], source="yahoo")
     repo.save_corporate_actions("NVDA", [], source="ibkr")
     assert repo.load_corporate_actions("NVDA") == []
+
+
+def test_load_bars_keeps_intervals_apart_and_compares_bounds_in_utc(repo):
+    """M2a: one series per interval, and an aware bound in another zone is
+    converted to UTC before SQLite compares it with the stored naive UTC."""
+    noon = datetime(2024, 1, 2, 12, tzinfo=timezone.utc)
+    repo.save_bars("BTC", [_bar(noon, 1.0, "1h")], source="ccxt")
+    repo.save_bars("BTC", [_bar(noon, 2.0, "1d")], source="ccxt")
+
+    plus_three = timezone(timedelta(hours=3))
+    # 14:00 at +03:00 is 11:00 UTC: before noon UTC, so the bar is included.
+    bars = repo.load_bars(
+        "BTC", "1h", start=datetime(2024, 1, 2, 14, tzinfo=plus_three)
+    )
+
+    assert [b.close for b in bars] == [1.0]
+    assert bars[0].timestamp == noon  # aware UTC on the way out
+
+
+def test_save_bars_never_caches_an_unfinished_bar(repo):
+    # Both apps share the cache; the analyser reads up to today 00:00 UTC and
+    # would value a portfolio at today's still-trading close (PR 59 review).
+    today = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    yesterday = today - timedelta(days=1)
+
+    inserted = repo.save_bars(
+        "AAPL", [_bar(yesterday, 100.0), _bar(today, 101.0)], source="yahoo"
+    )
+
+    assert inserted == 1
+    assert [b.timestamp for b in repo.load_bars("AAPL", "1d")] == [yesterday]

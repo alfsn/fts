@@ -4,13 +4,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from quant_core.enums import AssetType, Geography, OrderSide, OrderStatus
 from quant_core.models import ExecutionResult, OrderRequest, TradFiDetails
-from quant_data.db.models import Market
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.backtesting.abc import BaseBacktestDataReader
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.backtesting.results import BacktestResult
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.schemas import (
     BarData,
@@ -48,14 +47,14 @@ def sql_db_session() -> Session:
     Creates an in-memory SQLite database session for unit testing persistence.
     """
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)
+    ResearchBase.metadata.create_all(engine)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-        Base.metadata.drop_all(engine)
+        ResearchBase.metadata.drop_all(engine)
 
 
 class DummyDataReader(BaseBacktestDataReader):
@@ -389,7 +388,7 @@ def test_run_tables_cover_every_table_with_a_run_id():
     training run, not a backtest run.)"""
     with_run_id = {
         t.name
-        for t in Base.metadata.sorted_tables
+        for t in ResearchBase.metadata.sorted_tables
         if "run_id" in t.c and t.name != "model_registry"
     }
     assert with_run_id == {t.name for t in RUN_TABLES}
@@ -500,10 +499,9 @@ def test_delete_run_respects_foreign_keys():
     event.listen(
         engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON")
     )
-    Base.metadata.create_all(engine)
+    ResearchBase.metadata.create_all(engine)
     t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
     with Session(engine) as db:
-        db.add(Market(instrument_id="BTC/USDT", name="BTC"))
         db.add(RunLog(run_id="r1", kind="backtest"))
         db.add(
             OrderLog(

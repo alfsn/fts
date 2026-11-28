@@ -12,12 +12,13 @@ For each PR: search:
 
 ## Modularization (Parnas review): plans in [`plans/modularization.md`](plans/modularization.md) and [`plans/UI-plan.md`](plans/UI-plan.md)
 
-Order: **W1**, **W2**, **M1**, **M2**, **W3**, **W4**, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps. Each PR ends by adding its guards (import-linter contracts or text tests), listed in the plan's "Guards per PR".
+Order: **W1**, **W2**, **M1**, **M2a**, **M2b**, **W3**, **W4**, **M3**, **M4**, **R1**, **R2**, **M8**, **M5**, **M6**, **M7**, **M9**; **A1** any time after W2. W1–W4 are the workbench steps. Each PR ends by adding its guards (import-linter contracts or text tests), listed in the plan's "Guards per PR".
 
 *   **W1: Package the analyser.** :done Move it under `src/portfolio_analyser/`, add the `portfolio-analyser` script; no behaviour change, except that the default cache DB is now anchored to the app folder rather than the working directory. [plan](plans/UI-plan.md#w1-package-the-analyser-no-behaviour-change)
 *   **W2: Use cases + date window.** :done The analyser's `review` module: one pipeline the CLI and the workbench both call; `client-review --start/--end` (KPIs rebase on the last close before the start, `quant_core.analytics.window`); the demo ledger. The cache helpers and the fts backtest curves moved to W3. [plan](plans/UI-plan.md#w2-use-cases--date-window-the-shared-pipeline)
 *   **M1: `RunStore` + one database.** :done `trading_bot.runs` is the only module that knows the run tables (`RunRecorder` writes, `RunStore` lists/loads/deletes). One research database (`BACKTEST_DATABASE_URL` and the `"test"` switch are gone). Fills are saved at bar time and are the truth: the `positions` table is gone, and each backtest checks that its fills replay to the Portfolio. Runs get a card and model segments. [plan](plans/modularization.md#m1-design-runstore--one-database)
-*   **M2: Bars via `quant_data`.** fts stops importing `BarDataLog`. Last step: one price-cache file shared by fts and the analyser (plan D18). [plan](plans/modularization.md#pr-sequence)
+*   **M2a: Bars via `quant_data`.** :done fts stops importing `BarDataLog`: every bar read goes through `MarketDataRepository` (returns `BarData`, interval required); a split inside the window raises; the gap rule comes from the vendor. [plan](plans/modularization.md#m2-design-bars-via-quant_data-m2a--m2b)
+*   **M2b: One cache file.** :done fts and the analyser share `market_cache.db` in the workspace root via `MARKET_CACHE_URL` (plan D18; `PA_DATABASE_URL` is gone); fts gets its own `ResearchBase`, so `dev.db` holds only research data, and the run tables' FKs to `markets` are gone. The shared cache starts empty and refills from the vendors. [plan](plans/modularization.md#m2-design-bars-via-quant_data-m2a--m2b)
 *   **W3: Workbench shell.** `apps/workbench`, a Streamlit shell over both apps' use cases. [plan](plans/UI-plan.md#w3-the-workbench-shell)
 *   **W4: Workbench cleanups.** [plan](plans/UI-plan.md#w4-cleanups)
 *   **M3: Deployment ID.** hash(commit, model file, config), plus a strategy-line ID. [plan](plans/modularization.md#pr-sequence)
@@ -33,6 +34,7 @@ Order: **W1**, **W2**, **M1**, **M2**, **W3**, **W4**, **M3**, **M4**, **R1**, *
 
 ## Future stuff (nice to have)
 
+*   **Split- and dividend-adjusted research.** fts trains and backtests on raw prices: a split inside the window is refused (M2a), and dividends are ignored, so backtest P&L runs low by about the yield and features carry small fake drops on ex-dates. Fix: features through `quant_core.analytics.adjust` (`SPLIT` / `TOTAL_RETURN`), split-adjusted share counts and dividend cash in the backtest Portfolio. [plan](plans/modularization.md#m2-design-bars-via-quant_data-m2a--m2b)
 *   **Multi-instrument models.** Today a model, a search and a backtest cover one `instrument_id`. A pooled model trains one network on several symbols at once. It needs per-symbol scaling (or returns-only features), a symbol identifier or embedding as an input, walk-forward folds cut on a shared calendar, and per-symbol IC reported next to the pooled IC, so that one easy symbol can't carry the score.
 
 ### Research ideas (from `docs/fts/presentation.md` §17)

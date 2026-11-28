@@ -7,14 +7,20 @@ from typing import Any, Dict, Optional, Union
 
 from nets.models import NNTrainingConfig
 from nets.training.registry import get_trainer_and_config
-from quant_data.db.repositories import MarketDataRepository
+from quant_data.db import MarketDataRepository
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.config import settings
-from trading_bot.core.database import SessionLocal, create_db_engine, init_db
+from trading_bot.core.bars import load_research_bars
+from trading_bot.core.database import (
+    CacheSessionLocal,
+    SessionLocal,
+    create_db_engine,
+    init_db,
+    init_market_cache,
+)
 from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import ModelRepository
-from trading_bot.core.schemas import BarData
 from trading_bot.core.transforms import BaseTransform
 from trading_bot.utils.model_id import generate_model_id
 
@@ -70,48 +76,29 @@ def train_and_register_candidate(
     train_params = train_params or {}
 
     init_db(extra_models=["trading_bot.core.models"])
+    init_market_cache()
 
     start_dt = parse_datetime_param(start_date)
     end_dt = parse_datetime_param(end_date)
 
     # 1. Fetch bar data & register dataset
-    with SessionLocal() as db:
-        market_repo = MarketDataRepository(db)
-        raw_bars = market_repo.get_bars(
-            instrument_id,
-            interval=interval,
-            start_date=start_dt,
-            end_date=end_dt,
+    with CacheSessionLocal() as cache_db:
+        bar_schemas = load_research_bars(
+            MarketDataRepository(cache_db), instrument_id, interval, start_dt, end_dt
+        ).bars
+    if not bar_schemas:
+        raise ValueError(
+            f"No bar data found in the price cache for market {instrument_id}"
         )
-        if not raw_bars:
-            raise ValueError(
-                f"No bar data found in database for market {instrument_id}"
-            )
 
-        bar_schemas = [
-            BarData(
-                timestamp=b.timestamp,
-                open=b.open,
-                high=b.high,
-                low=b.low,
-                close=b.close,
-                volume=b.volume,
-                bar_type=b.bar_type,
-                ticks_count=b.ticks_count,
-                dollar_volume=b.dollar_volume,
-                interval=b.interval,
-            )
-            for b in raw_bars
-        ]
-
-        sorted_raw_bars = sorted(raw_bars, key=lambda b: b.timestamp)
-        dataset_full_hash = calculate_dataset_hash(sorted_raw_bars)
+    dataset_full_hash = calculate_dataset_hash(bar_schemas)
+    with SessionLocal() as db:
         model_repo = ModelRepository(db)
         dataset_obj = model_repo.get_or_create_dataset(
             instrument_id=instrument_id,
             interval=interval,
-            start_time=sorted_raw_bars[0].timestamp,
-            end_time=sorted_raw_bars[-1].timestamp,
+            start_time=bar_schemas[0].timestamp,
+            end_time=bar_schemas[-1].timestamp,
             hash_val=dataset_full_hash,
         )
         db.commit()

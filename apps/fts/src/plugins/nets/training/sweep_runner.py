@@ -14,7 +14,7 @@ from nets.training.orchestrator import (
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.backtesting.readers import SQLBacktestDataReader
 from trading_bot.config import settings
-from trading_bot.core.database import SessionLocal, init_db
+from trading_bot.core.database import CacheSessionLocal, SessionLocal, init_db
 from trading_bot.core.loop import HistoricalReplayLoop
 from trading_bot.core.models import ModelRegistryLog, TimeSeriesDataset
 from trading_bot.core.performance import trade_win_rate
@@ -50,7 +50,7 @@ def run_model_backtest(
     start_dt = parse_datetime_param(test_start_date)
     end_dt = parse_datetime_param(test_end_date)
 
-    with SessionLocal() as db:
+    with SessionLocal() as db, CacheSessionLocal() as cache_db:
         test_dataset_sha = None
         if getattr(model_entry, "dataset_id", None):
             ds = (
@@ -154,8 +154,9 @@ def run_model_backtest(
 
         # Execute Historical Replay Loop via BacktestEngine
         data_reader = SQLBacktestDataReader(
-            session=db,
+            session=cache_db,
             instrument_id=model_entry.instrument_id,
+            interval=model_entry.interval,
             start_date=start_dt,
             end_date=end_dt,
         )

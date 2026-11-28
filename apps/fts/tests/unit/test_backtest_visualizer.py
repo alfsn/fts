@@ -4,20 +4,21 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from quant_core.enums import BarType
+from quant_data.db import BarDataLog, Market, init_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.backtesting.visualizer import BacktestVisualizer
-from trading_bot.core.database import Base
-from trading_bot.core.models import BarDataLog, Market
+from trading_bot.core.database import ResearchBase
 from trading_bot.runs.tables import BacktestEquityLog, BacktestPredictionLog, RunLog
 
 
 @pytest.fixture
 def db_url(tmp_path):
-    """One research database (D16) holding bars and one run."""
+    """One file holding one run (research tables) and its bars (cache tables)."""
     url = f"sqlite:///{tmp_path / 'research.db'}"
     test_engine = create_engine(url)
-    Base.metadata.create_all(bind=test_engine)
+    ResearchBase.metadata.create_all(bind=test_engine)
+    init_cache(test_engine)
 
     with sessionmaker(bind=test_engine)() as db:
         db.add(
@@ -40,6 +41,7 @@ def db_url(tmp_path):
         base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
         for i in range(5):
             bar = BarDataLog(
+                interval="5m",
                 source="test",
                 instrument_id="BTC/USDT",
                 timestamp=base_time + timedelta(minutes=i * 5),
@@ -82,7 +84,7 @@ def db_url(tmp_path):
 
 
 def test_backtest_visualizer_load_data_with_none_run_id(db_url):
-    viz = BacktestVisualizer(db_url=db_url)
+    viz = BacktestVisualizer(db_url=db_url, cache_db_url=db_url)
 
     # When run_id is None, load_data still loads the bars (no run to join)
     df = viz.load_data(instrument_id="BTC/USDT", strategy_name="cnn", run_id=None)
@@ -93,7 +95,7 @@ def test_backtest_visualizer_load_data_with_none_run_id(db_url):
 
 
 def test_backtest_visualizer_load_data_with_specific_run_id(db_url):
-    viz = BacktestVisualizer(db_url=db_url)
+    viz = BacktestVisualizer(db_url=db_url, cache_db_url=db_url)
 
     df = viz.load_data(instrument_id="BTC/USDT", strategy_name="cnn", run_id="run_123")
     assert not df.empty
@@ -103,7 +105,7 @@ def test_backtest_visualizer_load_data_with_specific_run_id(db_url):
 
 
 def test_backtest_visualizer_get_available_runs(db_url):
-    viz = BacktestVisualizer(db_url=db_url)
+    viz = BacktestVisualizer(db_url=db_url, cache_db_url=db_url)
 
     runs = viz.get_available_runs(instrument_id="BTC/USDT", strategy_name="None")
     assert runs == ["run_123"]
@@ -132,7 +134,7 @@ def test_the_picker_lists_a_run_under_every_market_and_strategy_it_predicted(
         db.commit()
     engine.dispose()
 
-    viz = BacktestVisualizer(db_url=db_url)
+    viz = BacktestVisualizer(db_url=db_url, cache_db_url=db_url)
     assert viz.get_available_markets_and_strategies() == {
         "BTC/USDT": ["cnn", "lstm"],
         "ETH/USDT": ["cnn"],

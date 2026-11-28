@@ -36,7 +36,7 @@ small rule violations get fixed.
 | D6 | Date range included; it **rebases** (KPIs computed on the window only) |
 | D7 | FX tab shows the computed `ccl_series`; delete the dead `fx_rates` table |
 | D8 | Gap = two consecutive bars more than N calendar days apart (default 5) |
-| D9 | DB URLs come from the existing env vars (`DATABASE_URL`, `PA_DATABASE_URL`) and can be edited in the sidebar. Runs live in the one research database (`DATABASE_URL`, `modularization.md` D16); `BACKTEST_DATABASE_URL` is gone (M1) |
+| D9 | DB URLs come from the env vars (`DATABASE_URL` for fts research, `MARKET_CACHE_URL` for the shared price cache, `modularization.md` D18; `PA_DATABASE_URL` is gone, M2b) and can be edited in the sidebar. Runs live in the one research database (`DATABASE_URL`, `modularization.md` D16); `BACKTEST_DATABASE_URL` is gone (M1) |
 | D10 | Keep fts's Promote/Archive write action |
 | D11 | Cleanups in the stack: fts renderers → `quant_ui`, delete `fx_rates`, hide mock brokers, fix `visualizer.py` `fillna(0.0)` |
 
@@ -141,8 +141,9 @@ apps/workbench/
 - **Cache use cases (moved from W2):** `MarketDataRepository.cached_series() -> list[CachedSeries]` (symbol,
   interval, source, bar count, first/last), and analyser `review.inspect_symbol(db_url, symbol) -> SymbolView`
   (raw closes, `adjust(..., SPLIT)`, `adjust(..., TOTAL_RETURN)`, the actions, gaps). It is read-only:
-  `get_bars`/`load_corporate_actions`, never a provider. Gaps maths:
-  `quant_core.analytics.calendar_gaps(index, max_days=5) -> DataFrame(start, end, days)`.
+  `load_bars`/`load_corporate_actions`, never a provider. Gaps maths:
+  `quant_core.analytics.calendar_gaps(index, max_gap) -> DataFrame(start, end, days)`, with `max_gap` from the
+  vendor's `quant_core.intervals.GapRule` (M2-D5).
 - **fts backtest curves (moved from W2, on M1's `RunStore`):** `CatalogQueryService` stays the facade. It adds
   `wealth_index(equity)`, `drawdown_series(wealth)` and the T=0 alignment for comparisons, so no page or
   figure computes.

@@ -11,11 +11,13 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from quant_data.db import MarketDataRepository
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..runs import RunRecord, RunStore
-from .models import BarDataLog, Market, ModelRegistryLog
+from .models import ModelRegistryLog
 from .performance import (
     build_benchmark_metrics,
     build_performance_metrics,
@@ -223,8 +225,15 @@ class CatalogQueryService:
     Facade service exposing high-level data catalog query APIs and database health stats.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session]):
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        cache_session_factory: sessionmaker[Session],
+    ):
+        """``session_factory`` opens the research DB (models, runs);
+        ``cache_session_factory`` the shared price cache (D18)."""
         self.session_factory = session_factory
+        self.cache_session_factory = cache_session_factory
         self.model_repo = ModelCatalogRepository(session_factory)
         self.backtest_repo = BacktestCatalogRepository(session_factory)
 
@@ -237,8 +246,13 @@ class CatalogQueryService:
             except Exception:
                 return 0
 
+        with self.cache_session_factory() as cache_session:
+            try:
+                cache = MarketDataRepository(cache_session).counts()
+            except SQLAlchemyError:  # cache tables dropped by a reset
+                cache_session.rollback()
+                cache = {"markets": 0, "bars": 0}
         with self.session_factory() as session:
-            markets = _count(session, Market)
             models = _count(session, ModelRegistryLog)
             production_models = (
                 session.scalar(
@@ -248,12 +262,11 @@ class CatalogQueryService:
                 )
                 or 0
             )
-            bar_logs = _count(session, BarDataLog)
 
         runs = self.backtest_repo.store.counts()
         return {
-            "markets": markets,
-            "bar_logs": bar_logs,
+            "markets": cache["markets"],
+            "bar_logs": cache["bars"],
             "order_logs": runs["order_logs"],
             "trade_logs": runs["trade_logs"],
             "models": models,

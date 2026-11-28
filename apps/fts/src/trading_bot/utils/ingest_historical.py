@@ -5,8 +5,15 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-from quant_data.db.repositories import MarketDataRepository
-from trading_bot.core.database import SessionLocal, init_db
+from quant_core.interfaces import CorporateActionProvider
+from quant_data.db import MarketDataRepository
+from quant_data.history import fetch_corporate_actions
+from trading_bot.core.database import (
+    CacheSessionLocal,
+    SessionLocal,
+    init_db,
+    init_market_cache,
+)
 from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import ModelRepository
 from trading_bot.data_ingestion import MarketDataProviderRegistry
@@ -19,7 +26,7 @@ logger = logging.getLogger("trading_bot.ingest_historical")
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Ingest historical market bars into SQL database."
+        description="Ingest historical market bars into the shared price cache."
     )
     parser.add_argument(
         "--provider",
@@ -110,17 +117,19 @@ def main() -> None:
         if since_dt.tzinfo is None:
             since_dt = since_dt.replace(tzinfo=timezone.utc)
 
-    # 1. Initialize Database
+    # 1. Initialize the price cache (bars) and the research DB (datasets)
     try:
+        init_market_cache()
         init_db()
-        logger.info("Database initialized.")
+        logger.info("Databases initialized.")
     except Exception as e:
         logger.critical(f"Database initialization failed: {e}")
         sys.exit(1)
 
-    db = SessionLocal()
+    db = CacheSessionLocal()
+    research_db = SessionLocal()
     repo = MarketDataRepository(db)
-    model_repo = ModelRepository(db)
+    model_repo = ModelRepository(research_db)
 
     try:
         # 2. Instantiate correct provider
@@ -163,7 +172,7 @@ def main() -> None:
             return
 
         logger.info(
-            f"Fetched {len(bars)} bars from provider. Inserting/upserting to SQL database..."
+            f"Fetched {len(bars)} bars from provider. Inserting into the price cache..."
         )
 
         # 5. Store in SQL database
@@ -173,17 +182,31 @@ def main() -> None:
             f"Successfully stored data. New records added: {inserted_count} / Total fetched: {len(bars)}"
         )
 
+        # Splits beside the raw bars, so research loads can refuse a window
+        # that contains one (M2a). Crypto vendors have none.
+        if isinstance(provider, CorporateActionProvider):
+            actions = fetch_corporate_actions(provider, [args.ticker])
+            if args.ticker in actions:
+                repo.save_corporate_actions(
+                    args.ticker, actions[args.ticker], provider.source_name
+                )
+                db.commit()
+                logger.info(
+                    f"Stored {len(actions[args.ticker])} corporate actions for {args.ticker}."
+                )
+
         # 6. Optional: Register concatenated TimeSeriesDataset in DB
         if args.register_dataset:
-            all_bars_db = repo.get_bars(args.ticker, interval=args.timeframe)
+            all_bars_db = repo.load_bars(args.ticker, args.timeframe)
             if all_bars_db:
-                # Check for large gaps (> 4 * interval)
+                # A gap is what the vendor's venue calls one (M2-D5).
+                max_gap = provider.gap_rule.max_gap(args.timeframe)
                 gaps = []
                 for i in range(1, len(all_bars_db)):
                     prev_ts = all_bars_db[i - 1].timestamp
                     curr_ts = all_bars_db[i].timestamp
-                    gap_hours = (curr_ts - prev_ts).total_seconds() / 3600.0
-                    if gap_hours > 6.0:  # Gap greater than 6 hours
+                    if curr_ts - prev_ts > max_gap:
+                        gap_hours = (curr_ts - prev_ts).total_seconds() / 3600.0
                         gaps.append((prev_ts, curr_ts, gap_hours))
 
                 if gaps:
@@ -203,7 +226,7 @@ def main() -> None:
                     end_time=all_bars_db[-1].timestamp,
                     hash_val=hash_val,
                 )
-                db.commit()
+                research_db.commit()
                 logger.info(
                     f"Registered TimeSeriesDataset ID: {dataset.dataset_id} | "
                     f"Total Bars: {len(all_bars_db)} | Period: {dataset.start_time} to {dataset.end_time}"
@@ -220,10 +243,12 @@ def main() -> None:
 
     except Exception as e:
         db.rollback()
+        research_db.rollback()
         logger.exception(f"Ingestion process failed: {e}")
         sys.exit(1)
     finally:
         db.close()
+        research_db.close()
 
 
 if __name__ == "__main__":

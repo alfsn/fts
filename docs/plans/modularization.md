@@ -66,7 +66,8 @@ For each decision: who knows it today, and who should?
 | W1 | Package the analyser | As in the UI plan. | — |
 | W2 | Use cases + date window | As in the UI plan. | The analyser pipeline |
 | **M1** | `RunStore` + one database | One fts module saves, loads and deletes a run (transactions, equity, flows, predictions; which model traded each segment). The visualizer, results, sweep visualizer and `CatalogQueryService` go through it. Removes the duplicated delete code, the raw SQL in `visualizer.py`, `BACKTEST_DATABASE_URL` and the `"test"` switch (D16). Disposable runs are reset (D15). | Which tables make up a run |
-| **M2** | Bars via `quant_data` | `SQLBacktestDataReader` and the ingest utilities read through `MarketDataRepository`. fts stops importing `BarDataLog` / `Market`. **Last step:** both apps point at one shared cache file (D18). | The price-cache schema, and where it lives |
+| **M2a** | Bars via `quant_data` | `SQLBacktestDataReader`, the nets loaders, the visualizer and ingest read through `MarketDataRepository`, which returns `BarData`. The interval is required, a split in the window raises, and the gap rule comes from the vendor. fts stops importing `BarDataLog` / `Market`. | The price-cache schema |
+| **M2b** | One cache file | Both apps point at one shared cache file through `MARKET_CACHE_URL` (D18). fts gets its own `Base`, and the FKs to `markets` go. | Where the cache lives |
 | W3 | Workbench shell | As in the UI plan; the Backtests page is built on M1. | — |
 | W4 | Cleanups | As in the UI plan. | — |
 | **M3** | Deployment ID | `deployment_id` = hash(commit, model file, config) and `strategy_line_id` = hash(strategy + config without the model), saved on runs, predictions and orders. The live runner stops making a new ID per process start. | What a version is |
@@ -133,6 +134,75 @@ Known limits:
 1. A fixture backtest lands in one DB, and `delete` empties every run table.
 2. Fills carry the bar time, and the win rate is a number on a closed round trip.
 3. Removing a fill row makes the integrity check raise.
+
+## M2 design: bars via `quant_data` (M2a + M2b)
+
+> Written 2026-11-28 against `e738aca` (M1). Two stacked PRs: M2a hides the cache schema and changes no data or files; M2b gives both apps one cache file.
+
+**In plain words.** Only `quant_data` knows the cache tables. fts asks it for "the 1h bars of BTC/USDT from A to B" and gets `BarData` back. The interval is always required, so one symbol's 1h and 1d bars never mix. fts uses raw prices, so a split inside the window stops the load with a clear error. Afterwards both apps share one `market_cache.db`, and `dev.db` keeps only research data (models, runs, Optuna).
+
+**What we found**
+- Five hand-written row → `BarData` mappings: `readers.py` (×2), `orchestrator.py`, `hparam_search.py` and `TieredDataProvider._cached_bars`.
+- `SQLBacktestDataReader` and `visualizer._bars` don't filter on interval.
+- `MarketDataRepository.get_bars` returns ORM rows, treats `interval=None` as "all intervals", and compares aware datetimes with SQLite's naive UTC as given.
+- fts never adjusts for splits or dividends. `dev.db` holds raw AAPL 1d bars and no corporate actions, because ingest never fetches them.
+- `calculate_dataset_hash` hashes `timestamp.isoformat()`: naive and aware give different hashes.
+- `order_logs`, `trade_logs` and `prediction_logs` have `ForeignKey("markets.instrument_id")`. The relationships are unused, and SQLite never enforced the FKs (`foreign_keys` is never set).
+- fts and the cache share one `Base`, so `init_db` creates the cache tables in `dev.db`.
+- `TieredDataProvider` has one gap rule for every vendor and interval (`MAX_CALENDAR_GAP = 5 days`), so it misses multi-day holes in 1h crypto data.
+
+**Decisions**
+
+| # | Decision |
+|---|---|
+| M2-D1 | Two stacked PRs: M2a (one door to the bars) and M2b (one cache file, D18). |
+| M2-D2 | Bars stay raw, and a split inside the loaded window (warm-up included) raises `UnadjustedSplitError`. Adjusted research data is a backlog item. |
+| M2-D3 | `MARKET_CACHE_URL`. The one default lives in `quant_data.db.cache.cache_url`: `market_cache.db` in the workspace root (the folder holding `uv.lock`). `PA_DATABASE_URL` goes. |
+| M2-D4 | The shared cache starts empty. The old cache tables and `markets` are dropped from `dev.db` (after the user's go-ahead), and `portfolio_analyser.db` is deleted. |
+| M2-D5 | The gap rule comes from the data vendor: `GapRule.max_gap(interval)`. `BarGap(5)` (5 × interval) for 24/7 venues (ccxt); `SessionGap(5, 5 days)` (max of 5 × interval and 5 days) for exchange-hours vendors (yfinance, the default). An exchange calendar can replace it later. |
+| M2-D6 | Dividends: no guard and no warning. It's a known limit, fixed by the backlog item. |
+
+**M2a modules**
+
+| Where | Job |
+|---|---|
+| `quant_data.db.repositories.MarketDataRepository` | `load_bars(instrument_id, interval, start, end, bar_type)` and `load_bars_before(…, before, count)` return `BarData`, which is the only row mapping. Bounds go through `_naive_utc`, timestamps come back UTC-aware, and both bounds are inclusive. Also `intervals`, `instruments`, `market_name` and `counts`. `get_bars` becomes private. |
+| `quant_core.intervals` | `interval_to_timedelta` (fts's `timeframe_to_seconds` now delegates to it), the `GapRule` ABC, `BarGap` and `SessionGap`. `BaseMarketDataProvider.gap_rule` defaults to `SessionGap()`, and `CCXTMarketDataProvider` sets `BarGap()`. `TieredDataProvider` and ingest's gap warning ask the rule of the series' vendor. |
+| `trading_bot/core/bars.py` | `load_research_bars(repo, instrument_id, interval, start, end, warmup)` is fts's raw-bar policy: it loads the bars, then runs `quant_core.analytics.split_factor` over them, and a factor that isn't constant raises. |
+| Callers | The reader (`interval` required, YAML included), the sweep runner (`model_entry.interval`), the nets orchestrator and hparam search, the visualizer (interval picker), the catalog counts and ingest (which also caches corporate actions when the vendor has them). `calculate_dataset_hash` hashes naive UTC, so existing `dataset_id`s don't change. |
+
+**M2b modules**
+
+| Where | Job |
+|---|---|
+| `quant_data.db.cache` | `cache_url(override=None)` returns the override, else `$MARKET_CACHE_URL`, else the one default, `sqlite:///<workspace root>/market_cache.db` (the workspace root is the first parent folder holding `uv.lock`). `init_cache(engine)` creates the cache tables only (`markets`, `bar_data_logs`, `corporate_actions`, `fx_rates`). Both are exported from `quant_data.db`. |
+| `trading_bot.config.Settings` | No `MARKET_CACHE_URL` field (changed in the PR 59 review). pydantic reads `.env.{APP_ENV}` into `settings`, not into `os.environ`, so a cache URL there would reach fts but not the analyser or `quant_data.db.reset`. `cache_url()` reads only the real environment, and `Settings` refuses a `MARKET_CACHE_URL` in its `.env` file. `cache_url` also resolves a relative SQLite path against the workspace root. |
+| `trading_bot.core.database` | fts gets its own registry, `class ResearchBase(DeclarativeBase)`; `runs/tables.py` and `core/models.py` inherit from it, so `init_db` no longer creates cache tables in `dev.db`. `cache_engine` / `CacheSessionLocal` are built from `cache_url()`, and `init_market_cache()` runs `init_cache` on it wherever bars are read or written. |
+| `runs/tables.py` | The three `ForeignKey("markets.instrument_id")` on `order_logs`, `trade_logs` and `prediction_logs` go: a FK can't point into another file, nothing uses them (the relationships went in M2a), and SQLite never enforced them (`PRAGMA foreign_keys` is never set). `instrument_id` stays an indexed string. `model_registry → time_series_datasets` stays: both are research tables. |
+| fts callers | Every bar or market read and write uses the cache session; the registry, datasets and runs use the research session (`SessionLocal`). The reader's `session=None` fallback is `CacheSessionLocal()`, and the sweep runner and notebooks 02 and 03 use a cache session. Ingest writes bars and actions to the cache and the dataset to research. The nets orchestrator and hparam search load bars in a cache-session block and register the dataset in a research-session block; Optuna stays on `DATABASE_URL`. The visualizer (and `HTMLBacktestExporter`) take `cache_db_url` beside `db_url` and keep a second sessionmaker for the cache (bars, intervals, instruments); `RunStore` stays on research. `CatalogQueryService` gets a cache session factory injected for `counts()` instead of opening URLs itself. The dashboard wires the cache URL the same way as `DATABASE_URL` (`dashboard.cli --cache`, passed to the Streamlit process as `MARKET_CACHE_URL`). The fts test suite's `tests/conftest.py` points the cache at a temp file per module (via `MARKET_CACHE_URL` in `os.environ`), so tests never write into the real cache. |
+| Analyser | `APP_DIR`'s `DEFAULT_DB_URL` and `PA_DATABASE_URL` go. `--db-url` takes `envvar="MARKET_CACHE_URL", default=None`; `review.prepare_history` resolves it with `cache_url` and calls `init_cache` instead of `Base.metadata.create_all`. |
+| `quant_data.db.reset` | `markets` joins `CACHE_TABLES` (safe now that nothing outside the cache points at it), and `--db-url` defaults to `cache_url()`. `trading_bot.runs.reset` is unchanged. |
+| Guards | A text test scanning `trading_bot`, `plugins` and the analyser's `src`: no `market_cache.db`, `portfolio_analyser.db` or `PA_DATABASE_URL` in app sources, and no `MARKET_CACHE_URL` default outside `quant_data/db/cache.py` (that half also scans `packages/*/src`). A `quant_data` test that `cache_url` honours the override, then the env var, then the workspace-root default. |
+| Data (M2-D4) | The shared cache starts empty and refills from the vendors. After the user's go-ahead, a one-off step drops the cache tables and `markets` from `dev.db`, and `apps/portfolio_analyser/portfolio_analyser.db` (cache only) is deleted. The two old files are never merged. |
+
+**Quant pitfalls.**
+Handled:
+1. Mixed intervals (interval required).
+2. Unadjusted splits (raise).
+3. Naive/aware bound bugs.
+4. The dataset hash stays stable.
+5. Warm-up is strictly before the start.
+6. One vendor per series (writes still go through `save_bars`/`replace_bars`).
+7. No fill or interpolation in the door.
+8. Intraday holes are caught (gap rule per vendor).
+9. Two apps' vendors are never merged (the cache starts empty).
+
+Known limits:
+1. "No actions cached" isn't "no splits" (bars cached before M2a, or a failed vendor call).
+2. Dividends: raw prices drop on the ex-date and the backtest never credits the cash, so P&L is low by about the yield.
+3. Ingest may cache a still-forming last bar.
+4. Nothing checks that a YAML backtest's interval matches the model's.
+5. The reader hardcodes `TradFiDetails(STOCK, US)`.
 
 ## Search config (R2, sketch)
 
@@ -239,8 +309,8 @@ can't quietly undo it. A guard arrives **in the PR that makes it true**; adding 
 | W1 | The apps never import each other: `portfolio_analyser` ↛ `trading_bot`/`nets`/`argentina`, and the reverse. The analyser's old top-level names (`main`, `data_layer`, `visualization`) leave the first contract's list | contract |
 | W2 | The analyser CLI reaches the pipeline only through `review`: `portfolio_analyser.main` never imports `portfolio_analyser.data_layer` (the workbench side is checked in W3) | contract |
 | M1 | Only `trading_bot.runs` imports `trading_bot.runs.tables` (`RunLog`, `RunSegmentLog`, `OrderLog`, `TradeLog`, `PredictionLog`, `BacktestEquityLog`). Text test: no `BACKTEST_DATABASE_URL`, no `"test" in` URL checks, no `PositionRepository` in `trading_bot/` | contract + test |
-| M2 | fts (`trading_bot`, `nets`) never imports `quant_data.db.models` (bars and markets go through the repository); `Base` is re-exported from `quant_data.db` for `trading_bot.core.database`, with `allow_indirect_imports = true` | contract |
-| M2 (cache) | Text test: no hardcoded cache file path; both apps read the one cache env var | test |
+| M2a | fts (`trading_bot`, `nets`) never imports `quant_data.db.models` (bars and markets go through the repository); `Base` is re-exported from `quant_data.db` for `trading_bot.core.database`, with `allow_indirect_imports = true` | contract |
+| M2b | Text test: no hardcoded cache file path; both apps read the one cache env var (`quant_data.db.cache.cache_url`) | test |
 | W3 | `streamlit` is imported only by `workbench` (forbidden for every package and app, `quant_ui` included); `workbench` never imports `quant_data` or `quant_core.analytics` (pages draw, never calculate), and imports the apps only through their use-case modules (`portfolio_analyser.review`, the fts catalog service) | contracts |
 | M3 | Text test: only the deployment-ID module computes the ID hash (no other `hashlib` use on commit/model/config) | test |
 | M4 | Text test: no `execution_delay_bars`, `slippage_bps` or `execution_price_source` in `trading_bot/` or `plugins/`; a spec test that every execution YAML loads with `extra="forbid"` | test |

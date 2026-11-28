@@ -101,21 +101,22 @@ class Review:
 
 def prepare_history(
     portfolio: Portfolio,
-    db_url: str,
+    db_url: str | None,
     extra_symbols: Sequence[str] = (),
     sources=None,
 ) -> tuple[pd.DataFrame, Actions]:
     """Cache-backed raw daily closes and corporate actions for everything the
     snapshot and ledger need valuing, plus `extra_symbols` (benchmark,
     risk-free). `sources` are the providers behind the cache (default: Yahoo).
-    Prices stay raw; `adjust` on read (PR 2a)."""
-    from quant_data.db import Base, create_db_session
+    Prices stay raw; `adjust` on read (PR 2a). `db_url` None means the shared
+    cache (`quant_data.db.cache_url`, D18)."""
+    from quant_data.db import cache_url, create_db_session, init_cache
     from quant_data.history import fetch_corporate_actions, fetch_daily_closes
     from quant_data.providers import TieredDataProvider, YFinanceMarketDataProvider
 
     symbols = history_symbols(portfolio) | set(extra_symbols)
-    with create_db_session(db_url) as session:
-        Base.metadata.create_all(session.get_bind())
+    with create_db_session(cache_url(db_url)) as session:
+        init_cache(session.get_bind())
         provider = TieredDataProvider(
             session, list(sources or [YFinanceMarketDataProvider()])
         )
@@ -161,14 +162,16 @@ def build_snapshot(
     )
 
 
-def prepare_snapshot(portfolio: Portfolio, db_url: str, sources=None) -> Snapshot:
+def prepare_snapshot(
+    portfolio: Portfolio, db_url: str | None, sources=None
+) -> Snapshot:
     closes, actions = prepare_history(portfolio, db_url, sources=sources)
     return build_snapshot(portfolio, closes, actions)
 
 
 def prepare_review(
     portfolio: Portfolio,
-    db_url: str,
+    db_url: str | None,
     *,
     benchmark_symbol: Optional[str] = None,
     risk_free_rate: Optional[float] = None,

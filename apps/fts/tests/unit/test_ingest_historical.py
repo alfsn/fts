@@ -11,11 +11,18 @@ from trading_bot.utils.ingest_historical import main
 
 
 @patch("trading_bot.utils.ingest_historical.argparse.ArgumentParser.parse_args")
-@patch("trading_bot.utils.ingest_historical.init_db")
+@patch("trading_bot.utils.ingest_historical.init_market_cache")
 @patch("trading_bot.utils.ingest_historical.SessionLocal")
+@patch("trading_bot.utils.ingest_historical.init_db")
+@patch("trading_bot.utils.ingest_historical.CacheSessionLocal")
 @patch("trading_bot.utils.ingest_historical.MarketDataRepository")
 def test_ingest_historical_yfinance(
-    mock_repo_cls, mock_session_local, mock_init_db, mock_parse_args
+    mock_repo_cls,
+    mock_session_local,
+    mock_init_db,
+    _research,
+    _init_cache,
+    mock_parse_args,
 ):
     # 1. Setup argparse mock
     mock_args = MagicMock()
@@ -80,11 +87,18 @@ def test_ingest_historical_yfinance(
 
 
 @patch("trading_bot.utils.ingest_historical.argparse.ArgumentParser.parse_args")
-@patch("trading_bot.utils.ingest_historical.init_db")
+@patch("trading_bot.utils.ingest_historical.init_market_cache")
 @patch("trading_bot.utils.ingest_historical.SessionLocal")
+@patch("trading_bot.utils.ingest_historical.init_db")
+@patch("trading_bot.utils.ingest_historical.CacheSessionLocal")
 @patch("trading_bot.utils.ingest_historical.MarketDataRepository")
 def test_ingest_historical_ccxt(
-    mock_repo_cls, mock_session_local, mock_init_db, mock_parse_args
+    mock_repo_cls,
+    mock_session_local,
+    mock_init_db,
+    _research,
+    _init_cache,
+    mock_parse_args,
 ):
     # 1. Setup argparse mock
     mock_args = MagicMock()

@@ -5,17 +5,19 @@ from datetime import datetime
 import pytest
 from quant_core.enums import OrderSide, OrderStatus, PositionStatus
 from quant_core.models import Position as PositionSchema
+from quant_data.db import Market as MarketModel
+from quant_data.db import init_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from trading_bot.core.database import Base
-from trading_bot.core.models import Market as MarketModel
+from trading_bot.core.database import ResearchBase
 
 
 @pytest.fixture
 def in_memory_db():
     """Sets up an in-memory SQLite database and creates the schema."""
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
+    ResearchBase.metadata.create_all(bind=engine)
+    init_cache(engine)
     SessionClass = sessionmaker(bind=engine)
     session = SessionClass()
 
@@ -73,6 +75,7 @@ def test_market_data_repository(in_memory_db):
             close=100.5,
             volume=500.0,
             bar_type=BarType.TIME,
+            interval="1m",
             ticks_count=1,
             dollar_volume=50250.0,
         ),
@@ -84,6 +87,7 @@ def test_market_data_repository(in_memory_db):
             close=101.5,
             volume=600.0,
             bar_type=BarType.TIME,
+            interval="1m",
             ticks_count=1,
             dollar_volume=60900.0,
         ),
@@ -94,7 +98,7 @@ def test_market_data_repository(in_memory_db):
     assert saved_count == 2
 
     # Verify records in DB
-    from trading_bot.core.models import BarDataLog as BarDataLogModel
+    from quant_data.db import BarDataLog as BarDataLogModel
 
     db_bars = in_memory_db.query(BarDataLogModel).filter_by(instrument_id="MSFT").all()
     assert len(db_bars) == 2
@@ -103,12 +107,12 @@ def test_market_data_repository(in_memory_db):
     saved_count2 = repo.save_bars("MSFT", bars, source="test")
     assert saved_count2 == 0
 
-    # 3. Test get_bars with filters
-    loaded_bars = repo.get_bars("MSFT", bar_type=BarType.TIME)
+    # 3. Test load_bars with filters
+    loaded_bars = repo.load_bars("MSFT", "1m", bar_type=BarType.TIME)
     assert len(loaded_bars) == 2
 
     # Test filtering by a non-existent bar type
-    loaded_dollar_bars = repo.get_bars("MSFT", bar_type=BarType.DOLLAR)
+    loaded_dollar_bars = repo.load_bars("MSFT", "1m", bar_type=BarType.DOLLAR)
     assert len(loaded_dollar_bars) == 0
 
     # Save bars with an explicit interval
@@ -128,7 +132,7 @@ def test_market_data_repository(in_memory_db):
     ]
     repo.save_bars("MSFT", bars_with_interval, source="test")
 
-    # get_bars filtering by interval
-    hourly_bars = repo.get_bars("MSFT", bar_type=BarType.TIME, interval="1h")
+    # load_bars filtering by interval
+    hourly_bars = repo.load_bars("MSFT", "1h")
     assert len(hourly_bars) == 1
     assert hourly_bars[0].interval == "1h"

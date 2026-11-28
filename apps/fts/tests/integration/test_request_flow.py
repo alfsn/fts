@@ -14,7 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 # Import your project's components
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.core.schemas import (
     ExecutionResult,
     Instrument,
@@ -39,7 +39,7 @@ def db_session() -> Session:
     Creates a new in-memory SQLite database session for the test module.
     """
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)  # Create tables from your models
+    ResearchBase.metadata.create_all(engine)  # Create tables from your models
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     db = SessionLocal()
@@ -47,7 +47,7 @@ def db_session() -> Session:
         yield db
     finally:
         db.close()
-        Base.metadata.drop_all(engine)
+        ResearchBase.metadata.drop_all(engine)
 
 
 @pytest.fixture

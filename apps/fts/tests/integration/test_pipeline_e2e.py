@@ -14,7 +14,7 @@ from quant_core.enums import (
 from quant_core.models import Instrument, MarketDataRequest, TradFiDetails
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.schemas import (
     BarData,
@@ -104,14 +104,14 @@ def db_session() -> Session:
     during pipeline integration ticks.
     """
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)
+    ResearchBase.metadata.create_all(engine)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-        Base.metadata.drop_all(engine)
+        ResearchBase.metadata.drop_all(engine)
 
 
 def test_pipeline_e2e_flow_buy_and_sell_with_db(db_session: Session):

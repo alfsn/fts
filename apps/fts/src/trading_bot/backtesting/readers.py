@@ -4,10 +4,10 @@ from typing import Iterator, Optional
 
 from quant_core.enums import AssetType, BarType, Geography
 from quant_core.models import TradFiDetails
+from quant_data.db import MarketDataRepository
 from sqlalchemy.orm import Session
 
-from ..core.models import BarDataLog as BarDataLogModel
-from ..core.models import Market as MarketModel
+from ..core.bars import load_research_bars
 from ..core.schemas import BarData, IngestionEngineOutput, Instrument, MarketData
 from .abc import BaseBacktestDataReader
 
@@ -103,13 +103,15 @@ class CSVBacktestDataReader(BaseBacktestDataReader):
 
 class SQLBacktestDataReader(BaseBacktestDataReader):
     """
-    Concrete implementation of BaseBacktestDataReader that reads and streams
-    historical market data from a SQLite database via SQLAlchemy.
+    Streams one cached bar series (instrument + interval) from the price
+    cache. The cache is read only through ``quant_data``'s repository (M2a);
+    bars are raw and a split inside the window raises (``core.bars``).
     """
 
     def __init__(
         self,
         instrument_id: str,
+        interval: str,
         session: Optional[Session] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
@@ -117,22 +119,22 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
         lookback_limit: int = 1000,
     ) -> None:
         """
-        Initializes the SQL data reader.
-
-        :param session: The SQLAlchemy Session to query the database.
         :param instrument_id: The specific market identifier for the stream.
+        :param interval: The bar interval (e.g. '1h', '1d'); required, so a
+            symbol cached at two intervals never mixes them.
+        :param session: Session on the price cache.
         :param start_date: Optional start datetime (inclusive).
         :param end_date: Optional end datetime (inclusive).
         :param warmup_bars: Number of prior historical bars to query for strategy warm-up.
         :param lookback_limit: Maximum number of recent bars to retain in lookback window.
         """
         if session is None:
-            from trading_bot.core.database import SessionLocal
+            from trading_bot.core.database import CacheSessionLocal
 
-            self.session = SessionLocal()
-        else:
-            self.session = session
+            session = CacheSessionLocal()
+        self.repo = MarketDataRepository(session)
         self.instrument_id = instrument_id
+        self.interval = interval
         self.start_date = start_date
         self.end_date = end_date
         self.warmup_bars = warmup_bars
@@ -140,108 +142,31 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
 
     def read_data(self) -> Iterator[IngestionEngineOutput]:
         """
-        Queries historical bars from the database, parses them into Pydantic models,
-        and yields sequential IngestionEngineOutput packets in chronological order.
+        Yields one IngestionEngineOutput per bar, oldest first, each with the
+        rolling window of the last ``lookback_limit`` bars (warm-up included).
         """
-        from datetime import timezone
-
-        # Resolve market details from DB if available
-        market = (
-            self.session.query(MarketModel)
-            .filter(MarketModel.instrument_id == self.instrument_id)
-            .first()
+        name = self.repo.market_name(self.instrument_id)
+        details = Instrument(
+            instrument_id=self.instrument_id,
+            name=name or f"{self.instrument_id} Historical Replay",
+            details=TradFiDetails(
+                asset_type=AssetType.STOCK,
+                geography=Geography.US,
+                industry="Tech",
+                currency="USD",
+            ),
         )
-        if market:
-            # Handle naive datetime
-            end_date = market.end_date
-            if end_date and end_date.tzinfo is None:
-                end_date = end_date.replace(tzinfo=timezone.utc)
-
-            details = Instrument(
-                instrument_id=self.instrument_id,
-                name=market.name,
-                details=TradFiDetails(
-                    asset_type=AssetType.STOCK,
-                    geography=Geography.US,
-                    industry="Tech",
-                    currency="USD",
-                ),
-            )
-        else:
-            details = Instrument(
-                instrument_id=self.instrument_id,
-                name=f"{self.instrument_id} Historical Replay",
-                details=TradFiDetails(
-                    asset_type=AssetType.STOCK,
-                    geography=Geography.US,
-                    industry="Tech",
-                    currency="USD",
-                ),
-            )
-
-        # 1. Warm-up lookback pre-population
-        recent_bars = []
-        if self.warmup_bars > 0 and self.start_date:
-            prior_bar_logs = (
-                self.session.query(BarDataLogModel)
-                .filter(
-                    BarDataLogModel.instrument_id == self.instrument_id,
-                    BarDataLogModel.timestamp < self.start_date,
-                )
-                .order_by(BarDataLogModel.timestamp.desc())
-                .limit(self.warmup_bars)
-                .all()
-            )
-            prior_bar_logs.reverse()
-
-            for db_bar in prior_bar_logs:
-                timestamp = db_bar.timestamp
-                if timestamp.tzinfo is None:
-                    timestamp = timestamp.replace(tzinfo=timezone.utc)
-
-                recent_bars.append(
-                    BarData(
-                        timestamp=timestamp,
-                        open=db_bar.open,
-                        high=db_bar.high,
-                        low=db_bar.low,
-                        close=db_bar.close,
-                        volume=db_bar.volume,
-                        bar_type=db_bar.bar_type,
-                        ticks_count=db_bar.ticks_count,
-                        dollar_volume=db_bar.dollar_volume,
-                    )
-                )
-
-        query = self.session.query(BarDataLogModel).filter(
-            BarDataLogModel.instrument_id == self.instrument_id
+        loaded = load_research_bars(
+            self.repo,
+            self.instrument_id,
+            self.interval,
+            self.start_date,
+            self.end_date,
+            warmup=self.warmup_bars,
         )
 
-        if self.start_date:
-            query = query.filter(BarDataLogModel.timestamp >= self.start_date)
-        if self.end_date:
-            query = query.filter(BarDataLogModel.timestamp <= self.end_date)
-
-        # Ensure chronological order
-        bars = query.order_by(BarDataLogModel.timestamp.asc()).all()
-
-        for db_bar in bars:
-            timestamp = db_bar.timestamp
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
-
-            bar = BarData(
-                timestamp=timestamp,
-                open=db_bar.open,
-                high=db_bar.high,
-                low=db_bar.low,
-                close=db_bar.close,
-                volume=db_bar.volume,
-                bar_type=db_bar.bar_type,
-                ticks_count=db_bar.ticks_count,
-                dollar_volume=db_bar.dollar_volume,
-            )
-
+        recent_bars = list(loaded.warmup)
+        for bar in loaded.bars:
             recent_bars.append(bar)
             if len(recent_bars) > self.lookback_limit:
                 recent_bars.pop(0)
@@ -255,7 +180,7 @@ class SQLBacktestDataReader(BaseBacktestDataReader):
             )
 
             yield IngestionEngineOutput(
-                timestamp=timestamp,
+                timestamp=bar.timestamp,
                 market_data=[market_data],
                 external_data=[],
                 bars={self.instrument_id: list(recent_bars)},

@@ -99,6 +99,14 @@ forbidden_modules = ["trading_bot.runs.tables"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
+name = "fts reads the price cache only through quant_data's repository (M2a)"
+type = "forbidden"
+source_modules = ["trading_bot", "nets", "argentina"]
+forbidden_modules = ["quant_data.db.models"]
+# quant_data.db's __init__ imports its models; fts uses the repository, cache_url and init_cache.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
 name = "quant_core imports no other workspace package"
 type = "forbidden"
 source_modules = ["quant_core"]

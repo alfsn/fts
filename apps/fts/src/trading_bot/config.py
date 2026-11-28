@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -85,10 +86,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # --- Database Configuration ---
-    # TheDATABASE_URL is used by SQLAlchemy in core/database.py.
+    # DATABASE_URL is fts's research database (models, datasets, runs, Optuna).
     # Example for dev (SQLite): "sqlite+pysqlite:///./dev.db"
     # Example for prod (PostgreSQL): "postgresql+psycopg2://user:pass@db:5432/trading"
     DATABASE_URL: str = "sqlite+pysqlite:///./dev.db"
+    # The shared price cache (bars, corporate actions, FX; D18) is not an fts
+    # setting: quant_data.db.cache.cache_url reads $MARKET_CACHE_URL from the
+    # environment, so both apps and the reset tool always agree.
 
     # --- Path Configuration ---
     # Central repository paths, resolved relative to project root
@@ -103,6 +107,19 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",  # Ignore extra fields not defined in the model
     )
+
+    @model_validator(mode="after")
+    def _no_cache_url_in_env_file(self) -> "Settings":
+        """The analyser never reads fts's .env file, so a cache URL there
+        would split the one shared cache in two (D18)."""
+        env_file = self.model_config.get("env_file")
+        if env_file and os.path.exists(env_file):
+            if "MARKET_CACHE_URL" in dotenv_values(env_file):
+                raise ValueError(
+                    f"MARKET_CACHE_URL is set in {env_file}, where only fts sees "
+                    "it. Export it in the shell instead, so both apps share it."
+                )
+        return self
 
     @model_validator(mode="after")
     def _resolve_database_url(self) -> "Settings":

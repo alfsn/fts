@@ -5,7 +5,7 @@ import pytest
 from quant_core.enums import SignalType
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from trading_bot.core.database import Base
+from trading_bot.core.database import ResearchBase
 from trading_bot.core.schemas import TradeSignal
 from trading_bot.monitoring.prediction_logger import DatabasePredictionLogger
 from trading_bot.runs import SqlRunRecorder
@@ -16,7 +16,7 @@ from trading_bot.runs.tables import BacktestPredictionLog, ModelPredictionLog
 def db_session():
     # Setup in-memory SQLite DB
     test_engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=test_engine)
+    ResearchBase.metadata.create_all(bind=test_engine)
 
     SessionLocal = sessionmaker(bind=test_engine)
     db = SessionLocal()

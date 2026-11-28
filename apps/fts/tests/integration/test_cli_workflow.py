@@ -10,9 +10,14 @@ import pytest
 import yaml
 from quant_core.enums import BarType
 from quant_core.models import BarData
-from quant_data.db.models import BarDataLog
+from quant_data.db import BarDataLog
 from trading_bot.config import settings
-from trading_bot.core.database import SessionLocal, create_engine, init_db
+from trading_bot.core.database import (
+    CacheSessionLocal,
+    SessionLocal,
+    create_engine,
+    init_db,
+)
 from trading_bot.core.models import ModelRegistryLog
 
 
@@ -106,7 +111,7 @@ def test_full_cli_workflow(isolated_cli_env):
 
         runpy.run_module("trading_bot.utils.ingest_historical", run_name="__main__")
 
-    db = SessionLocal()
+    db = CacheSessionLocal()
     bars_count = db.query(BarDataLog).filter_by(instrument_id="BTC/USDT").count()
     assert bars_count > 0, "Database should contain ingested bars"
     db.close()
@@ -214,6 +219,7 @@ def test_full_cli_workflow(isolated_cli_env):
                     "class_path": "trading_bot.backtesting.readers.SQLBacktestDataReader",
                     "params": {
                         "instrument_id": "BTC/USDT",
+                        "interval": "30m",
                         "warmup_bars": 10,
                         "lookback_limit": 100,
                     },

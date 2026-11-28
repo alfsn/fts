@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 from quant_core.models import MarketDataRequest
 from trading_bot.config import PluginLoader, TaskConfig, settings
-from trading_bot.core.database import SessionLocal, init_db
+from trading_bot.core.database import SessionLocal, init_db, init_market_cache
 from trading_bot.core.loop import (
     BaseEventLoop,
     HistoricalReplayLoop,
@@ -71,7 +71,8 @@ def main() -> None:
     # 2. Initialize Database & Register Plugin Models
     try:
         init_db(extra_models=task_config.extra_models)
-        logger.info("Database initialized successfully.")
+        init_market_cache()
+        logger.info("Databases initialized successfully.")
     except Exception as e:
         logger.critical(f"Database initialization failed: {e}", exc_info=True)
         sys.exit(1)

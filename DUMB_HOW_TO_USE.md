@@ -27,7 +27,7 @@ cd /home/alfred/github/fts/apps/fts
 
 ## Step 2: Get the Market Data 📊
 
-The bot needs to know what happened in the past so it can guess the future. Run this to download historical bars into `apps/fts/dev.db`:
+The bot needs to know what happened in the past so it can guess the future. Run this to download historical bars into the shared price cache, `market_cache.db` at the repo root (the analyser uses the same file; `apps/fts/dev.db` only gets the dataset entry):
 
 ```bash
 uv run python -m trading_bot.utils.ingest_historical -p yfinance -t AAPL -f 1d -d 1y
@@ -39,6 +39,8 @@ uv run python -m trading_bot.utils.ingest_historical -p yfinance -t AAPL -f 1d -
 - `-f` / `--timeframe`: Interval of bars (e.g., `1m`, `5m`, `1d`).
 - `-d` / `--period`: Time period to download for `yfinance` (e.g., `5d`, `1mo`, `1y`).
 - `-s` / `--since` & `-u` / `--until`: ISO dates to define exact download ranges.
+
+Prices are saved raw (as traded). For `yfinance` the splits and dividends are saved too. A training run or backtest whose window contains a split stops with an error, because a raw 4:1 split would look like a −75% day. Pick a window after the split.
 
 ---
 
@@ -74,6 +76,8 @@ uv run python -m trading_bot --config nets_task.yaml
 ### 🎛️ Extra CLI Parameters:
 - `--config`: Specify a different YAML task configuration file (default is `nets_task.yaml`).
 
+The backtest's `data_reader` needs an `interval` (e.g. `"30m"`), the same one the model was trained on. A symbol cached at two intervals is two separate series.
+
 > [!NOTE]
 > Want to see how you did? Check `apps/fts/runs/reports/` — backtests export standalone interactive `.html` reports you can open directly in your browser.
 
@@ -81,7 +85,7 @@ uv run python -m trading_bot --config nets_task.yaml
 
 ## Step 6: Click Around in the Dashboard 🖥️
 
-Want a UI to inspect your SQLite database, filter models by hyperparameters, promote a model with a button click, or compare backtest equity curves side-by-side?
+Want a UI to inspect your SQLite databases (`dev.db` and the price cache), filter models by hyperparameters, promote a model with a button click, or compare backtest equity curves side-by-side?
 
 ```bash
 uv run python -m trading_bot.dashboard.cli --db dev.db --port 8501
