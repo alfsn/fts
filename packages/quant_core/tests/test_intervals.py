@@ -39,6 +39,22 @@ def test_find_gaps_keeps_only_holes_longer_than_the_limit():
     assert find_gaps(days[:1], timedelta(days=5)).empty
 
 
+def test_find_gaps_accepts_mixed_utc_offsets():
+    # A Postgres cache in a non-UTC session zone returns +01:00 and +02:00
+    # across a DST change; pandas refuses those without utc=True.
+    from datetime import datetime, timedelta, timezone
+
+    from quant_core.intervals import find_gaps
+
+    days = [
+        datetime(2026, 10, 24, 12, tzinfo=timezone(timedelta(hours=2))),
+        datetime(2026, 10, 26, 12, tzinfo=timezone(timedelta(hours=1))),
+    ]
+    assert find_gaps(days, timedelta(days=1)).iloc[0]["length"] == timedelta(
+        days=2, hours=1
+    )
+
+
 def test_the_gap_comparison_has_one_home():
     """Only find_gaps compares a hole with max_gap (W3b); the cache refetch,
     ingest and the workbench call it."""

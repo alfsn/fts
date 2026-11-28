@@ -24,7 +24,8 @@ class BaseMarketDataProvider(ABC):
     # (mocks, local files) or throttles itself (ccxt).
     rate_limit: Optional[RateLimit] = None
     # When a hole in this vendor's cached bars is a gap (M2-D5). Exchange
-    # hours by default; a 24/7 venue sets ``BarGap()``.
+    # hours by default; each vendor in quant_data takes its rule from
+    # ``quant_data.reference.gaps.GAP_RULES`` (a test checks it).
     gap_rule: GapRule = SessionGap()
 
     @classmethod

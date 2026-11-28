@@ -7,7 +7,7 @@ from quant_core.enums import BarType, CorporateActionType
 from quant_core.models import BarData, CorporateAction
 from quant_data import inspect
 from quant_data.db import MarketDataRepository, create_db_session, init_cache
-from quant_data.providers import CCXTMarketDataProvider, YFinanceMarketDataProvider
+from quant_data.providers import TieredDataProvider
 from quant_data.reference.gaps import GAP_RULES
 
 DAY0 = datetime(2026, 7, 27, 20, tzinfo=timezone.utc)
@@ -90,6 +90,46 @@ def test_pairs_that_disagree_give_no_ccl(url):
     assert view.ccl.isna().all() and view.rejected_days == 1
 
 
-def test_the_gap_table_matches_each_vendor_class():
-    for provider in (YFinanceMarketDataProvider, CCXTMarketDataProvider):
-        assert type(GAP_RULES[provider.__name__]) is type(provider.gap_rule)
+def test_every_vendor_takes_its_gap_rule_from_the_table():
+    # The inspector reads GAP_RULES by source name. Import every provider
+    # module so a new file is seen; `is` fails a rule written inline. The
+    # wrapper saves bars under its inner vendor's name, so it needs no entry.
+    import importlib
+    import pkgutil
+
+    import quant_data.providers as pkg
+    from quant_core.interfaces import BaseMarketDataProvider
+
+    for module in pkgutil.iter_modules(pkg.__path__):
+        importlib.import_module(f"{pkg.__name__}.{module.name}")
+
+    def subclasses(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from subclasses(sub)
+
+    vendors = {
+        cls
+        for cls in subclasses(BaseMarketDataProvider)
+        if cls.__module__.startswith(pkg.__name__ + ".")
+        and cls is not TieredDataProvider
+    }
+    assert len(vendors) >= 3
+    for cls in vendors:
+        assert cls.gap_rule is GAP_RULES.get(cls.__name__), cls.__name__
+
+
+def test_volume_bars_are_left_out_of_the_series_list(url):
+    # Volume bars have no interval; they used to crash the list (and, at a
+    # shared interval, inflate the time-bar count).
+    _seed(url, [1.0, 1.0])
+    volume_bar = _bar(DAY0, 1.0).model_copy(
+        update={"bar_type": BarType.VOLUME, "interval": None}
+    )
+    with create_db_session(url) as session:
+        MarketDataRepository(session).save_bars(
+            "YPFD.BA", [volume_bar], "YFinanceMarketDataProvider"
+        )
+        session.commit()
+    (row,) = inspect.cached_series(url)
+    assert (row.interval, row.bars) == ("1d", 2)

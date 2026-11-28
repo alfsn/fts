@@ -131,8 +131,9 @@ Imports flow one way: packages ← apps.
 > things got one home each: the gap comparison (`quant_core.intervals.find_gaps`, now also used by
 > `TieredDataProvider` and `ingest_historical`), the CCL recipe (`quant_data.reference.ars_ccl` / `ars_implied`;
 > the analyser's `ccl_series` calls it) and bars → daily closes (`quant_data.history.daily_closes`). The vendor's
-> gap rule is looked up by source name (`quant_data.reference.gap_rule_for`, tested against each provider
-> class) so the inspector never imports the providers. The pages never fetch: fill the cache with
+> gap rule is looked up by source name in `quant_data.reference.gaps.GAP_RULES`, the one home of the rules:
+> each provider class takes its `gap_rule` from that table (a test checks every vendor in
+> `quant_data.providers`), so the inspector never imports the providers. The pages never fetch: fill the cache with
 > `ingest_historical` or a Portfolio review.
 
 ```

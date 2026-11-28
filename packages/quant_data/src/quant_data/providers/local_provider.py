@@ -3,8 +3,12 @@ from typing import Any, Sequence
 from quant_core.interfaces import BaseMarketDataProvider
 from quant_core.models import BarData, Instrument, MarketDataRequest, OrderBook, Trade
 
+from ..reference.gaps import GAP_RULES
+
 
 class LocalCSVMarketDataProvider(BaseMarketDataProvider):
+    gap_rule = GAP_RULES["LocalCSVMarketDataProvider"]
+
     @classmethod
     def from_args(cls, args: Any) -> "BaseMarketDataProvider":
         return cls()

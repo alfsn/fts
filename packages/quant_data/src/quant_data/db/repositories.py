@@ -252,8 +252,10 @@ class MarketDataRepository(BaseRepository):
         return sorted(row[0] for row in rows)
 
     def series_summary(self) -> List[CachedSeries]:
-        """Every cached series (symbol, interval, source) with its bar count
-        and first/last timestamp (UTC), sorted by symbol and interval."""
+        """Every cached time-bar series (symbol, interval, source) with its bar
+        count and first/last timestamp (UTC), sorted by symbol and interval.
+        Volume and dollar bars have no interval and are left out: the
+        inspector loads time bars only."""
         rows = (
             self.db.query(
                 BarDataLogModel.instrument_id,
@@ -263,6 +265,7 @@ class MarketDataRepository(BaseRepository):
                 func.min(BarDataLogModel.timestamp),
                 func.max(BarDataLogModel.timestamp),
             )
+            .filter(BarDataLogModel.bar_type == BarType.TIME)
             .group_by(
                 BarDataLogModel.instrument_id,
                 BarDataLogModel.interval,

@@ -1,8 +1,10 @@
 """Which gap rule a cached series follows, by the vendor that filled it (M2-D5).
 
-The rule belongs to the vendor class (``BaseMarketDataProvider.gap_rule``);
-this table repeats it by source name so the read-only cache inspector can use
-it without importing the providers (a test keeps the two in step).
+This table is the one home of each vendor's rule, keyed by source name (the
+vendor class's name, as stored in cached bars). Each provider class sets
+``gap_rule = GAP_RULES["<its name>"]``, so the read-only cache inspector reads
+the same object without importing the providers. A test checks that every
+vendor in ``quant_data.providers`` takes its rule from here.
 """
 
 from quant_core.intervals import BarGap, GapRule, SessionGap

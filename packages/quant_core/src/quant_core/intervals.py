@@ -80,7 +80,7 @@ def find_gaps(timestamps: Iterable[datetime], max_gap: timedelta) -> pd.DataFram
     ``length``; empty when there are none. The one home of the gap rule's
     comparison (M2-D5): the cache refetch, ingest and the workbench use it.
     """
-    index = pd.DatetimeIndex(list(timestamps))
+    index = pd.DatetimeIndex(pd.to_datetime(list(timestamps), utc=True))
     if len(index) < 2:
         return pd.DataFrame(
             {"start": index[:0], "end": index[:0], "length": pd.to_timedelta([])}

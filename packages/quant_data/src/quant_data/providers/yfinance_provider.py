@@ -23,6 +23,8 @@ from quant_core.models import (
 )
 from yfinance.exceptions import YFRateLimitError
 
+from ..reference.gaps import GAP_RULES
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +46,7 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider, CorporateActionProvider
 
     # Yahoo publishes no quota and blocks bursts with HTTP 429 (yfinance #2422).
     rate_limit = RateLimit(min_interval_s=1.0, max_retries=3, backoff_s=30.0)
+    gap_rule = GAP_RULES["YFinanceMarketDataProvider"]
 
     @classmethod
     def from_args(cls, args: Any) -> "YFinanceMarketDataProvider":
