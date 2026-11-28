@@ -198,3 +198,19 @@ def test_load_bars_keeps_intervals_apart_and_compares_bounds_in_utc(repo):
 
     assert [b.close for b in bars] == [1.0]
     assert bars[0].timestamp == noon  # aware UTC on the way out
+
+
+def test_save_bars_never_caches_an_unfinished_bar(repo):
+    # Both apps share the cache; the analyser reads up to today 00:00 UTC and
+    # would value a portfolio at today's still-trading close (PR 59 review).
+    today = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    yesterday = today - timedelta(days=1)
+
+    inserted = repo.save_bars(
+        "AAPL", [_bar(yesterday, 100.0), _bar(today, 101.0)], source="yahoo"
+    )
+
+    assert inserted == 1
+    assert [b.timestamp for b in repo.load_bars("AAPL", "1d")] == [yesterday]

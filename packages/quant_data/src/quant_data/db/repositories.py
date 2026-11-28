@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence
 
 from quant_core.enums import BarType, Currency, RateType
+from quant_core.intervals import interval_to_timedelta
 from quant_core.models import BarData as BarDataSchema
 from quant_core.models import CorporateAction
 from quant_core.models import Instrument as MarketDetailsSchema
@@ -23,6 +24,14 @@ def _naive_utc(ts: datetime) -> datetime:
 
 def _as_utc(ts: datetime) -> datetime:
     return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
+
+
+def _closed(bar: BarDataSchema, now: datetime) -> bool:
+    """A time bar is final once its interval has passed (bars are stamped at
+    their open). Volume/dollar bars are emitted complete."""
+    if bar.bar_type != BarType.TIME or not bar.interval:
+        return True
+    return _as_utc(bar.timestamp) + interval_to_timedelta(bar.interval) <= now
 
 
 class BaseRepository:
@@ -73,7 +82,18 @@ class MarketDataRepository(BaseRepository):
         updated (late vendor corrections get in). Returns the number inserted.
         Refuses to add to a series cached from another source (D4): switch
         with ``replace_bars`` instead, never stitch.
+        A bar still in progress (today's daily bar while the venue trades) is
+        never cached: both apps read this cache, and a reader asking for bars
+        up to today 00:00 would take it for a close.
         """
+        now = datetime.now(timezone.utc)
+        partial = [bar for bar in bars if not _closed(bar, now)]
+        if partial:
+            logger.info(
+                f"{instrument_id}: not caching {len(partial)} unfinished bar(s) "
+                f"from {partial[0].timestamp}."
+            )
+            bars = [bar for bar in bars if _closed(bar, now)]
         if not bars:
             return 0
         try:

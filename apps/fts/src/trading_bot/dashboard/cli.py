@@ -15,8 +15,9 @@ from trading_bot.config import get_settings
 
 
 def _as_url(path_or_url: str) -> str:
-    """A bare file path becomes a SQLite URL."""
-    if path_or_url.startswith(("sqlite:", "postgresql:", "mysql:")):
+    """A bare file path becomes a SQLite URL; a URL (any dialect and driver,
+    e.g. ``sqlite+pysqlite:///x.db``) is kept as given."""
+    if "://" in path_or_url:
         return path_or_url
     return f"sqlite:///{path_or_url}"
 

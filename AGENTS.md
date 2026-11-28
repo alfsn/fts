@@ -28,7 +28,7 @@ Roadmap status lives in `docs/BACKLOG.md`; keep it updated there.
 - **Always handle cash flows.** Return functions take `cash_flows`: deposits are positive, and each flow is already included in the value at its timestamp. Never compute performance as last value / first value.
 - **Win rate counts closed round trips only** (FIFO, per instrument and outcome). A single fill is never a win. `TradeLog.outcome` is the prediction-market side (YES/NO), not win/loss.
 - **UI code never calculates.** `quant_ui` only draws what `quant_core` gives it.
-- **Prices are cached raw (as traded), with corporate actions beside them.** Valuation uses raw prices × share counts; returns, charts, features and CCL use `quant_core.analytics.adjust(closes, actions, mode)` (`SPLIT` or `TOTAL_RETURN`). A model trained on raw equity bars learns fake −90% split days. Every cached bar records its `source`; one vendor per symbol.
+- **Prices are cached raw (as traded), with corporate actions beside them.** Valuation uses raw prices × share counts; returns, charts, features and CCL use `quant_core.analytics.adjust(closes, actions, mode)` (`SPLIT` or `TOTAL_RETURN`). A model trained on raw equity bars learns fake −90% split days. Every cached bar records its `source`; one vendor per symbol. A bar still in progress is never cached (`save_bars` drops it), since a reader takes a cached daily bar for a close.
 
 ## Environment
 
