@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from quant_core.enums import OrderSide, OrderStatus
+from quant_data.db import Market
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.core.catalog_repository import (
@@ -12,7 +13,7 @@ from trading_bot.core.catalog_repository import (
     ModelCatalogRepository,
 )
 from trading_bot.core.database import Base
-from trading_bot.core.models import Market, ModelRegistryLog
+from trading_bot.core.models import ModelRegistryLog
 from trading_bot.runs.tables import (
     BacktestEquityLog,
     OrderLog,

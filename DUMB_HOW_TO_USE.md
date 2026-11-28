@@ -40,6 +40,8 @@ uv run python -m trading_bot.utils.ingest_historical -p yfinance -t AAPL -f 1d -
 - `-d` / `--period`: Time period to download for `yfinance` (e.g., `5d`, `1mo`, `1y`).
 - `-s` / `--since` & `-u` / `--until`: ISO dates to define exact download ranges.
 
+Prices are saved raw (as traded). For `yfinance` the splits and dividends are saved too. A training run or backtest whose window contains a split stops with an error, because a raw 4:1 split would look like a −75% day. Pick a window after the split.
+
 ---
 
 ## Step 3: Train the Brain 🧠
@@ -73,6 +75,8 @@ uv run python -m trading_bot --config nets_task.yaml
 
 ### 🎛️ Extra CLI Parameters:
 - `--config`: Specify a different YAML task configuration file (default is `nets_task.yaml`).
+
+The backtest's `data_reader` needs an `interval` (e.g. `"30m"`), the same one the model was trained on. A symbol cached at two intervals is two separate series.
 
 > [!NOTE]
 > Want to see how you did? Check `apps/fts/runs/reports/` — backtests export standalone interactive `.html` reports you can open directly in your browser.

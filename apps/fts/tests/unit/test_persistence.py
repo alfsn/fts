@@ -5,12 +5,12 @@ from unittest.mock import patch
 
 import pytest
 from quant_core.enums import BarType
+from quant_data.db import BarDataLog, Market
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from trading_bot.core.database import Base, SessionLocal
 from trading_bot.core.database import engine as dev_engine
 from trading_bot.core.database import init_db
-from trading_bot.core.models import BarDataLog, Market
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -53,6 +53,7 @@ def test_bar_data_log_persistence():
         # 2. Create a BarDataLog
         now = datetime.now(timezone.utc)
         bar = BarDataLog(
+            interval="5m",
             source="test",
             instrument_id=instrument_id,
             timestamp=now,

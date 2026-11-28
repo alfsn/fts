@@ -103,7 +103,7 @@ All `fts` commands assume `apps/fts/` as the working directory:
 cd apps/fts
 ```
 
-1. **Ingest Historical Market Data** into `dev.db`:
+1. **Ingest Historical Market Data** into `dev.db` (raw bars, plus splits and dividends for `yfinance`):
 
    ```bash
    uv run python -m trading_bot.utils.ingest_historical -p yfinance -t AAPL -f 1d -d 1y

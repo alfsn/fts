@@ -282,3 +282,29 @@ def test_model_retrieval_by_feature_cols(test_db):
         feature_cols=["open", "close"],
     )
     assert missing_model is None
+
+
+def test_dataset_hash_is_the_same_for_naive_and_aware_utc_bars():
+    """M2a: bars now come back UTC-aware; the 7 datasets registered from
+    naive rows keep their IDs, so the hash must not see the difference."""
+    from quant_core.enums import BarType
+    from trading_bot.core.dataset import calculate_dataset_hash
+    from trading_bot.core.schemas import BarData
+
+    def bar(ts):
+        return BarData(
+            timestamp=ts,
+            open=1.0,
+            high=1.0,
+            low=1.0,
+            close=1.0,
+            volume=1.0,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=1.0,
+        )
+
+    naive = datetime(2024, 1, 2, 12)
+    assert calculate_dataset_hash([bar(naive)]) == calculate_dataset_hash(
+        [bar(naive.replace(tzinfo=timezone.utc))]
+    )

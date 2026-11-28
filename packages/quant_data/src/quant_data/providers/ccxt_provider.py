@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Sequence
 import ccxt
 from quant_core.enums import AssetType, BarType, Geography, OrderSide
 from quant_core.interfaces import BaseMarketDataProvider
+from quant_core.intervals import BarGap
 from quant_core.models import (
     BarData,
     Instrument,
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class CCXTMarketDataProvider(BaseMarketDataProvider):
+    # Crypto trades 24/7: five missing bars is a gap, whatever the interval.
+    gap_rule = BarGap()
     """
     Concrete market data provider that fetches OHLCV candles, order books,
     and recent trade logs from crypto exchanges using the CCXT library.

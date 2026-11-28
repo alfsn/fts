@@ -1,11 +1,12 @@
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from quant_core.enums import BarType, Currency, RateType
 from quant_core.models import BarData as BarDataSchema
 from quant_core.models import CorporateAction
 from quant_core.models import Instrument as MarketDetailsSchema
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import BarDataLog as BarDataLogModel
@@ -141,33 +142,93 @@ class MarketDataRepository(BaseRepository):
         self.db.flush()
         return self.save_bars(instrument_id, bars, source)
 
-    def get_bars(
+    def _bar_rows(
         self,
-        market_ids: str | Sequence[str],
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        instrument_id: str,
+        interval: str,
+        start: Optional[datetime],
+        end: Optional[datetime],
+        bar_type: BarType,
+    ):
+        query = self.db.query(BarDataLogModel).filter(
+            BarDataLogModel.instrument_id == instrument_id,
+            BarDataLogModel.interval == interval,
+            BarDataLogModel.bar_type == bar_type,
+        )
+        # SQLite compares the stored naive-UTC text: bounds must be naive UTC too.
+        if start is not None:
+            query = query.filter(BarDataLogModel.timestamp >= _naive_utc(start))
+        if end is not None:
+            query = query.filter(BarDataLogModel.timestamp <= _naive_utc(end))
+        return query
+
+    @staticmethod
+    def _to_bars(rows) -> List[BarDataSchema]:
+        """The one row -> ``BarData`` mapping; timestamps come back UTC-aware."""
+        bars = [BarDataSchema.model_validate(r, from_attributes=True) for r in rows]
+        for bar in bars:
+            bar.timestamp = _as_utc(bar.timestamp)
+        return bars
+
+    def load_bars(
+        self,
+        instrument_id: str,
+        interval: str,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
         bar_type: BarType = BarType.TIME,
-        interval: Optional[str] = None,
-    ) -> List[BarDataLogModel]:
-        try:
-            if isinstance(market_ids, str):
-                market_ids = [market_ids]
+    ) -> List[BarDataSchema]:
+        """
+        The cached bars of one series, oldest first, raw (as traded). Both
+        bounds are inclusive. ``interval`` is required: a symbol cached at two
+        intervals is two series, never one.
+        """
+        rows = self._bar_rows(instrument_id, interval, start, end, bar_type)
+        return self._to_bars(rows.order_by(BarDataLogModel.timestamp.asc()))
 
-            query = self.db.query(BarDataLogModel).filter(
-                BarDataLogModel.instrument_id.in_(market_ids),
-                BarDataLogModel.bar_type == bar_type,
-            )
-            if interval is not None:
-                query = query.filter(BarDataLogModel.interval == interval)
-            if start_date:
-                query = query.filter(BarDataLogModel.timestamp >= start_date)
-            if end_date:
-                query = query.filter(BarDataLogModel.timestamp <= end_date)
+    def load_bars_before(
+        self,
+        instrument_id: str,
+        interval: str,
+        before: datetime,
+        count: int,
+        bar_type: BarType = BarType.TIME,
+    ) -> List[BarDataSchema]:
+        """The last ``count`` bars strictly before ``before``, oldest first."""
+        rows = (
+            self._bar_rows(instrument_id, interval, None, None, bar_type)
+            .filter(BarDataLogModel.timestamp < _naive_utc(before))
+            .order_by(BarDataLogModel.timestamp.desc())
+            .limit(count)
+        )
+        return self._to_bars(reversed(rows.all()))
 
-            return query.order_by(BarDataLogModel.timestamp.asc()).all()
-        except Exception as e:
-            logger.error(f"Failed to load bars for {market_ids}: {e}")
-            raise e
+    def intervals(self, instrument_id: str) -> List[str]:
+        """The intervals cached for a symbol, sorted."""
+        rows = (
+            self.db.query(BarDataLogModel.interval)
+            .filter(BarDataLogModel.instrument_id == instrument_id)
+            .distinct()
+        )
+        return sorted(row[0] for row in rows if row[0] is not None)
+
+    def instruments(self) -> List[str]:
+        """Every symbol with cached bars, sorted."""
+        rows = self.db.query(BarDataLogModel.instrument_id).distinct()
+        return sorted(row[0] for row in rows)
+
+    def market_name(self, instrument_id: str) -> Optional[str]:
+        market = (
+            self.db.query(MarketModel).filter_by(instrument_id=instrument_id).first()
+        )
+        return market.name if market else None
+
+    def counts(self) -> Dict[str, int]:
+        """Rows in the cache, for dashboards: markets and bars."""
+        return {
+            "markets": self.db.query(func.count(MarketModel.id)).scalar() or 0,
+            "bars": self.db.query(func.count(BarDataLogModel.id)).scalar() or 0,
+        }
 
     # --- FX --------------------------------------------------------------------
 

@@ -8,7 +8,6 @@ write and ``RunStore`` to read or delete.
 from datetime import datetime
 from typing import List, Optional
 
-from quant_data.db.models import Market
 from sqlalchemy import (
     DateTime,
     Enum,
@@ -22,9 +21,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.database import Base
 from ..core.enums import OrderSide, OrderStatus
-
-Market.orders = relationship("OrderLog", back_populates="market")
-Market.trades = relationship("TradeLog", back_populates="market")
 
 
 class RunLog(Base):
@@ -111,7 +107,6 @@ class OrderLog(Base):
     )
 
     # Relationships
-    market: Mapped["Market"] = relationship("Market", back_populates="orders")
     # One OrderLog can have many individual TradeLog entries (fills)
     trades: Mapped[List["TradeLog"]] = relationship("TradeLog", back_populates="order")
 
@@ -156,7 +151,6 @@ class TradeLog(Base):
     order: Mapped[Optional["OrderLog"]] = relationship(
         "OrderLog", back_populates="trades"
     )
-    market: Mapped["Market"] = relationship("Market", back_populates="trades")
 
     def __repr__(self) -> str:
         return (
@@ -204,7 +198,6 @@ class PredictionLog(Base):
     instrument_id: Mapped[str] = mapped_column(
         String, ForeignKey("markets.instrument_id"), index=True, nullable=False
     )
-    market: Mapped["Market"] = relationship("Market")
 
     log_type: Mapped[str] = mapped_column(String, index=True, nullable=False)
 

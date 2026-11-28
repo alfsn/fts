@@ -5,7 +5,6 @@
 from datetime import datetime
 from typing import Optional
 
-from quant_data.db.models import BarDataLog, Market  # noqa: F401  (re-export)
 from sqlalchemy import (
     JSON,
     DateTime,

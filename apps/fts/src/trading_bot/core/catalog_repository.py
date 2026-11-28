@@ -11,11 +11,12 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from quant_data.db import MarketDataRepository
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..runs import RunRecord, RunStore
-from .models import BarDataLog, Market, ModelRegistryLog
+from .models import ModelRegistryLog
 from .performance import (
     build_benchmark_metrics,
     build_performance_metrics,
@@ -238,7 +239,7 @@ class CatalogQueryService:
                 return 0
 
         with self.session_factory() as session:
-            markets = _count(session, Market)
+            cache = MarketDataRepository(session).counts()
             models = _count(session, ModelRegistryLog)
             production_models = (
                 session.scalar(
@@ -248,12 +249,11 @@ class CatalogQueryService:
                 )
                 or 0
             )
-            bar_logs = _count(session, BarDataLog)
 
         runs = self.backtest_repo.store.counts()
         return {
-            "markets": markets,
-            "bar_logs": bar_logs,
+            "markets": cache["markets"],
+            "bar_logs": cache["bars"],
             "order_logs": runs["order_logs"],
             "trade_logs": runs["trade_logs"],
             "models": models,

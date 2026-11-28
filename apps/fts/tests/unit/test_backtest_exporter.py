@@ -5,11 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from quant_core.enums import BarType
+from quant_data.db import BarDataLog, Market
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.backtesting.exporter import HTMLBacktestExporter
 from trading_bot.core.database import Base
-from trading_bot.core.models import BarDataLog, Market
 from trading_bot.runs.tables import BacktestPredictionLog, RunLog
 
 
@@ -42,6 +42,7 @@ def db_url(tmp_path):
         base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
         for i in range(5):
             bar = BarDataLog(
+                interval="5m",
                 source="test",
                 instrument_id="BTC/USDT",
                 timestamp=base_time + timedelta(minutes=i * 5),

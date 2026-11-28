@@ -55,7 +55,7 @@ def test_prediction_log_single_table_inheritance():
     try:
         from datetime import datetime, timezone
 
-        from trading_bot.core.models import Market
+        from quant_data.db import Market
 
         # Add a dummy market first for foreign key constraint
         market = Market(
@@ -139,7 +139,7 @@ def test_the_run_recorder_never_commits():
     try:
         from datetime import datetime, timezone
 
-        from trading_bot.core.models import Market
+        from quant_data.db import Market
 
         db.add(
             Market(

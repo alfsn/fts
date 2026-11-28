@@ -11,7 +11,7 @@ from IPython.display import clear_output, display
 from plotly.subplots import make_subplots
 from quant_core.analytics import wealth_index
 from quant_core.enums import OrderSide, SignalType
-from sqlalchemy import text
+from quant_data.db import MarketDataRepository
 from sqlalchemy.orm import sessionmaker
 from trading_bot.config import get_settings
 from trading_bot.core.database import create_db_engine
@@ -46,31 +46,60 @@ class BacktestVisualizer:
         )
         self.store = RunStore(self.SessionLocal)
 
-    def _bars(self, instrument_id: str) -> pd.DataFrame:
-        # Bars are the price cache's business; M2 moves this to quant_data.
-        query = text(
-            "SELECT timestamp, open, high, low, close, volume, dollar_volume "
-            "FROM bar_data_logs WHERE instrument_id = :iid ORDER BY timestamp ASC"
+    def intervals(self, instrument_id: str) -> List[str]:
+        """The intervals cached for one market, for the interval picker."""
+        with self.SessionLocal() as session:
+            return MarketDataRepository(session).intervals(instrument_id)
+
+    def _bars(self, instrument_id: str, interval: Optional[str]) -> pd.DataFrame:
+        """One cached series as a frame, through ``quant_data`` (M2a). Without
+        an interval, the market's only one; two cached intervals never mix."""
+        if interval is None:
+            cached = self.intervals(instrument_id)
+            if len(cached) > 1:
+                raise ValueError(
+                    f"{instrument_id} is cached at {cached}; pick an interval."
+                )
+            if not cached:
+                return pd.DataFrame()
+            interval = cached[0]
+        with self.SessionLocal() as session:
+            bars = MarketDataRepository(session).load_bars(instrument_id, interval)
+        return pd.DataFrame(
+            [
+                b.model_dump(
+                    include={
+                        "timestamp",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "dollar_volume",
+                    }
+                )
+                for b in bars
+            ]
         )
-        with self.engine.connect() as conn:
-            return pd.read_sql(query, conn, params={"iid": instrument_id})
 
     def load_data(
         self,
         instrument_id: str,
         strategy_name: Optional[str] = None,
         run_id: Optional[str] = None,
+        interval: Optional[str] = None,
     ) -> pd.DataFrame:
         """
-        Joins the instrument's bars with one run's predictions, fills and
-        equity (from ``RunStore``). Without a run, the bars only.
+        Joins the instrument's bars (one interval; see ``_bars``) with one
+        run's predictions, fills and equity (from ``RunStore``). Without a
+        run, the bars only.
         """
         if strategy_name == "None":
             strategy_name = None
         if run_id == "None":
             run_id = None
 
-        df_bars = self._bars(instrument_id)
+        df_bars = self._bars(instrument_id, interval)
         if df_bars.empty:
             logger.warning(f"No bar data found for market: {instrument_id}")
             return pd.DataFrame()
@@ -182,11 +211,9 @@ class BacktestVisualizer:
                 names.append(m.strategy_name)
         if result:
             return result
-        with self.engine.connect() as conn:
-            df_m = pd.read_sql(
-                text("SELECT DISTINCT instrument_id FROM bar_data_logs"), conn
-            )
-        return {m: ["None"] for m in df_m["instrument_id"].tolist()}
+        with self.SessionLocal() as session:
+            cached = MarketDataRepository(session).instruments()
+        return {m: ["None"] for m in cached}
 
     def calculate_pnl(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -522,6 +549,13 @@ class BacktestVisualizer:
             description="Strategy:",
             layout=widgets.Layout(width="250px"),
         )
+        default_intervals = self.intervals(default_market)
+        interval_dd = widgets.Dropdown(
+            options=default_intervals,
+            value=default_intervals[0] if default_intervals else None,
+            description="Interval:",
+            layout=widgets.Layout(width="160px"),
+        )
         run_ids = self.get_available_runs(default_market, default_strategy)
         run_id_dd = widgets.Dropdown(
             options=run_ids,
@@ -536,11 +570,16 @@ class BacktestVisualizer:
             layout=widgets.Layout(width="180px"),
         )
 
-        control_box = widgets.HBox([market_dd, strategy_dd, run_id_dd, load_btn])
+        control_box = widgets.HBox(
+            [market_dd, interval_dd, strategy_dd, run_id_dd, load_btn]
+        )
         display(control_box)
 
         def on_market_change(change):
             m = change["new"]
+            intervals = self.intervals(m)
+            interval_dd.options = intervals
+            interval_dd.value = intervals[0] if intervals else None
             strategies = meta_dict.get(m, ["None"])
             strategy_dd.options = strategies
             s = strategies[0] if strategies else None
@@ -588,7 +627,7 @@ class BacktestVisualizer:
                 return
 
             # Load data
-            df = self.load_data(m, s, r)
+            df = self.load_data(m, s, r, interval=interval_dd.value)
             if df.empty:
                 with plot_panel:
                     clear_output()

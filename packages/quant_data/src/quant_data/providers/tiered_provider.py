@@ -18,12 +18,6 @@ from .throttle import Throttle
 
 logger = logging.getLogger(__name__)
 
-# Longest hole a cached series may have before it is refetched: between the
-# requested start and the first bar, and between consecutive bars (PR 2a, D9).
-# Covers long weekends and Argentine bridge holidays; a real gap costs one
-# extra call per run.
-MAX_CALENDAR_GAP = timedelta(days=5)
-
 
 def _as_utc(ts: datetime) -> datetime:
     return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
@@ -62,27 +56,37 @@ class TieredDataProvider(BaseMarketDataProvider, CorporateActionProvider):
     def _cached_bars(
         self, request: MarketDataRequest, start: datetime, end: datetime
     ) -> list[BarData]:
-        rows = self.repo.get_bars(
-            request.instrument_id,
-            start_date=start,
-            end_date=end,
-            interval=request.interval,
+        return self.repo.load_bars(request.instrument_id, request.interval, start, end)
+
+    def _max_gap(
+        self, request: MarketDataRequest, cached_source: Optional[str]
+    ) -> timedelta:
+        """
+        Longest hole the cached series may have before it is refetched: between
+        the requested start and the first bar, and between consecutive bars
+        (PR 2a, D9). The vendor that filled the cache knows its venue's hours
+        (M2-D5); with nothing cached, the first tier decides.
+        """
+        owner = next(
+            (p for p in self.provider_chain if p.source_name == cached_source),
+            self.provider_chain[0] if self.provider_chain else BaseMarketDataProvider,
         )
-        bars = [BarData.model_validate(r, from_attributes=True) for r in rows]
-        for bar in bars:  # SQLite drops tzinfo; timestamps are stored as UTC.
-            bar.timestamp = _as_utc(bar.timestamp)
-        return bars
+        return owner.gap_rule.max_gap(request.interval)
 
     @staticmethod
-    def _covers_start(cached: Sequence[BarData], start: datetime) -> bool:
-        """True if the cache reaches back to `start` (within a weekend/holiday gap)."""
-        return cached[0].timestamp <= _as_utc(start) + MAX_CALENDAR_GAP
+    def _covers_start(
+        cached: Sequence[BarData], start: datetime, max_gap: timedelta
+    ) -> bool:
+        """True if the cache reaches back to `start` (within one allowed gap)."""
+        return cached[0].timestamp <= _as_utc(start) + max_gap
 
     @staticmethod
-    def _largest_gap(cached: Sequence[BarData]) -> Optional[Tuple[datetime, datetime]]:
-        """The first pair of consecutive bars more than MAX_CALENDAR_GAP apart."""
+    def _largest_gap(
+        cached: Sequence[BarData], max_gap: timedelta
+    ) -> Optional[Tuple[datetime, datetime]]:
+        """The first pair of consecutive bars more than ``max_gap`` apart."""
         for previous, current in zip(cached, cached[1:]):
-            if current.timestamp - previous.timestamp > MAX_CALENDAR_GAP:
+            if current.timestamp - previous.timestamp > max_gap:
                 return previous.timestamp, current.timestamp
         return None
 
@@ -178,8 +182,9 @@ class TieredDataProvider(BaseMarketDataProvider, CorporateActionProvider):
                 raise self._all_failed(request)
             return data
 
-        gap = self._largest_gap(cached) if cached else None
-        if cached and self._covers_start(cached, start) and gap is None:
+        max_gap = self._max_gap(request, cached_source)
+        gap = self._largest_gap(cached, max_gap) if cached else None
+        if cached and self._covers_start(cached, start, max_gap) and gap is None:
             return self._top_up(request, start, end, cached, cached_source)
 
         if gap is not None:
@@ -192,7 +197,7 @@ class TieredDataProvider(BaseMarketDataProvider, CorporateActionProvider):
                 raise self._all_failed(request)
             return cached
         cached = self._cached_bars(request, start, end)
-        gap = self._largest_gap(cached)
+        gap = self._largest_gap(cached, max_gap)
         if gap is not None:
             logger.warning(
                 f"{request.instrument_id}: gap {gap[0].date()} -> {gap[1].date()} "
@@ -269,21 +274,11 @@ class TieredDataProvider(BaseMarketDataProvider, CorporateActionProvider):
         ]
         cached_sources = {
             self.repo.bar_source(instrument_id, interval)
-            for interval in self._cached_intervals(instrument_id)
+            for interval in self.repo.intervals(instrument_id)
         }
         if cached_sources:
             return [p for p in capable if p.source_name in cached_sources]
         return capable
-
-    def _cached_intervals(self, instrument_id: str) -> list[Optional[str]]:
-        from quant_data.db.models import BarDataLog
-
-        return [
-            row[0]
-            for row in self.repo.db.query(BarDataLog.interval)
-            .filter_by(instrument_id=instrument_id)
-            .distinct()
-        ]
 
     def get_corporate_actions(self, instrument_id: str) -> Sequence[CorporateAction]:
         """Refreshed from the vendor on every run; the cache answers when it fails."""

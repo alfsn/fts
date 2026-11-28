@@ -38,5 +38,6 @@ loop_driver:
       class_path: "trading_bot.backtesting.readers.SQLBacktestDataReader"
       params:
         instrument_id: "BTC/USDT"
+        interval: "30m"  # the model's training interval; required
         warmup_bars: 20
         lookback_limit: 100

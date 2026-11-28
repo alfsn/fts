@@ -315,6 +315,24 @@ def test_small_gaps_do_not_refetch(db_session):
     assert provider.requests[-1].start_date == _day(10)  # only the usual tail top-up
 
 
+def test_the_gap_rule_comes_from_the_vendor_that_filled_the_cache(db_session):
+    """M2-D5: the same 5-day hole is a weekend for an exchange and a gap for
+    a vendor whose rule is tighter (a 24/7 venue)."""
+    from quant_core.intervals import BarGap
+
+    class _AlwaysOpen(_RecordingProvider):
+        gap_rule = BarGap(bars=2)
+
+    provider = _AlwaysOpen()
+    _seed(db_session, "AAPL", [1, 2, 3, 8, 9, 10], source=provider.source_name)
+
+    TieredDataProvider(db_session, [provider]).get_bars(
+        _range_request(_day(1), _day(10))
+    )
+
+    assert provider.requests[-1].start_date == _day(1)  # full refetch, not a top-up
+
+
 def test_revised_last_bar_is_updated(db_session):
     provider = _RecordingProvider()
     tiered = TieredDataProvider(db_session, [provider])

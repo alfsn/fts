@@ -25,7 +25,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 # Create a Base class for our ORM models to inherit from
-from quant_data.db.models import Base
+from quant_data.db import Base
 
 
 def init_db(extra_models: list[str] | None = None, bind_engine=None) -> None:

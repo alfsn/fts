@@ -29,8 +29,8 @@ from .models import CorporateAction, Listing, Portfolio, Transaction, listing_sy
 logger = logging.getLogger(__name__)
 
 # Sessions a price or FX rate may be carried over a local holiday before it is
-# NaN rather than stale (D9). quant_data's MAX_CALENDAR_GAP (5 days) is the
-# same tolerance on the fetching side.
+# NaN rather than stale (D9). ``intervals.SessionGap`` (5 days) is the same
+# tolerance on the fetching side.
 MAX_STALE_SESSIONS = 5
 QUANTITY_TOLERANCE = 1e-9
 CASH_TOLERANCE = 0.005  # half a cent

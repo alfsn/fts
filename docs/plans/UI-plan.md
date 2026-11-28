@@ -141,8 +141,9 @@ apps/workbench/
 - **Cache use cases (moved from W2):** `MarketDataRepository.cached_series() -> list[CachedSeries]` (symbol,
   interval, source, bar count, first/last), and analyser `review.inspect_symbol(db_url, symbol) -> SymbolView`
   (raw closes, `adjust(..., SPLIT)`, `adjust(..., TOTAL_RETURN)`, the actions, gaps). It is read-only:
-  `get_bars`/`load_corporate_actions`, never a provider. Gaps maths:
-  `quant_core.analytics.calendar_gaps(index, max_days=5) -> DataFrame(start, end, days)`.
+  `load_bars`/`load_corporate_actions`, never a provider. Gaps maths:
+  `quant_core.analytics.calendar_gaps(index, max_gap) -> DataFrame(start, end, days)`, with `max_gap` from the
+  vendor's `quant_core.intervals.GapRule` (M2-D5).
 - **fts backtest curves (moved from W2, on M1's `RunStore`):** `CatalogQueryService` stays the facade. It adds
   `wealth_index(equity)`, `drawdown_series(wealth)` and the T=0 alignment for comparisons, so no page or
   figure computes.

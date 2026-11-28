@@ -156,6 +156,7 @@ def run_model_backtest(
         data_reader = SQLBacktestDataReader(
             session=db,
             instrument_id=model_entry.instrument_id,
+            interval=model_entry.interval,
             start_date=start_dt,
             end_date=end_dt,
         )

@@ -6,6 +6,7 @@ from typing import List, Sequence
 
 import pandas as pd
 from quant_core.enums import BarType
+from quant_core.intervals import interval_to_timedelta
 from trading_bot.core.schemas import BarData
 
 logger = logging.getLogger(__name__)
@@ -25,28 +26,8 @@ INTERVAL_TO_PANDAS = {
 
 
 def timeframe_to_seconds(tf: str) -> int:
-    """Converts a timeframe string (e.g. '1m', '2h', '1d') to equivalent seconds."""
-    if not tf:
-        raise ValueError("Timeframe string cannot be empty.")
-
-    unit = tf[-1].lower()
-    value_str = tf[:-1]
-
-    if not value_str.isdigit():
-        raise ValueError(f"Invalid timeframe value format: {tf}")
-
-    value = int(value_str)
-
-    if unit == "m":
-        return value * 60
-    elif unit == "h":
-        return value * 3600
-    elif unit == "d":
-        return value * 86400
-    elif unit == "w":
-        return value * 604800
-    else:
-        raise ValueError(f"Unknown timeframe unit '{unit}' in {tf}")
+    """A timeframe string (e.g. '1m', '2h', '1d') in seconds."""
+    return int(interval_to_timedelta(tf).total_seconds())
 
 
 def resample_bars(bars: Sequence[BarData], target_interval: str) -> List[BarData]:

@@ -5,7 +5,9 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-from quant_data.db.repositories import MarketDataRepository
+from quant_core.interfaces import CorporateActionProvider
+from quant_data.db import MarketDataRepository
+from quant_data.history import fetch_corporate_actions
 from trading_bot.core.database import SessionLocal, init_db
 from trading_bot.core.dataset import calculate_dataset_hash
 from trading_bot.core.repository import ModelRepository
@@ -173,17 +175,31 @@ def main() -> None:
             f"Successfully stored data. New records added: {inserted_count} / Total fetched: {len(bars)}"
         )
 
+        # Splits beside the raw bars, so research loads can refuse a window
+        # that contains one (M2a). Crypto vendors have none.
+        if isinstance(provider, CorporateActionProvider):
+            actions = fetch_corporate_actions(provider, [args.ticker])
+            if args.ticker in actions:
+                repo.save_corporate_actions(
+                    args.ticker, actions[args.ticker], provider.source_name
+                )
+                db.commit()
+                logger.info(
+                    f"Stored {len(actions[args.ticker])} corporate actions for {args.ticker}."
+                )
+
         # 6. Optional: Register concatenated TimeSeriesDataset in DB
         if args.register_dataset:
-            all_bars_db = repo.get_bars(args.ticker, interval=args.timeframe)
+            all_bars_db = repo.load_bars(args.ticker, args.timeframe)
             if all_bars_db:
-                # Check for large gaps (> 4 * interval)
+                # A gap is what the vendor's venue calls one (M2-D5).
+                max_gap = provider.gap_rule.max_gap(args.timeframe)
                 gaps = []
                 for i in range(1, len(all_bars_db)):
                     prev_ts = all_bars_db[i - 1].timestamp
                     curr_ts = all_bars_db[i].timestamp
-                    gap_hours = (curr_ts - prev_ts).total_seconds() / 3600.0
-                    if gap_hours > 6.0:  # Gap greater than 6 hours
+                    if curr_ts - prev_ts > max_gap:
+                        gap_hours = (curr_ts - prev_ts).total_seconds() / 3600.0
                         gaps.append((prev_ts, curr_ts, gap_hours))
 
                 if gaps:

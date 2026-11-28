@@ -11,12 +11,10 @@ import pytest
 from nets.models import NNTrainingConfig, RNNConfig
 from nets.training import RNNTrainer, ValidationEvaluator
 from quant_core.enums import BarType
-from quant_data.db.models import BarDataLog, Market
-from quant_data.db.repositories import MarketDataRepository
+from quant_data.db import BarDataLog, Market, MarketDataRepository
 from sqlalchemy import create_engine
 from trading_bot.config import settings
 from trading_bot.core.database import SessionLocal, init_db
-from trading_bot.core.schemas import BarData
 
 
 @pytest.fixture(scope="module")
@@ -82,27 +80,11 @@ def test_rnn_e2e_training_and_onnx_inference(e2e_db_session):
     """
     # 1. Fetch historical BTC/USDT bars via repository
     repo = MarketDataRepository(e2e_db_session)
-    db_bars = repo.get_bars("BTC/USDT")
+    bar_schemas = repo.load_bars("BTC/USDT", "1h")
 
     assert (
-        len(db_bars) == 1000
+        len(bar_schemas) == 1000
     ), "Should have loaded exactly 1000 BTC/USDT bars from tests/test_persistence.db"
-
-    # 2. Convert database models to BarData Pydantic schemas
-    bar_schemas = [
-        BarData(
-            timestamp=bar.timestamp,
-            open=bar.open,
-            high=bar.high,
-            low=bar.low,
-            close=bar.close,
-            volume=bar.volume,
-            bar_type=bar.bar_type,
-            ticks_count=bar.ticks_count,
-            dollar_volume=bar.dollar_volume,
-        )
-        for bar in db_bars
-    ]
 
     # Create temporary directory for TensorBoard logs to keep cleanup simple
     tb_log_dir = tempfile.mkdtemp()

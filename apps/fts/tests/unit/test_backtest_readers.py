@@ -1,7 +1,7 @@
 import csv
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterator
 from unittest.mock import MagicMock
 
@@ -164,10 +164,10 @@ def test_historical_replay_loop_backwards_compatibility_fallback(temp_csv_file):
 def sql_db_session():
     """Sets up an in-memory SQLite database and creates the schema."""
     from quant_core.enums import BarType
+    from quant_data.db import BarDataLog, Market
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from trading_bot.core.database import Base
-    from trading_bot.core.models import BarDataLog, Market
 
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
@@ -184,6 +184,7 @@ def sql_db_session():
     # Pre-populate some historical bars
     bar1 = BarDataLog(
         source="test",
+        interval="1m",
         instrument_id="AAPL",
         timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
         open=100.0,
@@ -197,6 +198,7 @@ def sql_db_session():
     )
     bar2 = BarDataLog(
         source="test",
+        interval="1m",
         instrument_id="AAPL",
         timestamp=datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc),
         open=102.0,
@@ -222,7 +224,9 @@ def test_sql_backtest_data_reader(sql_db_session):
     Verifies that SQLBacktestDataReader correctly parses SQL rows
     and yields chronological IngestionEngineOutput packets.
     """
-    reader = SQLBacktestDataReader(session=sql_db_session, instrument_id="AAPL")
+    reader = SQLBacktestDataReader(
+        session=sql_db_session, instrument_id="AAPL", interval="1m"
+    )
     ticks = list(reader.read_data())
 
     # Assertions
@@ -260,6 +264,7 @@ def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
     reader = SQLBacktestDataReader(
         session=sql_db_session,
         instrument_id="AAPL",
+        interval="1m",
         start_date=start_date,
     )
     ticks = list(reader.read_data())
@@ -271,6 +276,7 @@ def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
         end_date=end_date,
         session=sql_db_session,
         instrument_id="AAPL",
+        interval="1m",
     )
     ticks_end = list(reader_end.read_data())
     assert len(ticks_end) == 1
@@ -281,11 +287,12 @@ def test_sql_backtest_data_reader_with_date_filters(sql_db_session):
 
 def test_sql_backtest_data_reader_fallback_market(sql_db_session):
     """Verifies fallback behavior when market details are not found in the database."""
-    from trading_bot.core.models import BarDataLog
+    from quant_data.db import BarDataLog
 
     # Add a bar for an unsaved market ID
     bar = BarDataLog(
         source="test",
+        interval="1m",
         instrument_id="GOOG",
         timestamp=datetime(2026, 5, 30, 12, 0, 0, tzinfo=timezone.utc),
         open=200.0,
@@ -300,7 +307,9 @@ def test_sql_backtest_data_reader_fallback_market(sql_db_session):
     sql_db_session.add(bar)
     sql_db_session.commit()
 
-    reader = SQLBacktestDataReader(session=sql_db_session, instrument_id="GOOG")
+    reader = SQLBacktestDataReader(
+        session=sql_db_session, instrument_id="GOOG", interval="1m"
+    )
     ticks = list(reader.read_data())
     assert len(ticks) == 1
     assert ticks[0].market_data[0].details.name == "GOOG Historical Replay"
@@ -309,7 +318,7 @@ def test_sql_backtest_data_reader_fallback_market(sql_db_session):
 def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     """Verifies that SQLBacktestDataReader respects warmup_bars and lookback_limit."""
     from quant_core.enums import BarType
-    from trading_bot.core.models import BarDataLog
+    from quant_data.db import BarDataLog
 
     # Clear pre-populated logs to have complete control
     sql_db_session.query(BarDataLog).delete()
@@ -320,6 +329,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     warmup_time2 = datetime(2026, 5, 30, 11, 30, 0, tzinfo=timezone.utc)
     bar_warmup1 = BarDataLog(
         source="test",
+        interval="1m",
         instrument_id="AAPL",
         timestamp=warmup_time1,
         open=98.0,
@@ -333,6 +343,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     )
     bar_warmup2 = BarDataLog(
         source="test",
+        interval="1m",
         instrument_id="AAPL",
         timestamp=warmup_time2,
         open=98.5,
@@ -351,6 +362,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     actual_time2 = datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
     bar_actual1 = BarDataLog(
         source="test",
+        interval="1m",
         instrument_id="AAPL",
         timestamp=actual_time1,
         open=100.0,
@@ -364,6 +376,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     )
     bar_actual2 = BarDataLog(
         source="test",
+        interval="1m",
         instrument_id="AAPL",
         timestamp=actual_time2,
         open=102.0,
@@ -383,6 +396,7 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     reader = SQLBacktestDataReader(
         session=sql_db_session,
         instrument_id="AAPL",
+        interval="1m",
         start_date=start_time,
         warmup_bars=2,
         lookback_limit=3,
@@ -408,3 +422,57 @@ def test_sql_backtest_data_reader_warmup_and_lookback(sql_db_session):
     assert bars_t2[0].timestamp == warmup_time2
     assert bars_t2[1].timestamp == actual_time1
     assert bars_t2[2].timestamp == actual_time2
+
+
+def test_a_split_inside_the_window_is_refused(sql_db_session):
+    """M2a: bars are raw, so a 4:1 split would read as a -75% day. The reader
+    refuses the window; a window after the split loads."""
+    from quant_core.enums import CorporateActionType
+    from quant_core.models import CorporateAction
+    from quant_data.db import MarketDataRepository
+    from trading_bot.core.bars import UnadjustedSplitError
+
+    split_day = datetime(2026, 5, 30, 12, 1, 0, tzinfo=timezone.utc)
+    MarketDataRepository(sql_db_session).save_corporate_actions(
+        "AAPL",
+        [
+            CorporateAction(
+                instrument_id="AAPL",
+                action_type=CorporateActionType.SPLIT,
+                ex_date=datetime(2026, 5, 30, tzinfo=timezone.utc),
+                ratio=4.0,
+            )
+        ],
+        source="test",
+    )
+    sql_db_session.commit()
+
+    # Both bars are on the ex-date's day, so none crosses it: loads.
+    reader = SQLBacktestDataReader(
+        session=sql_db_session, instrument_id="AAPL", interval="1m"
+    )
+    assert len(list(reader.read_data())) == 2
+
+    # A bar the day before the ex-date puts the split inside the window.
+    from quant_core.enums import BarType
+    from quant_data.db import BarDataLog
+
+    sql_db_session.add(
+        BarDataLog(
+            source="test",
+            interval="1m",
+            instrument_id="AAPL",
+            timestamp=split_day - timedelta(days=1),
+            open=400.0,
+            high=400.0,
+            low=400.0,
+            close=400.0,
+            volume=1.0,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=400.0,
+        )
+    )
+    sql_db_session.commit()
+    with pytest.raises(UnadjustedSplitError, match="4:1 split"):
+        list(reader.read_data())
