@@ -36,7 +36,7 @@ def main():
         "--cache",
         type=str,
         default=None,
-        help="Price-cache file path or URL (defaults to MARKET_CACHE_URL, else the shared workspace cache)",
+        help="Price-cache file path or URL; a relative path is from the workspace root (defaults to MARKET_CACHE_URL, else the shared workspace cache)",
     )
     parser.add_argument(
         "--port",
