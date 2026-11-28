@@ -43,3 +43,47 @@ def test_portfolio_page_shows_an_error_for_a_missing_file(tmp_path):
     app.button[0].click().run()
     assert not app.exception
     assert "not found" in app.error[0].value
+
+
+@pytest.mark.usefixtures("databases")
+def test_cache_and_fx_pages_explain_an_empty_cache():
+    assert "empty" in _run("views/cache.py").info[0].value
+    assert "No cached daily bars" in _run("views/fx.py").warning[0].value
+
+
+def test_cache_and_fx_pages_draw_a_seeded_cache(databases):
+    import os
+    from datetime import datetime, timedelta, timezone
+
+    from quant_core.enums import BarType
+    from quant_core.models import BarData
+    from quant_data.db import MarketDataRepository, create_db_session
+
+    day0 = datetime(2026, 7, 1, 20, tzinfo=timezone.utc)
+    with create_db_session(os.environ["MARKET_CACHE_URL"]) as session:
+        repo = MarketDataRepository(session)
+        for symbol, close in (("GGAL.BA", 100.0), ("GGAL", 1.0)):
+            repo.save_bars(
+                symbol,
+                [
+                    BarData(
+                        timestamp=day0 + timedelta(days=i),
+                        open=close,
+                        high=close,
+                        low=close,
+                        close=close,
+                        volume=1.0,
+                        bar_type=BarType.TIME,
+                        interval="1d",
+                        ticks_count=1,
+                        dollar_volume=close,
+                    )
+                    for i in range(3)
+                ],
+                "YFinanceMarketDataProvider",
+            )
+        session.commit()
+    cache = _run("views/cache.py")
+    assert cache.dataframe[0].value["instrument_id"].tolist() == ["GGAL", "GGAL.BA"]
+    fx = _run("views/fx.py")
+    assert fx.metric[0].value == "3"

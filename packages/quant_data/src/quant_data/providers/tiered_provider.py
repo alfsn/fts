@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence, Tuple
 
 from quant_core.interfaces import BaseMarketDataProvider, CorporateActionProvider
+from quant_core.intervals import find_gaps
 from quant_core.models import (
     BarData,
     CorporateAction,
@@ -85,10 +86,11 @@ class TieredDataProvider(BaseMarketDataProvider, CorporateActionProvider):
         cached: Sequence[BarData], max_gap: timedelta
     ) -> Optional[Tuple[datetime, datetime]]:
         """The first pair of consecutive bars more than ``max_gap`` apart."""
-        for previous, current in zip(cached, cached[1:]):
-            if current.timestamp - previous.timestamp > max_gap:
-                return previous.timestamp, current.timestamp
-        return None
+        gaps = find_gaps((b.timestamp for b in cached), max_gap)
+        if gaps.empty:
+            return None
+        first = gaps.iloc[0]
+        return first["start"].to_pydatetime(), first["end"].to_pydatetime()
 
     def _store(
         self,

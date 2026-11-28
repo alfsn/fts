@@ -21,7 +21,7 @@ fts/
     │   ├── notebooks/           # Jupyter research & backtest notebooks
     │   ├── runs/                # Optuna/TensorBoard logs and HTML backtest/sweep reports
     │   └── tests/               # Unit and integration tests
-    ├── workbench/               # Streamlit UI over both apps (Portfolio, Models, Backtests)
+    ├── workbench/               # Streamlit UI over both apps (Portfolio, Models, Backtests, Cache, FX)
     └── portfolio_analyser/      # CLI for broker snapshots, ledger replay & HTML client reviews
         ├── src/portfolio_analyser/
         │   ├── main.py          # Click CLI (`portfolio-analyser` script)

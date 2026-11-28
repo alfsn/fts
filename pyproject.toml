@@ -141,6 +141,12 @@ forbidden_modules = [
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
+name = "The cache inspector only reads: it never reaches a vendor (W3b)"
+type = "forbidden"
+source_modules = ["quant_data.inspect"]
+forbidden_modules = ["quant_data.providers", "yfinance", "ccxt"]
+
+[[tool.importlinter.contracts]]
 name = "quant_core imports no other workspace package"
 type = "forbidden"
 source_modules = ["quant_core"]

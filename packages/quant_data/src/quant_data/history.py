@@ -9,6 +9,17 @@ from quant_core.models import CorporateAction, MarketDataRequest
 logger = logging.getLogger(__name__)
 
 
+def daily_closes(bars) -> pd.Series:
+    """Closes of daily bars indexed by UTC date. Venues stamp daily bars at
+    different times (BYMA 14:00 UTC, NYSE 13:30/14:30 UTC), so the date is
+    the key that lines symbols up; a repeated date keeps the last bar."""
+    if not bars:
+        return pd.Series(dtype=float, index=pd.DatetimeIndex([], tz="UTC"))
+    index = pd.DatetimeIndex([b.timestamp for b in bars], tz="UTC").normalize()
+    closes = pd.Series([b.close for b in bars], index=index, dtype=float)
+    return closes[~closes.index.duplicated(keep="last")]
+
+
 def fetch_corporate_actions(
     provider: CorporateActionProvider, symbols: Iterable[str]
 ) -> dict[str, list[CorporateAction]]:
@@ -62,7 +73,5 @@ def fetch_daily_closes(
         except Exception as e:
             logger.warning(f"No daily history for {symbol}: {e}")
             continue
-        index = pd.DatetimeIndex([b.timestamp for b in bars], tz="UTC").normalize()
-        closes = pd.Series([b.close for b in bars], index=index)
-        columns[symbol] = closes[~closes.index.duplicated(keep="last")]
+        columns[symbol] = daily_closes(bars)
     return pd.DataFrame(columns).sort_index()

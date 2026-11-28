@@ -126,7 +126,14 @@ Imports flow one way: packages ← apps.
 > `cash_rows`, `position_rows`, `Snapshot.ars_per_usd` (the `analyze` CLI prints the same rows); `quant_ui.plots.backtest`
 > (trade overlay, prediction scatter that never puts a missing return at 0, comparison). The Backtests page's
 > minimum Sharpe defaults to blank: the old −10 hid every run too short for a Sharpe. Pages live in `views/`
-> (not `pages/`, which Streamlit would also auto-load). **W3b**: `views/cache.py`, `views/fx.py` and their use cases below.
+> (not `pages/`, which Streamlit would also auto-load). **W3b** (2026-11-28, stacked on W3a): `views/cache.py`,
+> `views/fx.py` on the read-only `quant_data.inspect` (`cached_series`, `inspect_series`, `ccl_view`). Three
+> things got one home each: the gap comparison (`quant_core.intervals.find_gaps`, now also used by
+> `TieredDataProvider` and `ingest_historical`), the CCL recipe (`quant_data.reference.ars_ccl` / `ars_implied`;
+> the analyser's `ccl_series` calls it) and bars → daily closes (`quant_data.history.daily_closes`). The vendor's
+> gap rule is looked up by source name (`quant_data.reference.gap_rule_for`, tested against each provider
+> class) so the inspector never imports the providers. The pages never fetch: fill the cache with
+> `ingest_historical` or a Portfolio review.
 
 ```
 apps/workbench/
@@ -150,12 +157,12 @@ apps/workbench/
   in `quant_ui` (fractions everywhere else). Minimum-sample captions print `metrics.min_obs`.
 - New `quant_ui` figures (draw-only): `plot_price_adjustments(raw, split, total_return)`, `plot_ccl(series, pairs)`,
   the fts trade overlay, the prediction scatter, and a multi-series `plot_cumulative_returns` for the run comparison.
-- **Cache use cases (moved from W2):** `MarketDataRepository.cached_series() -> list[CachedSeries]` (symbol,
-  interval, source, bar count, first/last), and analyser `review.inspect_symbol(db_url, symbol) -> SymbolView`
+- **Cache use cases (W3b, D12):** `MarketDataRepository.series_summary() -> list[CachedSeries]` (symbol,
+  interval, source, bar count, first/last) and `quant_data.inspect.inspect_series(symbol, interval) -> SeriesView`
   (raw closes, `adjust(..., SPLIT)`, `adjust(..., TOTAL_RETURN)`, the actions, gaps). It is read-only:
   `load_bars`/`load_corporate_actions`, never a provider. Gaps maths:
-  `quant_core.analytics.calendar_gaps(index, max_gap) -> DataFrame(start, end, days)`, with `max_gap` from the
-  vendor's `quant_core.intervals.GapRule` (M2-D5).
+  `quant_core.intervals.find_gaps(timestamps, max_gap) -> DataFrame(start, end, length)`, with `max_gap` from the
+  vendor's `GapRule` (M2-D5). `ccl_view()` gives the CCL, each pair's rate, and the rejected and single-pair days.
 - **fts backtest curves (moved from W2, on M1's `RunStore`):** `CatalogQueryService` stays the facade. It adds
   `wealth_index(equity)`, `drawdown_series(wealth)` and the T=0 alignment for comparisons, so no page or
   figure computes.
@@ -221,5 +228,6 @@ apps/workbench/
 - Guards (import-linter contracts, see `modularization.md` "Guards per PR"): W1 adds "the apps never import
   each other"; W3a adds "`streamlit` only in the workbench" and "the workbench never imports `quant_core.analytics`
   / `metrics`, `quant_data.db` / `providers` / `history`, `sqlalchemy`, or an app's internals" (`quant_data.inspect`
-  stays open for W3b), plus a text test: no `cummax`, `pct_change`, `cumprod` or `* 100` in the workbench. `quant_ui` ↛ `quant_data`
-  is already a contract.
+  stays open for W3b), plus a text test: no `cummax`, `pct_change`, `cumprod` or `* 100` in the workbench. W3b adds "`quant_data.inspect`
+  never reaches `quant_data.providers` / `yfinance` / `ccxt`" (indirect imports included) and a text test: only
+  `find_gaps` compares a hole with `max_gap`. `quant_ui` ↛ `quant_data` is already a contract.

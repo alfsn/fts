@@ -22,3 +22,35 @@ def test_a_24_7_venue_counts_bars_and_an_exchange_never_counts_a_weekend():
     assert BarGap().max_gap("1h") == timedelta(hours=5)
     assert SessionGap().max_gap("1h") == timedelta(days=5)
     assert SessionGap().max_gap("1w") == timedelta(weeks=5)
+
+
+def test_find_gaps_keeps_only_holes_longer_than_the_limit():
+    from datetime import datetime, timedelta, timezone
+
+    from quant_core.intervals import find_gaps
+
+    days = [
+        datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=d)
+        for d in (0, 1, 6, 12)
+    ]
+    gaps = find_gaps(days, timedelta(days=5))
+    # 1 -> 6 is exactly the limit (not a gap); 6 -> 12 is one.
+    assert list(gaps["start"]) == [days[2]] and list(gaps["end"]) == [days[3]]
+    assert find_gaps(days[:1], timedelta(days=5)).empty
+
+
+def test_the_gap_comparison_has_one_home():
+    """Only find_gaps compares a hole with max_gap (W3b); the cache refetch,
+    ingest and the workbench call it."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    pattern = re.compile(r">\s*max_gap")
+    hits = [
+        str(p.relative_to(root))
+        for folder in ("packages", "apps")
+        for p in (root / folder).rglob("*.py")
+        if "tests" not in p.parts and pattern.search(p.read_text())
+    ]
+    assert hits == ["packages/quant_core/src/quant_core/intervals.py"]
