@@ -36,7 +36,7 @@ st.set_page_config(
 db_url = os.getenv("DATABASE_URL", get_settings().DATABASE_URL)
 engine = create_db_engine(db_url)
 SessionFactory = sessionmaker(bind=engine)
-cache_db_url = cache_url(get_settings().MARKET_CACHE_URL)
+cache_db_url = cache_url()
 cache_engine = create_db_engine(cache_db_url)
 init_cache(cache_engine)
 CacheSessionFactory = sessionmaker(bind=cache_engine)

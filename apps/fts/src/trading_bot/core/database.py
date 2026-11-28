@@ -33,7 +33,7 @@ def create_db_engine(database_url: str | None = None, **kwargs: Any) -> Engine:
 engine = create_db_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-cache_engine = create_db_engine(cache_url(settings.MARKET_CACHE_URL))
+cache_engine = create_db_engine(cache_url())
 CacheSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=cache_engine)
 
 

@@ -55,9 +55,7 @@ def main():
 
     settings = get_settings()
     db_url = _as_url(args.db if args.db is not None else settings.DATABASE_URL)
-    market_cache = cache_url(
-        _as_url(args.cache) if args.cache is not None else settings.MARKET_CACHE_URL
-    )
+    market_cache = cache_url(_as_url(args.cache) if args.cache is not None else None)
     # The Streamlit subprocess reads both from its environment.
     os.environ["DATABASE_URL"] = db_url
     os.environ["MARKET_CACHE_URL"] = market_cache

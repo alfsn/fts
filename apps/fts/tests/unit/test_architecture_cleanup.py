@@ -229,3 +229,16 @@ def test_one_cache_file_resolved_only_by_quant_data():
     assert [
         h for h in hits if not h.startswith(str(CACHE_MODULE.relative_to(REPO)))
     ] == []
+
+
+def test_fts_refuses_a_cache_url_in_its_env_file(monkeypatch, tmp_path):
+    """The analyser never reads fts's .env, so a cache URL there would give
+    the two apps different caches (PR 59 review): fail loudly instead."""
+    import pytest
+    from trading_bot.config import Settings
+
+    env_file = Settings.model_config["env_file"]
+    (tmp_path / env_file).write_text('MARKET_CACHE_URL="sqlite:////x/cache.db"\n')
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="Export it in the shell"):
+        Settings()

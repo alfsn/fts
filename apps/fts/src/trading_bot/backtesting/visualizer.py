@@ -50,9 +50,7 @@ class BacktestVisualizer:
             bind=self.engine, autocommit=False, autoflush=False
         )
         self.store = RunStore(self.SessionLocal)
-        cache_engine = create_db_engine(
-            cache_url(cache_db_url or settings.MARKET_CACHE_URL)
-        )
+        cache_engine = create_db_engine(cache_url(cache_db_url))
         init_cache(cache_engine)
         self.CacheSessionLocal = sessionmaker(
             bind=cache_engine, autocommit=False, autoflush=False
