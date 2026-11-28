@@ -39,6 +39,8 @@ small rule violations get fixed.
 | D9 | DB URLs come from the env vars (`DATABASE_URL` for fts research, `MARKET_CACHE_URL` for the shared price cache, `modularization.md` D18; `PA_DATABASE_URL` is gone, M2b) and can be edited in the sidebar. Runs live in the one research database (`DATABASE_URL`, `modularization.md` D16); `BACKTEST_DATABASE_URL` is gone (M1) |
 | D10 | Keep fts's Promote/Archive write action |
 | D11 | Cleanups in the stack: fts renderers → `quant_ui`, delete `fx_rates`, hide mock brokers, fix `visualizer.py` `fillna(0.0)` |
+| D12 | (2026-11-28) W3 ships as two PRs: **W3a** shell + Portfolio, Models, Backtests; **W3b** Cache + FX. The cache inspector lives in `quant_data.inspect`, not the analyser: both apps share the cache, and fts's intraday series are in it. It is the one `quant_data` module the workbench may import |
+| D13 | (2026-11-28) The run comparison lines runs up by **days since each run's first bar**, never by bar number (a 1h run would look 24× longer than a 1d run) |
 
 ## Why charts and shell are separate (both are "UI")
 
@@ -115,6 +117,16 @@ Imports flow one way: packages ← apps.
 - Guard: `portfolio_analyser.main` never imports `portfolio_analyser.data_layer` (import-linter).
 
 ## W3: the workbench shell
+
+> Re-planned 2026-11-28 against `2ab0656` and split (D12). **W3a** (shipped first): the shell, `settings`,
+> `state`, `filters` (written once, NaN-safe), `views/portfolio.py`, `views/models.py`, `views/backtests.py`;
+> `CatalogQueryService.open(research_url, market_cache_url)` builds the sessions and defaults, so the workbench
+> holds neither; `run_curves` (cumulative, drawdown, top episodes, `close_series`, fills, predictions, from the
+> same `equity_series` as the KPIs) and `compare_curves(align="calendar"|"elapsed")`; `review.load_portfolio`,
+> `cash_rows`, `position_rows`, `Snapshot.ars_per_usd` (the `analyze` CLI prints the same rows); `quant_ui.plots.backtest`
+> (trade overlay, prediction scatter that never puts a missing return at 0, comparison). The Backtests page's
+> minimum Sharpe defaults to blank: the old −10 hid every run too short for a Sharpe. Pages live in `views/`
+> (not `pages/`, which Streamlit would also auto-load). **W3b**: `views/cache.py`, `views/fx.py` and their use cases below.
 
 ```
 apps/workbench/
@@ -207,6 +219,7 @@ apps/workbench/
 - Manual: launch the workbench and click every tab; check the YPFD raw/SPLIT chart around 2026-08-03;
   check that a 1-year window changes the KPIs and a 3-month window shows n/a for alpha.
 - Guards (import-linter contracts, see `modularization.md` "Guards per PR"): W1 adds "the apps never import
-  each other"; W3 adds "`streamlit` only in the workbench" and "the workbench never imports `quant_data` or
-  `quant_core.analytics`, and reaches the apps only through their use-case modules". `quant_ui` ↛ `quant_data`
+  each other"; W3a adds "`streamlit` only in the workbench" and "the workbench never imports `quant_core.analytics`
+  / `metrics`, `quant_data.db` / `providers` / `history`, `sqlalchemy`, or an app's internals" (`quant_data.inspect`
+  stays open for W3b), plus a text test: no `cummax`, `pct_change`, `cumprod` or `* 100` in the workbench. `quant_ui` ↛ `quant_data`
   is already a contract.

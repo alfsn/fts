@@ -13,14 +13,15 @@ fts/
 │   ├── quant_data/              # SQLAlchemy market-data cache, TieredDataProvider, broker loaders
 │   └── quant_ui/                # Shared Plotly chart builders and themes
 └── apps/
-    ├── fts/                     # Event-driven ML trading bot, ONNX registry, backtester & Streamlit UI
-    │   ├── src/trading_bot/     # Core engine (ingestion, strategy, risk, execution, backtesting, dashboard)
+    ├── fts/                     # Event-driven ML trading bot, ONNX registry & backtester
+    │   ├── src/trading_bot/     # Core engine (ingestion, strategy, risk, execution, backtesting, catalog)
     │   ├── src/plugins/         # Plugins (nets, ccxt, yfinance, argentina)
     │   ├── specs/               # YAML training, sweep & backtest specifications
     │   ├── models/              # Registered ONNX models and Optuna trial artifacts
     │   ├── notebooks/           # Jupyter research & backtest notebooks
     │   ├── runs/                # Optuna/TensorBoard logs and HTML backtest/sweep reports
     │   └── tests/               # Unit and integration tests
+    ├── workbench/               # Streamlit UI over both apps (Portfolio, Models, Backtests)
     └── portfolio_analyser/      # CLI for broker snapshots, ledger replay & HTML client reviews
         ├── src/portfolio_analyser/
         │   ├── main.py          # Click CLI (`portfolio-analyser` script)
@@ -59,7 +60,7 @@ Data Ingestion (Bars) → Strategy Engine (TradeSignal) → Risk Manager (OrderR
 4. **Execution Engine** (`trading_bot/execution/`): Order routing, bar-delay simulation, slippage models, and handlers (Simulated, Polymarket CLOB).
 5. **Monitoring** (`trading_bot/monitoring/`): Structured logging and SQLite prediction tracking (`DatabasePredictionLogger`).
 6. **Runs** (`trading_bot/runs/`): The only module that knows the run tables. `RunRecorder` writes a run (run card, model segments, orders, one row per fill at its bar time, predictions, equity); `RunStore` lists, loads and deletes whole runs. Everything lives in the one research database (`DATABASE_URL`, `dev.db`); bars come from the shared price cache (`market_cache.db`). Each backtest ends by replaying its saved fills, which must give the Portfolio's final positions and cash.
-7. **Backtesting & Dashboard** (`trading_bot/backtesting/`, `trading_bot/dashboard/`): Historical replay loop, HTML report/sweep exporters, and a Streamlit explorer for the model registry and backtest runs.
+7. **Backtesting & Catalog** (`trading_bot/backtesting/`, `trading_bot/core/catalog_repository.py`): Historical replay loop, HTML report/sweep exporters, and `CatalogQueryService`, the read side the workbench calls (models, runs, their KPIs and chart series).
 
 Plugins in `apps/fts/src/plugins/`:
 * **`nets`**: PyTorch/sklearn/XGBoost training (`LSTM`, `RNN`, `CNN`, `LinearRegression`, `XGBoost`), Optuna hyperparameter search, ONNX export & inference, and confidence sizing.
@@ -127,20 +128,21 @@ cd apps/fts
    uv run python -m trading_bot --config nets_task.yaml
    ```
 
-5. **Launch the Interactive Streamlit Dashboard** (browse DB counts, promote/archive models, compare backtest equity curves):
+5. **Launch the workbench** (portfolio reviews, promote/archive models, compare backtest curves; see [apps/workbench/README.md](apps/workbench/README.md)):
 
    ```bash
-   uv run python -m trading_bot.dashboard.cli --db dev.db --port 8501  # --cache <file> for another price cache
+   uv run workbench  # http://127.0.0.1:8501; --port for another port
    ```
 
 ---
 
 ## Running the Test Suites
 
-Because `apps/fts/tests` and `packages/quant_core/tests` both define a `tests` package, run the three suites separately:
+Because `apps/fts/tests` and `packages/quant_core/tests` both define a `tests` package, run the four suites separately:
 
 ```bash
 uv run pytest packages
 uv run pytest apps/portfolio_analyser/tests
+uv run pytest apps/workbench/tests
 cd apps/fts && uv run pytest tests
 ```
