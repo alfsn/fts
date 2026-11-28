@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import timedelta
 
 _UNITS = {
+    "s": timedelta(seconds=1),
     "m": timedelta(minutes=1),
     "h": timedelta(hours=1),
     "d": timedelta(days=1),
@@ -22,11 +23,15 @@ _UNITS = {
 
 
 def interval_to_timedelta(interval: str) -> timedelta:
-    """'1m', '4h', '1d', '1w' (yfinance '1wk'/'1mo', ccxt '1M') as a duration."""
+    """'1s', '1m', '4h', '1d', '1w' (yfinance '1wk'/'1mo', ccxt '1M') as a
+    duration. Units are case-insensitive ('1H', '1D') except 'M', which is
+    ccxt's month, never a minute."""
     if not interval:
         raise ValueError("Interval string cannot be empty.")
     digits = len(interval) - len(interval.lstrip("0123456789"))
     value, unit = interval[:digits], interval[digits:]
+    if unit not in _UNITS:
+        unit = unit.lower()
     if not value or unit not in _UNITS:
         raise ValueError(f"Unknown interval '{interval}'")
     return int(value) * _UNITS[unit]

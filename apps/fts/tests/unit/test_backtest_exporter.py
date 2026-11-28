@@ -125,3 +125,40 @@ def test_html_exporter_empty_dataframe_raises(db_url):
             strategy_name="cnn",
             run_id="test_run_123",
         )
+
+
+def test_html_exporter_picks_the_runs_interval_when_two_are_cached(db_url, tmp_path):
+    # The same market also cached at 1h: the 5m run's report still exports,
+    # on its own 5m bars (read from the spacing of its predictions).
+    engine = create_engine(db_url)
+    with sessionmaker(bind=engine)() as db:
+        base_time = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
+        for i in range(3):
+            db.add(
+                BarDataLog(
+                    interval="1h",
+                    source="test",
+                    instrument_id="BTC/USDT",
+                    timestamp=base_time + timedelta(hours=i),
+                    open=1.0,
+                    high=1.0,
+                    low=1.0,
+                    close=1.0,
+                    volume=1.0,
+                    bar_type=BarType.TIME,
+                    ticks_count=1,
+                    dollar_volume=1.0,
+                )
+            )
+        db.commit()
+    engine.dispose()
+
+    exporter = HTMLBacktestExporter(db_url=db_url)
+    df = exporter.visualizer.load_data("BTC/USDT", "cnn", "test_run_123")
+    assert len(df) == 5
+    assert exporter.export(
+        instrument_id="BTC/USDT",
+        strategy_name="cnn",
+        run_id="test_run_123",
+        output_path=str(tmp_path / "report.html"),
+    )

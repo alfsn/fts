@@ -11,6 +11,7 @@ from IPython.display import clear_output, display
 from plotly.subplots import make_subplots
 from quant_core.analytics import wealth_index
 from quant_core.enums import OrderSide, SignalType
+from quant_core.intervals import interval_to_timedelta
 from quant_data.db import MarketDataRepository
 from sqlalchemy.orm import sessionmaker
 from trading_bot.config import get_settings
@@ -50,6 +51,37 @@ class BacktestVisualizer:
         """The intervals cached for one market, for the interval picker."""
         with self.SessionLocal() as session:
             return MarketDataRepository(session).intervals(instrument_id)
+
+    def run_interval(self, instrument_id: str, run_id: Optional[str]) -> Optional[str]:
+        """The cached interval a run traded on, read from the spacing of its
+        predictions for this market; None when no cached interval matches."""
+        if not run_id or run_id == "None":
+            return None
+        record = self.store.load(run_id)
+        if record is None:
+            return None
+        return self._interval_of(record, instrument_id)
+
+    def _interval_of(self, record, instrument_id: str) -> Optional[str]:
+        stamps = pd.Series(
+            sorted(
+                {
+                    p.timestamp
+                    for p in record.predictions
+                    if p.instrument_id == instrument_id
+                }
+            )
+        )
+        if len(stamps) < 2:
+            return None
+        spacing = pd.to_datetime(stamps, utc=True).diff().median()
+        for interval in self.intervals(instrument_id):
+            try:
+                if interval_to_timedelta(interval) == spacing:
+                    return interval
+            except ValueError:
+                continue
+        return None
 
     def _bars(self, instrument_id: str, interval: Optional[str]) -> pd.DataFrame:
         """One cached series as a frame, through ``quant_data`` (M2a). Without
@@ -92,20 +124,23 @@ class BacktestVisualizer:
         """
         Joins the instrument's bars (one interval; see ``_bars``) with one
         run's predictions, fills and equity (from ``RunStore``). Without a
-        run, the bars only.
+        run, the bars only. Without an interval, the run's own (see
+        ``run_interval``).
         """
         if strategy_name == "None":
             strategy_name = None
         if run_id == "None":
             run_id = None
 
+        record = self.store.load(run_id) if run_id else None
+        if interval is None and record is not None:
+            interval = self._interval_of(record, instrument_id)
+
         df_bars = self._bars(instrument_id, interval)
         if df_bars.empty:
             logger.warning(f"No bar data found for market: {instrument_id}")
             return pd.DataFrame()
         df_bars["timestamp"] = pd.to_datetime(df_bars["timestamp"], utc=True)
-
-        record = self.store.load(run_id) if run_id else None
 
         preds = [
             p.model_dump()
@@ -517,6 +552,15 @@ class BacktestVisualizer:
                 )
             )
 
+    def _default_interval(
+        self, instrument_id: str, run_id: Optional[str]
+    ) -> Optional[str]:
+        """The picker's default: the run's interval, else the first cached."""
+        cached = self.intervals(instrument_id)
+        return self.run_interval(instrument_id, run_id) or (
+            cached[0] if cached else None
+        )
+
     def show_dashboard(self, onnx_model_path: Optional[str] = None) -> None:
         """
         Builds the entire interactive dashboard layout and outputs it to the cell.
@@ -549,19 +593,19 @@ class BacktestVisualizer:
             description="Strategy:",
             layout=widgets.Layout(width="250px"),
         )
-        default_intervals = self.intervals(default_market)
-        interval_dd = widgets.Dropdown(
-            options=default_intervals,
-            value=default_intervals[0] if default_intervals else None,
-            description="Interval:",
-            layout=widgets.Layout(width="160px"),
-        )
         run_ids = self.get_available_runs(default_market, default_strategy)
         run_id_dd = widgets.Dropdown(
             options=run_ids,
             value=run_ids[0] if run_ids else None,
             description="Run ID:",
             layout=widgets.Layout(width="220px"),
+        )
+        default_intervals = self.intervals(default_market)
+        interval_dd = widgets.Dropdown(
+            options=default_intervals,
+            value=self._default_interval(default_market, run_id_dd.value),
+            description="Interval:",
+            layout=widgets.Layout(width="160px"),
         )
 
         load_btn = widgets.Button(
@@ -577,15 +621,15 @@ class BacktestVisualizer:
 
         def on_market_change(change):
             m = change["new"]
-            intervals = self.intervals(m)
-            interval_dd.options = intervals
-            interval_dd.value = intervals[0] if intervals else None
+            interval_dd.options = self.intervals(m)
             strategies = meta_dict.get(m, ["None"])
             strategy_dd.options = strategies
             s = strategies[0] if strategies else None
             runs = self.get_available_runs(m, s if s != "None" else None)
             run_id_dd.options = runs
             run_id_dd.value = runs[0] if runs else None
+            # The same run can trade several markets, so set it here too.
+            interval_dd.value = self._default_interval(m, run_id_dd.value)
 
         def on_strategy_change(change):
             s = change["new"]
@@ -594,8 +638,12 @@ class BacktestVisualizer:
             run_id_dd.options = runs
             run_id_dd.value = runs[0] if runs else None
 
+        def on_run_change(change):
+            interval_dd.value = self._default_interval(market_dd.value, change["new"])
+
         market_dd.observe(on_market_change, names="value")
         strategy_dd.observe(on_strategy_change, names="value")
+        run_id_dd.observe(on_run_change, names="value")
 
         # Layout panels
         plot_panel = widgets.Output()

@@ -9,6 +9,9 @@ def test_intervals_parse_every_vendor_spelling():
     assert interval_to_timedelta("4h") == timedelta(hours=4)
     assert interval_to_timedelta("1wk") == interval_to_timedelta("1w")
     assert interval_to_timedelta("1M") == interval_to_timedelta("1mo")
+    assert interval_to_timedelta("1s") == timedelta(seconds=1)
+    assert interval_to_timedelta("1H") == timedelta(hours=1)
+    assert interval_to_timedelta("1D") == timedelta(days=1)
     with pytest.raises(ValueError):
         interval_to_timedelta("1x")
 

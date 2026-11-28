@@ -220,6 +220,7 @@ class HistoricalReplayLoop(BaseEventLoop):
                                     strategy_name=strategy.name,
                                     run_id=run_id,
                                     output_path=self.backtest_report_dir,
+                                    interval=getattr(reader, "interval", None),
                                 )
                             except Exception as export_err:
                                 logger.error(

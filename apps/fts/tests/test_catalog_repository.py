@@ -223,6 +223,15 @@ def test_catalog_query_service_summary(db_session_factory):
     assert summary["models"] == 0
 
 
+def test_summary_counts_zero_after_a_cache_reset(db_session_factory):
+    # quant_data.db.reset drops the cache tables; the summary reports 0.
+    engine = db_session_factory.kw["bind"]
+    Market.__table__.drop(engine)
+    summary = CatalogQueryService(db_session_factory).get_database_summary()
+    assert summary["markets"] == 0
+    assert summary["bar_logs"] == 0
+
+
 def test_the_model_comes_from_the_run_segment(db_session_factory):
     """M1: one database, and the linked model is the run's segment (it used
     to be guessed from the run name)."""

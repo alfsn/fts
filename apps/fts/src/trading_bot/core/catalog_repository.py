@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 from quant_data.db import MarketDataRepository
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..runs import RunRecord, RunStore
@@ -239,7 +240,11 @@ class CatalogQueryService:
                 return 0
 
         with self.session_factory() as session:
-            cache = MarketDataRepository(session).counts()
+            try:
+                cache = MarketDataRepository(session).counts()
+            except SQLAlchemyError:  # cache tables dropped by a reset
+                session.rollback()
+                cache = {"markets": 0, "bars": 0}
             models = _count(session, ModelRegistryLog)
             production_models = (
                 session.scalar(

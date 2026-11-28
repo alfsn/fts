@@ -22,6 +22,7 @@ class BaseBacktestExporter(ABC):
         strategy_name: Optional[str] = None,
         run_id: Optional[str] = None,
         output_path: Optional[str] = None,
+        interval: Optional[str] = None,
     ) -> str:
         """
         Exports the backtest visualization for a given market, strategy, and run.
@@ -30,6 +31,8 @@ class BaseBacktestExporter(ABC):
         :param strategy_name: The strategy name.
         :param run_id: The specific backtest simulation run ID.
         :param output_path: Optional file path or directory to write the report to.
+        :param interval: The bar interval the run traded on; without it, the
+            run's own (read from its predictions).
         :return: Absolute or relative file path of the generated visualization report.
         """
         pass
@@ -57,12 +60,15 @@ class HTMLBacktestExporter(BaseBacktestExporter):
         strategy_name: Optional[str] = None,
         run_id: Optional[str] = None,
         output_path: Optional[str] = None,
+        interval: Optional[str] = None,
     ) -> str:
         """
         Loads the backtest logs, generates the interactive Plotly charts,
         and writes them out to a standalone HTML file.
         """
-        df = self.visualizer.load_data(instrument_id, strategy_name, run_id)
+        df = self.visualizer.load_data(
+            instrument_id, strategy_name, run_id, interval=interval
+        )
         if df.empty:
             raise ValueError(
                 f"No backtest prediction data found for market: {instrument_id}, "
