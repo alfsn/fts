@@ -151,7 +151,7 @@ def test_the_run_recorder_never_commits():
         ResearchBase.metadata.drop_all(engine)
 
 
-# --- Text guards (M1, M2b; the import rules are import-linter contracts) ---
+# --- Text guards (M1, M2b, R1; the import rules are import-linter contracts) ---
 
 REPO = Path(__file__).resolve().parents[4]
 APP_SOURCES = (
@@ -184,6 +184,13 @@ def test_one_database_no_backtest_url_or_test_switch():
 def test_positions_are_not_stored():
     """D19: positions are derived from fills; nothing persists them."""
     assert _source_hits(r"\bPositionRepository\b|__tablename__ = \"positions\"") == []
+
+
+def test_ic_maths_only_in_quant_core():
+    """R1: correlations (the IC and its SE) are computed only in
+    ``quant_core.analytics.forecast``, never in fts."""
+    pattern = r"\bcorrcoef\b|spearmanr|pearsonr|\.corr\(|\.corrwith\("
+    assert _source_hits(pattern, APP_SOURCES[:2]) == []  # trading_bot, plugins
 
 
 def test_run_reset_drops_only_run_tables(tmp_path):

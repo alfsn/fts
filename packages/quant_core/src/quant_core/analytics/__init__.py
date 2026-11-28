@@ -15,6 +15,14 @@ from .drawdown import (
     max_time_underwater_days,
     top_drawdowns,
 )
+from .forecast import (
+    drop_unpaired,
+    hit_rate,
+    ic_hac_lags,
+    ic_se_newey_west,
+    rank_ic,
+    rank_ic_decay,
+)
 from .fx import ccl_from_pairs, implied_ccl, implied_ccl_frame
 from .rates import RiskFree, excess_returns, tbill_bond_equivalent_yield
 from .ratios import (

@@ -25,7 +25,9 @@ def plot_parameter_sensitivity(
 
     # Extract X and Y arrays
     x_vals = trials_df["param_value"].astype(str).tolist()
-    val_ics = trials_df.get("val_ic", pd.Series([0.0] * len(trials_df))).tolist()
+    val_ics = trials_df.get(
+        "val_ic", pd.Series([float("nan")] * len(trials_df))
+    ).tolist()
     val_losses = trials_df.get("val_loss", pd.Series([0.0] * len(trials_df))).tolist()
     oos_pnls = trials_df.get("oos_pnl", pd.Series([0.0] * len(trials_df))).tolist()
     oos_sharpes = trials_df.get(

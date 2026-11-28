@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional, Sequence
 import numpy as np
 import torch
 import torch.nn as nn
+from quant_core.metrics import compute_forecast_metrics
+from quant_core.models import ForecastMetrics
 from torch.utils.data import DataLoader
 from trading_bot.core.schemas import BarData
 
@@ -17,139 +19,94 @@ logger = logging.getLogger(__name__)
 
 class MetricsCalculator:
     """
-    Computes trading performance metrics (Loss, IC, Directional Accuracy, IC Decay)
-    from raw prediction and target arrays.
+    Validation metrics from raw prediction and target arrays: the losses here,
+    the forecast scores (rank IC with its SE, hit rate, IC decay) from
+    ``quant_core.metrics.compute_forecast_metrics`` (R1).
     """
 
     @staticmethod
     def calculate_metrics(
         preds: np.ndarray,
         targets: np.ndarray,
+        horizon: int,
         output_selector: Optional[BaseOutputSelector] = None,
         val_bars: Optional[Sequence[Sequence[BarData]]] = None,
     ) -> Dict[str, Any]:
         """
-        Computes MSE, MAE, Huber, and Cross Entropy losses, Information Coefficient (IC) via Pearson correlation,
-        Directional Accuracy (sign agreement), and IC Decay over time (lags 0 to 5).
-        If output_selector and val_bars are provided, computes selector signal metrics.
+        Computes MSE, MAE, Huber and Cross Entropy losses, and puts the
+        forecast scores under ``forecast`` (a ``ForecastMetrics``); ``ic``,
+        ``directional_accuracy`` and ``ic_decay`` read from it. If
+        output_selector and val_bars are provided, the selector's signals are
+        scored the same way. Undefined values are NaN, never 0.0.
         """
-        if len(preds) == 0 or len(targets) == 0:
-            return {
-                "loss": 0.0,
-                "mse": 0.0,
-                "mae": 0.0,
-                "huber": 0.0,
-                "cross_entropy": 0.0,
-                "ic": 0.0,
-                "directional_accuracy": 0.5,
-                "ic_decay": {i: 0.0 for i in range(6)},
-            }
+        preds_flat = np.asarray(preds, dtype=float).flatten()
+        targets_flat = np.asarray(targets, dtype=float).flatten()
+        forecast = compute_forecast_metrics(preds_flat, targets_flat, horizon=horizon)
 
-        preds_flat = preds.flatten()
-        targets_flat = targets.flatten()
+        nan = float("nan")
+        mse = mae = huber = cross_entropy = nan
+        if len(preds_flat) > 0 and len(targets_flat) > 0:
+            mse = float(np.mean((preds_flat - targets_flat) ** 2))
+            mae = float(np.mean(np.abs(preds_flat - targets_flat)))
 
-        # Compute losses
-        mse = float(np.mean((preds_flat - targets_flat) ** 2))
-        mae = float(np.mean(np.abs(preds_flat - targets_flat)))
-
-        # Huber loss
-        delta = 1.0
-        diff = np.abs(preds_flat - targets_flat)
-        huber_loss = np.where(
-            diff < delta, 0.5 * (diff**2), delta * (diff - 0.5 * delta)
-        )
-        huber = float(np.mean(huber_loss))
-
-        # Cross Entropy (for 3-class probability predictions)
-        cross_entropy = 0.0
-        if len(preds.shape) > 1 and preds.shape[1] == 3:
-            # Check if predictions are valid probabilities
-            is_prob = (
-                np.all(preds >= 0)
-                and np.all(preds <= 1)
-                and np.allclose(np.sum(preds, axis=1), 1.0, atol=1e-2)
+            # Huber loss
+            delta = 1.0
+            diff = np.abs(preds_flat - targets_flat)
+            huber_loss = np.where(
+                diff < delta, 0.5 * (diff**2), delta * (diff - 0.5 * delta)
             )
-            if is_prob:
-                threshold = 0.001
-                targets_cls = np.zeros(len(targets_flat), dtype=np.int32)
-                targets_cls[targets_flat > threshold] = 2
-                targets_cls[
-                    (targets_flat >= -threshold) & (targets_flat <= threshold)
-                ] = 1
-                targets_cls[targets_flat < -threshold] = 0
+            huber = float(np.mean(huber_loss))
 
-                eps = 1e-15
-                clipped_preds = np.clip(preds, eps, 1 - eps)
-                log_loss = -np.mean(
-                    np.log(clipped_preds[np.arange(len(targets_cls)), targets_cls])
+            # Cross Entropy (for 3-class probability predictions)
+            if len(preds.shape) > 1 and preds.shape[1] == 3:
+                # Check if predictions are valid probabilities
+                is_prob = (
+                    np.all(preds >= 0)
+                    and np.all(preds <= 1)
+                    and np.allclose(np.sum(preds, axis=1), 1.0, atol=1e-2)
                 )
-                cross_entropy = float(log_loss)
+                if is_prob:
+                    threshold = 0.001
+                    targets_cls = np.zeros(len(targets_flat), dtype=np.int32)
+                    targets_cls[targets_flat > threshold] = 2
+                    targets_cls[
+                        (targets_flat >= -threshold) & (targets_flat <= threshold)
+                    ] = 1
+                    targets_cls[targets_flat < -threshold] = 0
 
-        loss = mse
-
-        std_preds = np.std(preds_flat)
-        std_targets = np.std(targets_flat)
-        ic = (
-            float(np.corrcoef(preds_flat, targets_flat)[0, 1])
-            if std_preds > 1e-8 and std_targets > 1e-8
-            else 0.0
-        )
-
-        directional_accuracy = float(
-            np.mean(np.sign(preds_flat) == np.sign(targets_flat))
-        )
-
-        # IC Decay over time (lag 0 to 5)
-        ic_decay = {}
-        for lag in range(6):
-            if lag == 0:
-                ic_decay[0] = ic
-            elif len(preds_flat) > lag:
-                p_sub = preds_flat[:-lag]
-                t_sub = targets_flat[lag:]
-                s_p = np.std(p_sub)
-                s_t = np.std(t_sub)
-                ic_decay[lag] = (
-                    float(np.corrcoef(p_sub, t_sub)[0, 1])
-                    if s_p > 1e-8 and s_t > 1e-8
-                    else 0.0
-                )
-            else:
-                ic_decay[lag] = 0.0
+                    eps = 1e-15
+                    clipped_preds = np.clip(preds, eps, 1 - eps)
+                    log_loss = -np.mean(
+                        np.log(clipped_preds[np.arange(len(targets_cls)), targets_cls])
+                    )
+                    cross_entropy = float(log_loss)
 
         metrics = {
-            "loss": loss,
+            "loss": mse,
             "mse": mse,
             "mae": mae,
             "huber": huber,
             "cross_entropy": cross_entropy,
-            "ic": ic,
-            "directional_accuracy": directional_accuracy,
-            "ic_decay": ic_decay,
+            "forecast": forecast,
+            "ic": forecast.rank_ic,
+            "ic_se": forecast.rank_ic_se,
+            "directional_accuracy": forecast.hit_rate,
+            "ic_decay": forecast.ic_decay,
         }
 
-        # Calculate metrics specific to output selector
+        # Score the output selector's signals (+1 / 0 / -1) the same way:
+        # flat signals have no direction and are left out of the hit rate.
         if output_selector is not None and val_bars is not None:
-            selected_signals = []
-            for pred_val, bars_val in zip(preds, val_bars):
-                sig, _ = output_selector.select_output(pred_val, bars_val)
-                selected_signals.append(sig)
-
-            correct_signals = 0
-            non_flat_signals = 0
-            for sig, target_ret in zip(selected_signals, targets_flat):
-                if sig == PredictionSignal.UP:
-                    non_flat_signals += 1
-                    if target_ret > 0:
-                        correct_signals += 1
-                elif sig == PredictionSignal.DOWN:
-                    non_flat_signals += 1
-                    if target_ret < 0:
-                        correct_signals += 1
-
-            metrics["selector_accuracy"] = (
-                correct_signals / non_flat_signals if non_flat_signals > 0 else 0.5
+            selected_signals = [
+                output_selector.select_output(pred_val, bars_val)[0]
+                for pred_val, bars_val in zip(preds, val_bars)
+            ]
+            direction = {PredictionSignal.UP: 1.0, PredictionSignal.DOWN: -1.0}
+            signal_values = [direction.get(s, 0.0) for s in selected_signals]
+            selector = compute_forecast_metrics(
+                signal_values, targets_flat[: len(signal_values)], horizon=horizon
             )
+            metrics["selector_accuracy"] = selector.hit_rate
             metrics["selector_signal_counts"] = {
                 "up": sum(1 for s in selected_signals if s == PredictionSignal.UP),
                 "flat": sum(1 for s in selected_signals if s == PredictionSignal.FLAT),
@@ -157,6 +114,20 @@ class MetricsCalculator:
             }
 
         return metrics
+
+
+def registry_metrics(metrics: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    """The validation scores the model registry stores (R1-D7), from a
+    trainer's ``best_val_metrics``. NaN when there was no validation set."""
+    metrics = metrics or {}
+    forecast = metrics.get("forecast") or ForecastMetrics()
+    return {
+        "val_loss": metrics.get("loss", float("nan")),
+        "val_ic": forecast.rank_ic,
+        "val_ic_se": forecast.rank_ic_se,
+        "val_ic_n": forecast.n_obs,
+        "val_hit_rate": forecast.hit_rate,
+    }
 
 
 class ValidationEvaluator:
@@ -170,6 +141,7 @@ class ValidationEvaluator:
         model: nn.Module,
         dataloader: DataLoader,
         criterion: nn.Module,
+        horizon: int,
         output_selector: Optional[BaseOutputSelector] = None,
         val_bars: Optional[Sequence[Sequence[BarData]]] = None,
     ) -> Dict[str, Any]:
@@ -194,6 +166,7 @@ class ValidationEvaluator:
         metrics = MetricsCalculator.calculate_metrics(
             preds=preds_arr,
             targets=targets_arr,
+            horizon=horizon,
             output_selector=output_selector,
             val_bars=val_bars,
         )
@@ -225,6 +198,7 @@ class ValidationEvaluator:
 
         writer.add_scalar("Loss/val_epoch", metrics["loss"], epoch)
         writer.add_scalar("Metrics/val_ic", metrics["ic"], epoch)
+        writer.add_scalar("Metrics/val_ic_se", metrics["ic_se"], epoch)
         writer.add_scalar(
             "Metrics/val_directional_accuracy",
             metrics["directional_accuracy"],

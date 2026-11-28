@@ -505,3 +505,52 @@ class VolForecastMetrics(BaseModel):
     horizon: int = Field(0, description="Realised-vol window (obs, ~1 month).")
     ewma: ForecastEvaluation = Field(default_factory=ForecastEvaluation)
     baseline: ForecastEvaluation = Field(default_factory=ForecastEvaluation)
+
+
+class ForecastMetrics(BaseModel):
+    """
+    Out-of-sample score of a return forecast (R1): rank IC (Spearman) with its
+    Newey-West SE, IC decay and the directional hit rate. NaN when undefined
+    (constant predictions) or below ``min_obs`` pairs; ``n_obs`` is always set.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_obs: int = Field(0, description="Pairs with both a prediction and a target.")
+    min_obs: Optional[int] = Field(
+        None, description="Minimum sample used (pairs); None when never computed."
+    )
+    horizon: int = Field(0, description="Forecast horizon (bars).")
+    rank_ic: float = _nan("Spearman correlation of predictions and targets.")
+    rank_ic_se: float = _nan("Standard error of the rank IC.")
+    se_method: Literal["newey_west"] = Field(
+        "newey_west", description="How rank_ic_se was computed."
+    )
+    hac_lags: Optional[int] = Field(None, description="Newey-West lags used.")
+    hit_rate: float = _nan("Share of pairs whose signs agree (zeros left out).")
+    hit_n: int = Field(0, description="Pairs scored by the hit rate.")
+    ic_decay: Dict[int, float] = Field(
+        default_factory=dict,
+        description="Rank IC of prediction i against target i + lag, by lag.",
+    )
+
+
+class FoldICSummary(BaseModel):
+    """
+    Rank ICs across walk-forward folds (D11, D12). NaN folds are left out and
+    counted in ``n_undefined``. One fold gives a mean but NaN std, SE and IR.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_folds: int = Field(0, description="Folds with a defined IC.")
+    n_undefined: int = Field(0, description="Folds whose IC was NaN.")
+    mean: float = _nan("Mean fold IC.")
+    median: float = _nan("Median fold IC.")
+    std: float = _nan("Standard deviation of fold ICs (ddof=1).")
+    se: float = _nan("Standard error of the mean fold IC.")
+    se_method: Literal["fold_std"] = Field(
+        "fold_std", description="SE = std(fold ICs, ddof=1) / sqrt(n_folds)."
+    )
+    ir: float = _nan("Mean / std of fold ICs (IC information ratio).")
+    share_positive: float = _nan("Fraction of folds with a positive IC.")

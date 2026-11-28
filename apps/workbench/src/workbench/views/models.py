@@ -45,13 +45,18 @@ st.dataframe(
                 "Horizon": m.horizon,
                 "Status": m.status,
                 "Val IC": (m.metrics or {}).get("val_ic"),
+                "IC SE": (m.metrics or {}).get("val_ic_se"),
+                "n": (m.metrics or {}).get("val_ic_n"),
                 "Created": m.created_at,
             }
             for m in shown
         ]
     ),
     use_container_width=True,
-    column_config={"Val IC": st.column_config.NumberColumn(format="%.4f")},
+    column_config={
+        "Val IC": st.column_config.NumberColumn(format="%.4f"),
+        "IC SE": st.column_config.NumberColumn(format="%.4f"),
+    },
 )
 
 model_id = st.selectbox("Inspect", [m.model_id for m in shown])

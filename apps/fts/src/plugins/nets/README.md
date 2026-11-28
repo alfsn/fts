@@ -180,7 +180,7 @@ Standard cross-validation and splits leak information when label windows overlap
 
 ### 4. Metrics & Evaluation
 - **`TimeSeriesDataset`**: An idiomatic PyTorch dataset that converts inputs and targets to float32 tensors and transposes inputs to `[batch, features, sequence_length]`.
-- **`MetricsCalculator`**: A decoupled, model-agnostic class that calculates validation loss, Information Coefficient (IC) via Pearson correlation, Directional Accuracy (sign agreement), and IC Decay (correlation at lags 0 to 5) on raw predictions and targets.
+- **`MetricsCalculator`**: A model-agnostic class that calculates the validation losses on raw predictions and targets, and takes the forecast scores from `quant_core.metrics.compute_forecast_metrics` (a `ForecastMetrics` under `metrics["forecast"]`): the rank IC (Spearman) with its Newey-West standard error, the directional hit rate (zero signs left out) and the rank IC decay at lags 0 to 5. Each score is NaN below 30 pairs or when undefined (e.g. constant predictions), never 0.0. `registry_metrics` turns a trainer's `best_val_metrics` into the registry's `val_loss`, `val_ic`, `val_ic_se`, `val_ic_n` and `val_hit_rate`.
 - **`ValidationEvaluator`**: Coordinates the PyTorch validation loop and forwards prediction/target tensors to `MetricsCalculator`.
 
 ---

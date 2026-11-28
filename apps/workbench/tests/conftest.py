@@ -29,7 +29,7 @@ def databases(tmp_path, monkeypatch):
                     horizon=1,
                     onnx_path="/nonexistent.onnx",
                     hyperparameters={"hidden_dim": 64, "lr": float("nan")},
-                    metrics={"val_ic": 0.03},
+                    metrics={"val_ic": 0.03, "val_ic_se": 0.01, "val_ic_n": 100},
                     status="candidate",
                 ),
                 RunLog(run_id="run_1", kind="backtest", instrument_id="BTC/USDT"),

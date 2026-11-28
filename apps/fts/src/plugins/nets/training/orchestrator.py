@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Union
 
 from nets.models import NNTrainingConfig
+from nets.training.evaluator import registry_metrics
 from nets.training.registry import get_trainer_and_config
 from quant_data.db import MarketDataRepository
 from sqlalchemy import create_engine
@@ -151,8 +152,9 @@ def train_and_register_candidate(
     with open(onnx_filename, "wb") as f:
         f.write(onnx_bytes)
 
-    val_ic = getattr(trainer, "last_val_ic", None)
-    val_loss = getattr(trainer, "last_val_loss", None)
+    metrics = registry_metrics(getattr(trainer, "best_val_metrics", None))
+    val_ic = metrics["val_ic"]
+    val_loss = metrics["val_loss"]
 
     with SessionLocal() as db:
         model_repo = ModelRepository(db)
@@ -168,7 +170,7 @@ def train_and_register_candidate(
                 **model_config_obj.model_dump(),
                 **training_config_obj.model_dump(),
             },
-            metrics={"val_ic": val_ic, "val_loss": val_loss},
+            metrics=metrics,
             status=status,
             dataset_id=dataset_id,
         )

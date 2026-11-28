@@ -31,6 +31,7 @@ from trading_bot.core.repository import ModelRepository
 
 logger = logging.getLogger(__name__)
 
+from nets.training.evaluator import registry_metrics
 from nets.training.registry import TRAINER_REGISTRY
 from trading_bot.utils.model_id import generate_model_id
 
@@ -180,19 +181,8 @@ def run_hparam_search(
 
         # Retrieve validation metrics
         val_loss = getattr(trainer, "best_val_loss", 999.0)
-        metrics = {
-            "val_loss": val_loss,
-            "ic": (
-                trainer.best_val_metrics.get("ic", 0.0)
-                if getattr(trainer, "best_val_metrics", None)
-                else 0.0
-            ),
-            "directional_accuracy": (
-                trainer.best_val_metrics.get("directional_accuracy", 0.5)
-                if getattr(trainer, "best_val_metrics", None)
-                else 0.5
-            ),
-        }
+        metrics = registry_metrics(getattr(trainer, "best_val_metrics", None))
+        metrics["val_loss"] = val_loss
 
         # Log details to SQLite Model Registry inside a context-managed session per trial
         with create_db_session(settings.DATABASE_URL) as trial_db:
@@ -283,9 +273,11 @@ def get_scored_models(
     df_models["val_loss"] = df_models["metrics"].apply(
         lambda m: extract_metric(m, "val_loss", 999.0)
     )
-    df_models["ic"] = df_models["metrics"].apply(lambda m: extract_metric(m, "ic", 0.0))
+    df_models["ic"] = df_models["metrics"].apply(
+        lambda m: extract_metric(m, "val_ic", float("nan"))
+    )
     df_models["directional_accuracy"] = df_models["metrics"].apply(
-        lambda m: extract_metric(m, "directional_accuracy", 0.5)
+        lambda m: extract_metric(m, "val_hit_rate", float("nan"))
     )
 
     # Normalize metrics for balanced composite score calculation

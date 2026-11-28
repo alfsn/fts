@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -747,3 +747,38 @@ def test_run_parameter_sweep_accepts_loaded_spec(tmp_path):
         result = run_parameter_sweep(spec, output_dir=None)
         assert result.sweep_name == spec.sweep_name
         assert len(result.trials) == len(spec.sweep_values)
+
+
+def test_trained_model_reports_its_ic_to_the_registry():
+    """R1: the registry used to read ``trainer.last_val_ic``, which no trainer
+    sets, so every model's val_ic was None. It now reads best_val_metrics."""
+    from nets.models import BaseTrainerConfig
+    from nets.training import LinearRegressionTrainer
+    from nets.training.evaluator import registry_metrics
+
+    rng = np.random.default_rng(3)
+    closes = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, 300)))
+    bars = [
+        BarData(
+            timestamp=datetime(2024, 1, 1) + timedelta(hours=i),
+            open=c,
+            high=c * 1.001,
+            low=c * 0.999,
+            close=c,
+            volume=100,
+            bar_type=BarType.TIME,
+            ticks_count=1,
+            dollar_volume=100,
+        )
+        for i, c in enumerate(closes)
+    ]
+    trainer = LinearRegressionTrainer(
+        lookback_period=10,
+        config=BaseTrainerConfig(validation_split=0.2, embargo_pct=0.01, horizon=1),
+    )
+    trainer.train(bars)
+
+    metrics = registry_metrics(trainer.best_val_metrics)
+
+    assert metrics["val_ic_n"] >= 30
+    assert np.isfinite(metrics["val_ic"]) and np.isfinite(metrics["val_ic_se"])
