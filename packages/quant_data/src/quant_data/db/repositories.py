@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict
-from quant_core.enums import BarType, Currency, RateType
+from quant_core.enums import BarType
 from quant_core.intervals import interval_to_timedelta
 from quant_core.models import BarData as BarDataSchema
 from quant_core.models import CorporateAction
@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import BarDataLog as BarDataLogModel
-from .models import CorporateActionRecord, FXRateRecord
+from .models import CorporateActionRecord
 from .models import Market as MarketModel
 
 logger = logging.getLogger(__name__)
@@ -297,34 +297,6 @@ class MarketDataRepository(BaseRepository):
             "markets": self.db.query(func.count(MarketModel.id)).scalar() or 0,
             "bars": self.db.query(func.count(BarDataLogModel.id)).scalar() or 0,
         }
-
-    # --- FX --------------------------------------------------------------------
-
-    def get_fx_rate(
-        self,
-        base_currency: Currency,
-        quote_currency: Currency,
-        rate_type: RateType,
-        as_of: datetime,
-    ) -> Optional[float]:
-        try:
-            record = (
-                self.db.query(FXRateRecord)
-                .filter(
-                    FXRateRecord.base_currency == base_currency,
-                    FXRateRecord.quote_currency == quote_currency,
-                    FXRateRecord.rate_type == rate_type,
-                    FXRateRecord.timestamp <= as_of,
-                )
-                .order_by(FXRateRecord.timestamp.desc())
-                .first()
-            )
-            return record.rate if record else None
-        except Exception as e:
-            logger.error(
-                f"Failed to get FX rate for {base_currency}/{quote_currency}: {e}"
-            )
-            raise e
 
     # --- corporate actions -----------------------------------------------------
 

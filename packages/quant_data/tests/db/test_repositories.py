@@ -1,44 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from quant_core.enums import CorporateActionType, Currency, RateType
-from quant_data.db.models import CorporateActionRecord, FXRateRecord
-
-
-def test_get_fx_rate(db_session, repo):
-    now = datetime.now(timezone.utc)
-
-    # Add rate 1 day ago
-    r1 = FXRateRecord(
-        base_currency=Currency.USD,
-        quote_currency=Currency.ARS,
-        rate_type=RateType.MEP,
-        timestamp=now - timedelta(days=1),
-        rate=1000.0,
-    )
-    # Add rate today
-    r2 = FXRateRecord(
-        base_currency=Currency.USD,
-        quote_currency=Currency.ARS,
-        rate_type=RateType.MEP,
-        timestamp=now,
-        rate=1100.0,
-    )
-    db_session.add_all([r1, r2])
-    db_session.commit()
-
-    # Query today -> should get r2
-    rate = repo.get_fx_rate(Currency.USD, Currency.ARS, RateType.MEP, now)
-    assert rate == 1100.0
-
-    # Query 12 hours ago -> should get r1
-    rate_past = repo.get_fx_rate(
-        Currency.USD, Currency.ARS, RateType.MEP, now - timedelta(hours=12)
-    )
-    assert rate_past == 1000.0
-
-    # Query missing rate -> None
-    rate_missing = repo.get_fx_rate(Currency.EUR, Currency.USD, RateType.OFFICIAL, now)
-    assert rate_missing is None
+from quant_core.enums import CorporateActionType
+from quant_data.db.models import CorporateActionRecord
 
 
 def test_get_corporate_actions(db_session, repo):

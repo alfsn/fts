@@ -43,7 +43,7 @@ docs/
 ### Shared Packages (`packages/`)
 
 * **`quant_core`**: Pure domain schemas (Pydantic), FIFO trade/ledger replay (`ledger.py`), split & total-return corporate-action adjustments, CCL FX extraction, returns/drawdown/ratio/benchmark math (`analytics/`), and unified KPI composition (`compute_performance_metrics`, `compute_benchmark_metrics`).
-* **`quant_data`**: SQLAlchemy cache (`markets`, `bar_data_logs`, `corporate_actions`, `fx_rates`) in one `market_cache.db` at the workspace root shared by both apps (`MARKET_CACHE_URL` to move it), `TieredDataProvider` with rate-limiting throttle and cache-integrity checks, Yahoo Finance & CCXT adapters, and broker connectors (`LocalYamlConnector` + mock `IBKR`, `Inviu`, `IOL`).
+* **`quant_data`**: SQLAlchemy cache (`markets`, `bar_data_logs`, `corporate_actions`) in one `market_cache.db` at the workspace root shared by both apps (`MARKET_CACHE_URL` to move it), `TieredDataProvider` with rate-limiting throttle and cache-integrity checks, Yahoo Finance & CCXT adapters, and broker connectors (`LocalYamlConnector` + mock `IBKR`, `Inviu`, `IOL`).
 * **`quant_ui`**: Reusable Plotly figures for performance curves, drawdowns, rolling volatility, benchmark regressions, and hyperparameter sweeps.
 
 ### `apps/fts` (Automated Trading & Research System)

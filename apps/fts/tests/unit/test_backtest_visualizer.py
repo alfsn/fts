@@ -163,3 +163,6 @@ def test_calculate_pnl_compounds_across_gaps_and_is_nan_when_undefined():
 
     broke = viz.calculate_pnl(df.assign(actual_equity=[0.0, 0.0, 0.0, 0.0]))
     assert broke["cum_strat_return"].isna().all()  # undefined, not 0.0
+
+    no_log = viz.calculate_pnl(df.drop(columns="actual_equity"))
+    assert "cum_strat_return" not in no_log  # no signal replay (UI-plan D14)

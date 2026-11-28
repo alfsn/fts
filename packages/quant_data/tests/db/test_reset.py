@@ -14,6 +14,9 @@ def _engine_with_data():
             text("CREATE TABLE model_registry (id INTEGER PRIMARY KEY, name TEXT)")
         )
         conn.execute(text("INSERT INTO model_registry (name) VALUES ('rnn-v1')"))
+        # A retired cache table left by an older schema (W4).
+        conn.execute(text("CREATE TABLE fx_rates (id INTEGER PRIMARY KEY, rate REAL)"))
+        conn.execute(text("INSERT INTO fx_rates (rate) VALUES (1000.0)"))
         conn.execute(
             text("INSERT INTO markets (instrument_id, name) VALUES ('AAPL', 'Apple')")
         )
@@ -39,13 +42,12 @@ def test_reset_drops_only_the_cache_tables():
         "markets",
         "bar_data_logs",
         "corporate_actions",
-        "fx_rates",
     ]
     assert cache_row_counts(engine) == {
         "markets": 1,
         "bar_data_logs": 1,
         "corporate_actions": 1,
-        "fx_rates": 0,
+        "fx_rates": 1,
     }
 
     reset_market_cache(engine)
@@ -54,7 +56,6 @@ def test_reset_drops_only_the_cache_tables():
         "markets": 0,
         "bar_data_logs": 0,
         "corporate_actions": 0,
-        "fx_rates": 0,
     }
     with engine.connect() as conn:
         assert (
@@ -73,12 +74,10 @@ def test_reset_tolerates_a_db_without_the_tables():
         "markets": 0,
         "bar_data_logs": 0,
         "corporate_actions": 0,
-        "fx_rates": 0,
     }
     reset_market_cache(engine)
     assert cache_row_counts(engine) == {
         "markets": 0,
         "bar_data_logs": 0,
         "corporate_actions": 0,
-        "fx_rates": 0,
     }

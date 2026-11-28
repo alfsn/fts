@@ -95,8 +95,9 @@ def plot_backtest_performance(df_pnl: pd.DataFrame, instrument_id: str) -> go.Fi
             col=1,
         )
 
-    # Subplot 2: Cumulative P&L
-    if "actual_equity" in df_pnl.columns:
+    # Subplot 2: Cumulative P&L. The strategy line comes only from the logged
+    # equity; a run without it shows buy-and-hold alone (UI-plan D14).
+    if "cum_strat_return" in df_pnl.columns:
         hovertext = df_pnl.apply(
             lambda r: (
                 f"Date: {r['timestamp'].strftime('%Y-%m-%d %H:%M')}<br>"
@@ -120,20 +121,6 @@ def plot_backtest_performance(df_pnl: pd.DataFrame, instrument_id: str) -> go.Fi
             row=2,
             col=1,
         )
-    else:
-        if "cum_strat_return" in df_pnl.columns:
-            fig.add_trace(
-                go.Scatter(
-                    x=df_pnl["timestamp"],
-                    y=df_pnl["cum_strat_return"] * 100,
-                    mode="lines",
-                    # no equity log: a +1/0/-1 position replayed on the close
-                    name="Strategy P&L (simulated from signals)",
-                    line=dict(color="#2196f3", width=2, dash="dot"),
-                ),
-                row=2,
-                col=1,
-            )
 
     if "cum_baseline_return" in df_pnl.columns:
         fig.add_trace(

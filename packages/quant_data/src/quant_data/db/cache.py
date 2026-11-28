@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy.engine import Engine, make_url
 
-from .models import BarDataLog, Base, CorporateActionRecord, FXRateRecord, Market
+from .models import BarDataLog, Base, CorporateActionRecord, Market
 
 ENV_VAR = "MARKET_CACHE_URL"
 
@@ -23,7 +23,6 @@ CACHE_TABLES = (
     Market.__table__,
     BarDataLog.__table__,
     CorporateActionRecord.__table__,
-    FXRateRecord.__table__,
 )
 
 

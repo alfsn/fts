@@ -35,8 +35,8 @@ def test_plot_backtest_performance():
     assert any("BTC/USD" in t for t in titles)
 
 
-def test_plot_backtest_performance_empty_trades():
-    # Test without trade signals and actual equity
+def test_plot_backtest_performance_without_equity_draws_no_strategy_line():
+    # No equity log: candlestick + buy-and-hold only, nothing simulated (D14).
     dates = pd.date_range(start="2023-01-01", periods=10, freq="D")
     df_pnl = pd.DataFrame(
         {
@@ -45,10 +45,10 @@ def test_plot_backtest_performance_empty_trades():
             "high": [105] * 10,
             "low": [95] * 10,
             "close": [102] * 10,
-            "cum_strat_return": [0.1] * 10,
+            "cum_baseline_return": [0.0] * 10,
         }
     )
 
     fig = plot_backtest_performance(df_pnl, instrument_id="ETH/USD")
-    assert isinstance(fig, go.Figure)
-    assert len(fig.data) >= 2  # Candlestick + strategy line
+    assert [t.name for t in fig.data][-1] == "Buy & Hold Baseline"
+    assert not any("Strategy" in (t.name or "") for t in fig.data)

@@ -41,6 +41,8 @@ small rule violations get fixed.
 | D11 | Cleanups in the stack: fts renderers → `quant_ui`, delete `fx_rates`, hide mock brokers, fix `visualizer.py` `fillna(0.0)` |
 | D12 | (2026-11-28) W3 ships as two PRs: **W3a** shell + Portfolio, Models, Backtests; **W3b** Cache + FX. The cache inspector lives in `quant_data.inspect`, not the analyser: both apps share the cache, and fts's intraday series are in it. It is the one `quant_data` module the workbench may import |
 | D13 | (2026-11-28) The run comparison lines runs up by **days since each run's first bar**, never by bar number (a 1h run would look 24× longer than a 1d run) |
+| D14 | (2026-11-28) A run without an equity log gets **no strategy line**: the signal replay in `calculate_pnl` is deleted, not fixed. It turned a missing close (0.0) into a −100% then +inf day, treated HOLD as flat (the engine treats it as no action) and ignored fees and sizing. The only strategy line is the engine's own equity |
+| D15 | (2026-11-28) `fx_rates` is a **retired** cache table: `quant_data.db.reset` drops it and doesn't recreate it (the same shape as fts's retired `positions`) |
 
 ## Why charts and shell are separate (both are "UI")
 
@@ -176,10 +178,13 @@ apps/workbench/
 
 - Check that grepping `cummax|pct_change|initial_eq` in `quant_ui` and `workbench` finds nothing (the
   renderer maths is gone after W2/W3).
-- `backtesting/visualizer.py` `calculate_pnl`: `pct_change().fillna(0.0)` → leave NaN; the cumulative uses
-  `wealth_index` (a missing close is not a 0% day).
-- Delete `FXRateRecord`, `get_fx_rate` and their test; after merging, run `quant_data.db.reset`
-  (**the user confirms the `dev.db` reset first**).
+  Guard: `packages/quant_ui/tests/test_rules.py` (`* 100` allowed: percent formatting is the UI's job).
+- `backtesting/visualizer.py` `calculate_pnl`: the `pct_change().fillna(0.0)` signal replay is deleted
+  (D14). Both lines use `wealth_index` on priced rows (a missing close is not a 0% day).
+- Delete `FXRateRecord`, `get_fx_rate` and their test; `fx_rates` is retired (D15). After merging, run
+  `quant_data.db.reset` on `market_cache.db` (**the user confirms first**: it wipes the cached bars,
+  which refill from the vendors). Since M2b the cache is not in `dev.db`; its 4 empty pre-M2b cache
+  tables are dropped once by hand.
 - `docs/BACKLOG.md`: mark PR 26 as partly done by the workbench (Docker still open).
 
 ## Does each call do what we intend?
@@ -204,7 +209,7 @@ apps/workbench/
 5. The rf series is aligned to the window, not forward-filled across it (7-day staleness rule kept).
 6. The demo holds YPFD.BA across its 10:1 split, so reconciliation must apply the split from corporate actions (a quantity break stops the run, which makes it a good test).
 7. fts normalised return: the `initial_eq = 1.0` fallback when equity ≤ 0 (`renderers.py`) is replaced by a NaN-aware `wealth_index`.
-8. `fillna(0.0)` on returns removed: a missing close is not a 0% day.
+8. `fillna(0.0)` on returns removed with the signal replay (D14): a missing close is not a 0% day, and an unlogged run shows no made-up strategy line.
 
 **Known limits (documented, not fixed)**
 1. Gap > 5 calendar days misses single missing sessions; there's no exchange calendar.
