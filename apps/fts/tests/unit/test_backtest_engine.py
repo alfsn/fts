@@ -491,6 +491,42 @@ def test_a_run_id_is_never_reused_without_clearing(sql_db_session):
     )
     with pytest.raises(RunExistsError):
         engine.run(run_id="pr7b")
+    # The saved run is kept: only a run this call started is cleaned up
+    assert RunStore(sessionmaker(bind=sql_db_session.bind)).load("pr7b") is not None
+
+
+def test_a_run_that_crashes_is_deleted(sql_db_session):
+    """Orders, fills and equity are committed as they happen: a strategy that
+    raises halfway must not leave half a run in the catalog."""
+    instrument_id = "BTC/USDT"
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    ticks = [
+        create_mock_tick(t0, instrument_id, 50000.0),
+        create_mock_tick(t0 + timedelta(days=1), instrument_id, 51000.0),
+    ]
+    pipeline = _pipeline(Portfolio(initial_balance=10000.0), instrument_id)
+
+    def buy_then_crash(db, ingestion_output):
+        if ingestion_output.timestamp == t0:
+            _fill(pipeline, db, t0, OrderSide.BUY, 0.1, 50000.0, "o1")
+            db.commit()
+        else:
+            raise ValueError("strategy bug")
+
+    pipeline.execute_single_tick.side_effect = buy_then_crash
+    engine = BacktestEngine(
+        pipeline=pipeline,
+        data_reader=DummyDataReader(instrument_id, ticks),
+        db=sql_db_session,
+        instrument_id=instrument_id,
+    )
+    with pytest.raises(ValueError, match="strategy bug"):
+        engine.run(run_id="crashed")
+    for table in RUN_TABLES:
+        n = sql_db_session.scalar(
+            select(func.count()).select_from(table).where(table.c.run_id == "crashed")
+        )
+        assert n == 0, table.name
 
 
 def test_delete_run_respects_foreign_keys():
@@ -530,3 +566,41 @@ def test_delete_run_respects_foreign_keys():
         delete_run(db, "r1")
         db.commit()
         assert db.scalar(select(func.count()).select_from(OrderLog)) == 0
+
+
+def test_two_runs_can_reuse_an_order_id():
+    """Order ids are unique within a run only: the simulator and venues use
+    short ids, and every run shares one database."""
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    event.listen(
+        engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON")
+    )
+    ResearchBase.metadata.create_all(engine)
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    order = OrderRequest(
+        instrument_id="BTC/USDT", side=OrderSide.BUY, quantity=1.0, price=1.0
+    )
+    with Session(engine) as db:
+        for run_id, price in (("r1", 1.0), ("r2", 2.0)):
+            result = ExecutionResult(
+                order_id="sim-1a2b3c4d",
+                status=OrderStatus.FILLED,
+                filled_quantity=1.0,
+                avg_price=price,
+                timestamp=t0,
+            )
+            db.add(RunLog(run_id=run_id, kind="backtest"))
+            recorder = SqlRunRecorder(run_id=run_id, kind="backtest")
+            recorder.record_order(db, order, result, "s")
+            recorder.record_fill(db, order, result)
+            db.commit()
+
+        rows = db.scalars(select(OrderLog).order_by(OrderLog.run_id)).all()
+        assert [(r.run_id, r.avg_fill_price) for r in rows] == [
+            ("r1", 1.0),
+            ("r2", 2.0),
+        ]
+        delete_run(db, "r1")
+        db.commit()
+        assert db.scalar(select(func.count()).select_from(TradeLog)) == 1
+        assert db.scalar(select(func.count()).select_from(OrderLog)) == 1

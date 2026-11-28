@@ -123,6 +123,10 @@ Handled:
 6. No backtest state can leak into live.
 7. A test checks that `RUN_TABLES` covers every table with a `run_id` column.
 8. A fill is committed before the Portfolio applies it. If that commit fails, the Portfolio is untouched and the order stays open, and the next status check saves and applies it, once (`record_fill` is idempotent per order).
+9. An order id is unique within a run, not across runs: `order_logs` is unique on `(run_id, order_id)` and `trade_logs` points at that pair. Backtests and live runs share one database, and the simulator and venues use 8-hex-digit ids. (Added after the PR 60 review.)
+10. A backtest that raises for any reason, not only the fills check, deletes its rows. A run_id that already exists is never touched.
+11. Reconciliation applies fills without the error-swallowing wrapper, so a Portfolio error counts as a failure and the item stays queued, once (the queue holds each order once). An order whose first write failed is recorded from its queued request and applied, not logged as `UNKNOWN_MARKET`.
+12. A cancel call that raises changes nothing: the order may still be live, so its row and the Portfolio keep it open for the next status check.
 
 Known limits:
 1. A restarted live bot starts flat until M6.

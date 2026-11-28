@@ -13,7 +13,6 @@ from ..core.pipeline import TradingPipeline
 from ..runs import (
     EquityPoint,
     RunHeader,
-    RunIntegrityError,
     Segment,
     SqlRunRecorder,
     check_fills_match,
@@ -108,68 +107,70 @@ class BacktestEngine:
             ),
         )
 
-        # Every component writes this run through the same recorder and session
-        if getattr(self.pipeline, "prediction_logger", None):
-            self.pipeline.prediction_logger.recorder = recorder
-            self.pipeline.prediction_logger.db = self.db
-            self.pipeline.prediction_logger.commit = False
-        if getattr(self.pipeline, "execution", None):
-            self.pipeline.execution.recorder = recorder
-
-        equity_curve: List[Dict[str, Any]] = []
-
-        def on_tick_callback(tick_data: Any) -> None:
-            # Equity comes from the portfolio's single valuation (PR 7b):
-            # every position at its last close, carried over missing bars.
-            market_data_map = {m.instrument_id: m for m in tick_data.market_data}
-            equity = portfolio.equity(market_data_map)
-
-            pos_size = 0.0
-            close_price = 0.0  # no single traded instrument: no close column
-            if self.instrument_id:
-                close = portfolio.last_close(self.instrument_id)
-                if close is None:
-                    return  # no price seen yet: nothing to value
-                close_price = close
-                pos = portfolio.positions.get(self.instrument_id)
-                if pos:
-                    pos_size = pos.quantity
-
-            point = EquityPoint(
-                timestamp=tick_data.timestamp,
-                cash=portfolio.cash_balance,
-                position=pos_size,
-                close=close_price,
-                equity=equity,
-            )
-            equity_curve.append(point.model_dump())
-            recorder.record_equity(self.db, point)
-
-        logger.info(f"Starting backtest engine simulation for run_id: {run_id}")
-        loop_driver = HistoricalReplayLoop(data_reader=self.data_reader)
-        loop_driver.start(self.pipeline, db=self.db, on_tick=on_tick_callback)
-
-        start = equity_curve[0]["timestamp"] if equity_curve else None
-        end = equity_curve[-1]["timestamp"] if equity_curve else None
-        recorder.add_segment(
-            self.db, Segment(model_id=self.model_id, start_time=start, end_time=end)
-        )
-        recorder.finish(self.db, start, end)
-        self.db.commit()
-
-        # Fills are the truth (D19): they must replay to the final portfolio.
-        # Orders and fills are committed as they happen, so a run that fails
-        # the check is deleted rather than left behind as a wrong record.
-        record = load_record(self.db, run_id, predictions=False)
+        # Orders, fills and equity are committed as they happen, so a run that
+        # crashes or fails the fills check is deleted rather than left behind
+        # as a half-finished or wrong record.
         try:
+            # Every component writes this run through the same recorder and session
+            if getattr(self.pipeline, "prediction_logger", None):
+                self.pipeline.prediction_logger.recorder = recorder
+                self.pipeline.prediction_logger.db = self.db
+                self.pipeline.prediction_logger.commit = False
+            if getattr(self.pipeline, "execution", None):
+                self.pipeline.execution.recorder = recorder
+
+            equity_curve: List[Dict[str, Any]] = []
+
+            def on_tick_callback(tick_data: Any) -> None:
+                # Equity comes from the portfolio's single valuation (PR 7b):
+                # every position at its last close, carried over missing bars.
+                market_data_map = {m.instrument_id: m for m in tick_data.market_data}
+                equity = portfolio.equity(market_data_map)
+
+                pos_size = 0.0
+                close_price = 0.0  # no single traded instrument: no close column
+                if self.instrument_id:
+                    close = portfolio.last_close(self.instrument_id)
+                    if close is None:
+                        return  # no price seen yet: nothing to value
+                    close_price = close
+                    pos = portfolio.positions.get(self.instrument_id)
+                    if pos:
+                        pos_size = pos.quantity
+
+                point = EquityPoint(
+                    timestamp=tick_data.timestamp,
+                    cash=portfolio.cash_balance,
+                    position=pos_size,
+                    close=close_price,
+                    equity=equity,
+                )
+                equity_curve.append(point.model_dump())
+                recorder.record_equity(self.db, point)
+
+            logger.info(f"Starting backtest engine simulation for run_id: {run_id}")
+            loop_driver = HistoricalReplayLoop(data_reader=self.data_reader)
+            loop_driver.start(self.pipeline, db=self.db, on_tick=on_tick_callback)
+
+            start = equity_curve[0]["timestamp"] if equity_curve else None
+            end = equity_curve[-1]["timestamp"] if equity_curve else None
+            recorder.add_segment(
+                self.db, Segment(model_id=self.model_id, start_time=start, end_time=end)
+            )
+            recorder.finish(self.db, start, end)
+            self.db.commit()
+
+            # Fills are the truth (D19): they must replay to the final portfolio.
+            record = load_record(self.db, run_id, predictions=False)
             check_fills_match(
                 record,
                 positions={k: p.quantity for k, p in portfolio.positions.items()},
                 cash=portfolio.cash_balance,
                 currency=portfolio.quote_currency,
             )
-        except RunIntegrityError:
-            logger.error(f"Run {run_id} failed the fills check; deleting its rows.")
+        except Exception:
+            logger.exception(f"Run {run_id} did not finish; deleting its rows.")
+            self.db.rollback()
             delete_run(self.db, run_id)
             self.db.commit()
             raise

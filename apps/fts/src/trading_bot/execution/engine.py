@@ -144,7 +144,7 @@ class ExecutionEngine:
                 # Queue for reconciliation if enabled
                 if self.enable_auto_reconciliation:
                     self._queue_for_reconciliation(
-                        result.order_id, order, strategy_name
+                        result.order_id, order, "db_write_failed", strategy_name
                     )
 
             except Exception as e:
@@ -231,15 +231,15 @@ class ExecutionEngine:
         """
         logger.info(f"Attempting to cancel order {order_id}")
 
-        result: Optional[ExecutionResult] = None
-
         try:
             # Attempt cancellation via handler
             result = self.handler.cancel_order(order_id)
 
         except Exception as e:
+            # The order may still be live: leave its row and the Portfolio as
+            # they are, so the next status check still tracks it.
             logger.error(f"Cancel API call for {order_id} failed: {e}", exc_info=True)
-            result = self._create_synthetic_result_for_id(order_id, OrderStatus.FAILED)
+            return self._create_synthetic_result_for_id(order_id, OrderStatus.FAILED)
 
         # Update database and portfolio
         if result:
@@ -271,34 +271,7 @@ class ExecutionEngine:
         :param result: Execution result
         """
         try:
-            if result.status == OrderStatus.OPEN and order:
-                self.portfolio.add_open_order(result.order_id, order)
-            else:
-                if order and isinstance(
-                    getattr(self.portfolio, "open_orders", None), dict
-                ):
-                    if result.order_id not in self.portfolio.open_orders:
-                        logger.warning(
-                            f"Order {result.order_id} was filled (or finalized) immediately "
-                            f"without being previously tracked as OPEN. Temporarily tracking it "
-                            f"to process the fill."
-                        )
-                        self.portfolio.add_open_order(result.order_id, order)
-                # Fills are the truth: commit the fill (with any pending order
-                # row) before the Portfolio applies it. If the commit fails the
-                # Portfolio is untouched and the order stays open, so the next
-                # status check or reconciliation applies it again.
-                to_fill = self.portfolio.fill_for(result)
-                if to_fill is not None:
-                    self.recorder.record_fill(db, to_fill, result)
-                    db.commit()
-                filled = self.portfolio.update_order_status(result)
-                if (filled is None) != (to_fill is None):
-                    raise RuntimeError(
-                        f"Order {result.order_id}: the saved fill and the "
-                        "Portfolio's applied fill disagree."
-                    )
-
+            self._apply_to_portfolio(db, order, result)
         except SQLAlchemyError:
             # The caller rolls back; nothing was applied to the Portfolio
             raise
@@ -309,6 +282,37 @@ class ExecutionEngine:
             )
             # Don't raise - portfolio can be resynced later
             self._queue_for_reconciliation(result.order_id, order, "portfolio_resync")
+
+    def _apply_to_portfolio(
+        self, db: Session, order: Optional[OrderRequest], result: ExecutionResult
+    ):
+        """Track or fill the order in the Portfolio, saving the fill first.
+        Raises on any failure (reconciliation counts it as failed)."""
+        if result.status == OrderStatus.OPEN and order:
+            self.portfolio.add_open_order(result.order_id, order)
+        else:
+            if order and isinstance(getattr(self.portfolio, "open_orders", None), dict):
+                if result.order_id not in self.portfolio.open_orders:
+                    logger.warning(
+                        f"Order {result.order_id} was filled (or finalized) immediately "
+                        f"without being previously tracked as OPEN. Temporarily tracking it "
+                        f"to process the fill."
+                    )
+                    self.portfolio.add_open_order(result.order_id, order)
+            # Fills are the truth: commit the fill (with any pending order
+            # row) before the Portfolio applies it. If the commit fails the
+            # Portfolio is untouched and the order stays open, so the next
+            # status check or reconciliation applies it again.
+            to_fill = self.portfolio.fill_for(result)
+            if to_fill is not None:
+                self.recorder.record_fill(db, to_fill, result)
+                db.commit()
+            filled = self.portfolio.update_order_status(result)
+            if (filled is None) != (to_fill is None):
+                raise RuntimeError(
+                    f"Order {result.order_id}: the saved fill and the "
+                    "Portfolio's applied fill disagree."
+                )
 
     def _create_failed_result(
         self,
@@ -352,20 +356,28 @@ class ExecutionEngine:
     # --- Reconciliation Methods ---
 
     def _queue_for_reconciliation(
-        self, order_id: str, order: Optional[OrderRequest], context: str
+        self,
+        order_id: str,
+        order: Optional[OrderRequest],
+        context: str,
+        strategy_name: Optional[str] = None,
     ):
         """
-        Adds an order to the reconciliation queue.
+        Adds an order to the reconciliation queue (once per order).
 
         :param order_id: Order ID to reconcile
         :param order: Original order request (if available)
         :param context: Context string for debugging
+        :param strategy_name: Strategy that placed the order (if known)
         """
+        if any(item["order_id"] == order_id for item in self._reconciliation_queue):
+            return
         self._reconciliation_queue.append(
             {
                 "order_id": order_id,
                 "order": order,
                 "context": context,
+                "strategy_name": strategy_name,
                 "timestamp": datetime.now(timezone.utc),
             }
         )
@@ -449,11 +461,25 @@ class ExecutionEngine:
                 # Check current status on exchange
                 current_result = self.handler.get_order_status(order_id)
 
-                # Update the order (or log the unknown one), the portfolio and
-                # the fill it applies, then commit them together
-                if not self.recorder.update_order(db, current_result):
-                    self.recorder.record_unknown_order(db, current_result)
-                self._safe_portfolio_update(db, None, current_result)
+                order = item.get("order")
+                if order is not None and (
+                    self.recorder.order_status(db, order_id) is None
+                ):
+                    # The first write of this order failed, so the Portfolio
+                    # never saw it: record it from the request and apply it.
+                    self.recorder.record_order(
+                        db,
+                        order,
+                        current_result,
+                        item.get("strategy_name") or "reconciled",
+                    )
+                    self._apply_to_portfolio(db, order, current_result)
+                else:
+                    # The order row exists (or the request is unknown): an
+                    # unapplied fill is still open in the Portfolio.
+                    if not self.recorder.update_order(db, current_result):
+                        self.recorder.record_unknown_order(db, current_result)
+                    self._apply_to_portfolio(db, None, current_result)
                 db.commit()
 
                 results["success"] += 1
