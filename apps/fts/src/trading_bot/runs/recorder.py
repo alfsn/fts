@@ -106,7 +106,9 @@ class SqlRunRecorder:
     # --- orders and fills -----------------------------------------------------
 
     def _order(self, db: Session, order_id: str) -> Optional[OrderLog]:
-        return db.query(OrderLog).filter_by(order_id=order_id).first()
+        return (
+            db.query(OrderLog).filter_by(run_id=self.run_id, order_id=order_id).first()
+        )
 
     @staticmethod
     def _apply(log: OrderLog, result: ExecutionResult) -> None:

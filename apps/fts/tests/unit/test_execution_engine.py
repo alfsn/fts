@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -568,12 +568,11 @@ class TestExecutionEngine:
         assert result.status == OrderStatus.FAILED
         assert result.order_id == order_id
 
-        # 3. DB log was updated to FAILED
-        mock_db_session.commit.assert_called_once()
-        assert sample_order_log_open.status == OrderStatus.FAILED
-
-        # 4. Portfolio was updated with FAILED status
-        mock_portfolio.update_order_status.assert_called_once_with(result)
+        # 3. The order may still be live: neither its row nor the Portfolio
+        #    changes, so the next status check still tracks it
+        mock_db_session.commit.assert_not_called()
+        assert sample_order_log_open.status == OrderStatus.OPEN
+        mock_portfolio.update_order_status.assert_not_called()
 
     # --- Reconciliation Queue Test ---
 
@@ -703,3 +702,78 @@ def test_a_fill_whose_commit_fails_is_applied_later_exactly_once():
     assert portfolio.positions["MKT_123"].quantity == 100.0
     assert portfolio.cash_balance == pytest.approx(950.0)
     assert db.query(TradeLog).count() == 1
+
+
+def _live_engine_on_sqlite(result):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from trading_bot.core.database import ResearchBase
+
+    engine_db = create_engine("sqlite+pysqlite:///:memory:")
+    ResearchBase.metadata.create_all(engine_db)
+    db = sessionmaker(bind=engine_db, autoflush=False)()
+    handler = MagicMock(spec=BaseExecutionHandler)
+    handler.execute_order.return_value = result
+    handler.get_order_status.return_value = result
+    portfolio = Portfolio(initial_balance=1000.0)
+    engine = ExecutionEngine(
+        execution_handler=handler,
+        portfolio=portfolio,
+        recorder=SqlRunRecorder(run_id="live1", kind="live"),
+    )
+    return engine, portfolio, db
+
+
+_ORDER = OrderRequest(
+    instrument_id="MKT_123", side=OrderSide.BUY, quantity=100.0, price=0.5
+)
+_FILLED = ExecutionResult(
+    order_id="o1",
+    status=OrderStatus.FILLED,
+    filled_quantity=100.0,
+    avg_price=0.5,
+    timestamp=datetime(2026, 6, 1, tzinfo=timezone.utc),
+)
+
+
+def test_reconciliation_saves_and_applies_an_order_whose_first_write_failed():
+    """The order row's commit failed, so the Portfolio never saw the order.
+    Reconciliation records it from the queued request, not as UNKNOWN_MARKET,
+    and applies its fill."""
+    from trading_bot.runs.tables import TradeLog
+
+    engine, portfolio, db = _live_engine_on_sqlite(_FILLED)
+    real_commit = db.commit
+    db.commit = MagicMock(side_effect=SQLAlchemyError("database is locked"))
+    engine.execute_order(_ORDER, db, "s")
+    db.commit = real_commit
+    assert portfolio.open_orders == {}
+
+    results = engine.reconcile_all_orders(db)
+
+    assert results["success"] == 1
+    log = db.query(OrderLogModel).one()
+    assert (log.instrument_id, log.strategy_name) == ("MKT_123", "s")
+    assert db.query(TradeLog).count() == 1
+    assert portfolio.positions["MKT_123"].quantity == 100.0
+    assert portfolio.cash_balance == pytest.approx(950.0)
+
+
+def test_reconciliation_counts_a_failed_portfolio_update_as_failed():
+    """A Portfolio error during reconciliation is a failure: the item stays
+    queued once, instead of being re-queued and reported as a success."""
+    open_result = _FILLED.model_copy(
+        update={"status": OrderStatus.OPEN, "filled_quantity": 0.0}
+    )
+    engine, portfolio, db = _live_engine_on_sqlite(open_result)
+    engine.execute_order(_ORDER, db, "s")
+    engine.handler.get_order_status.return_value = _FILLED
+    engine._queue_for_reconciliation("o1", None, "test")
+
+    with patch.object(
+        portfolio, "update_order_status", side_effect=RuntimeError("boom")
+    ):
+        results = engine.reconcile_all_orders(db)
+
+    assert (results["success"], results["failed"]) == (0, 1)
+    assert [item["order_id"] for item in engine._reconciliation_queue] == ["o1"]
