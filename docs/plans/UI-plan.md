@@ -79,39 +79,40 @@ Imports flow one way: packages ← apps.
 
 ## W2: use cases + date window (the shared pipeline)
 
-- New `portfolio_analyser/review.py`, the only analyser API the workbench calls:
-  - `prepare_history(portfolio, db_url, extra_symbols) -> (closes, actions)`: today's `prefetch_history`, moved.
-  - `prepare_snapshot(portfolio, db_url) -> Snapshot` (frozen dataclass: `as_of`, `fx_context`, priced
-    positions, cash rows, history rows, `breaks`, `total_value`).
-  - `prepare_review(portfolio, db_url, benchmark_symbol, risk_free_rate, withholding, start, end) -> Review`
-    (`snapshot`, `ReplayResult`, benchmark level, rf, label, `warnings: list[str]` replacing the yellow
-    `console.print`s, and `figures` from `backward_analytics_figures`).
-  - Errors stay exceptions (`MissingFXRateError`, `ValueError`, quantity `Breaks`); the CLI maps them to
-    `ClickException`, the workbench to `st.error`.
-- `main.py` `analyze` / `client-review` become: build the args → call the use case → print. Add
-  `--start/--end` to `client-review` (docs follow the code).
-- **Window maths in `quant_core`:** `quant_core.analytics.returns.window(values, cash_flows, start, end)
-  -> (values, flows)`: an inclusive slice of both on the values' index, raising if fewer than 2 values remain.
-  `period_returns` already drops the first return, so a flow *on* the start date becomes part of the
-  starting capital with no special case, and `compute_mwr` already treats the first value as the initial
-  contribution. `backward_analytics_figures` receives the sliced series; the benchmark and rf are aligned
-  to the portfolio dates inside the benchmark pipeline (`align_daily`).
-- **Demo ledger** `apps/portfolio_analyser/examples/demo_ledger.yaml`:
-  - USD deposit → AAPL buys.
-  - ARS deposit → GGAL.BA and YPFD.BA buys, held across YPFD's 10:1 local split on 2026-08-03, so the
-    split path is exercised.
-  - AAPL dividend lines on pay dates, one partial sell, one withdrawal.
-  - A snapshot that reconciles.
-  - Trade prices = real cached closes on those dates, filled in during implementation from
-    `prepare_history`. A header comment says the trades are synthetic.
-- **fts use cases:** `CatalogQueryService` stays the facade. Add the backtest curves (`wealth_index(equity)`,
-  `drawdown_series(wealth)` from `quant_core`) and the T=0 index alignment for comparisons to the DTO or
-  a `backtest_curves(run_id)` method, so no page or figure computes.
-- **Cache (`quant_data`):** `MarketDataRepository.cached_series() -> list[CachedSeries]` (symbol, interval,
-  source, bar count, first/last). Analyser `review.inspect_symbol(db_url, symbol) -> SymbolView`: raw closes,
-  `adjust(..., SPLIT)`, `adjust(..., TOTAL_RETURN)`, the actions list, gaps. It is read-only: it uses
-  `get_bars`/`load_corporate_actions`, never a provider.
-- **Gaps maths:** `quant_core.analytics.calendar_gaps(index, max_days=5) -> DataFrame(start, end, days)`.
+> Re-planned 2026-11-27 against `dfbbf1c`. W2 covers the analyser only. The cache helpers and the fts
+> backtest curves moved to W3 (the Backtests page sits on M1's `RunStore`).
+
+- New `portfolio_analyser/review.py`, the only analyser API the CLI and the workbench call. It returns
+  data. It never prints, never draws (no plotly or `quant_ui` import) and never calculates:
+  - `prepare_history(portfolio, db_url, extra_symbols, sources=None) -> (closes, actions)`: the old
+    `prefetch_history`. `sources` are the providers behind the cache (default Yahoo).
+  - `history_rows(portfolio, closes) -> list[HistoryRow]`: cache coverage per symbol.
+  - `build_snapshot(portfolio, closes, actions) -> Snapshot` (frozen: `portfolio` priced at `as_of`, `fx`,
+    `fx_context`, `total_value`, `breaks`), and `prepare_snapshot(portfolio, db_url)`, which runs both steps.
+    `analyze` uses the two steps, so the history table still prints when valuation fails.
+  - `prepare_review(portfolio, db_url, *, benchmark_symbol, risk_free_rate, withholding, start, end) -> Review`
+    (`snapshot`; the windowed `values`, `flows` and `dropped`; the `benchmark` level and its name; `risk_free`;
+    `period`; and `warnings`, which replace the yellow prints).
+  - Errors stay exceptions: `ReviewError(ValueError)` (no ledger, no rf for a non-USD base) and
+    `QuantityBreakError(ReviewError)`, which carries `breaks`. `MissingFXRateError` is unchanged. The CLI
+    maps them to `ClickException`; the workbench will use `st.error`.
+- `main.py` builds the arguments, calls the use case and prints. `client-review` gets `--start/--end`, and it
+  calls `backward_analytics_figures(review.values, ...)` itself.
+- **Window maths in `quant_core`:** `quant_core.analytics.window(values, cash_flows, start, end)`. The
+  base is the **last priced row before `start`** (the prior close, as in a calendar-year return), so
+  adjacent windows compound to the whole period. Without an earlier row, the base is the first row. Both
+  series are cut by the same dates, and flows are not reindexed, so a flow on an unpriced day still
+  raises. Fewer than 2 valued rows raises.
+  - A flow on the base row is starting capital: `period_returns` drops the first return, and `compute_mwr`
+    overwrites the first flow with the first value.
+  - The benchmark and the rf are passed in full and aligned by the benchmark pipeline (`align_daily`) and by
+    `excess_returns`.
+- A window outside the ledger is clipped, with a warning. Reconciliation always runs at the as-of date.
+- **Demo ledger** `apps/portfolio_analyser/examples/demo_ledger.yaml`: a USD sleeve (AAPL, dividends on
+  approximate pay dates, a partial sell, a withdrawal) and an ARS sleeve (GGAL.BA, YPFD.BA held across the
+  10:1 split on 2026-08-03). It has real raw closes and synthetic trades, and a snapshot that reconciles
+  exactly.
+- Guard: `portfolio_analyser.main` never imports `portfolio_analyser.data_layer` (import-linter).
 
 ## W3: the workbench shell
 
@@ -137,6 +138,14 @@ apps/workbench/
   in `quant_ui` (fractions everywhere else). Minimum-sample captions print `metrics.min_obs`.
 - New `quant_ui` figures (draw-only): `plot_price_adjustments(raw, split, total_return)`, `plot_ccl(series, pairs)`,
   the fts trade overlay, the prediction scatter, and a multi-series `plot_cumulative_returns` for the run comparison.
+- **Cache use cases (moved from W2):** `MarketDataRepository.cached_series() -> list[CachedSeries]` (symbol,
+  interval, source, bar count, first/last), and analyser `review.inspect_symbol(db_url, symbol) -> SymbolView`
+  (raw closes, `adjust(..., SPLIT)`, `adjust(..., TOTAL_RETURN)`, the actions, gaps). It is read-only:
+  `get_bars`/`load_corporate_actions`, never a provider. Gaps maths:
+  `quant_core.analytics.calendar_gaps(index, max_days=5) -> DataFrame(start, end, days)`.
+- **fts backtest curves (moved from W2, on M1's `RunStore`):** `CatalogQueryService` stays the facade. It adds
+  `wealth_index(equity)`, `drawdown_series(wealth)` and the T=0 alignment for comparisons, so no page or
+  figure computes.
 - Add `apps/workbench` to the root workspace members; delete `trading_bot/dashboard/` and
   `apps/fts/tests/test_dashboard_renderers.py` (its cases move to `quant_ui` tests).
 - Docs: README, `DUMB_HOW_TO_USE.md`, `HOW_TO_USE.md` (replace the `trading_bot.dashboard.cli` commands); a
@@ -156,8 +165,8 @@ apps/workbench/
 
 | Call | Intended | Verified |
 |---|---|---|
-| `wealth_index(values, flows)` on a window slice | TWR from the window's first day | `period_returns` = `(v − f)/v.shift(1) − 1`, then `.iloc[1:]`, so a first-day flow drops out ✅ |
-| `_aligned_flows` | flows must sit on valuation dates | raises on unmatched dates, so `window` must slice the flows too ✅ |
+| `wealth_index(values, flows)` on a `window` slice | TWR from the last close before the start | `period_returns` = `(v − f)/v.shift(1) − 1`, then `.iloc[1:]`, so a base-day flow drops out ✅ |
+| `_aligned_flows` | flows must sit on valuation dates | raises on unmatched dates, so `window` cuts the flows by the same dates, without reindexing ✅ |
 | Benchmark pipeline (`align_daily`) | aligns the benchmark to the portfolio's dates | inner-join on real prices (PR 7 notes) ✅ |
 | `adjust(closes, actions, SPLIT/TOTAL_RETURN)` | adjusted views for the cache tab | `analytics/corporate_actions.py` ✅ |
 | `ccl_series(closes, actions)` | SPLIT-adjusts first, because of the YPF ratio change | `data_layer/market_history.py` ✅ |
@@ -167,7 +176,7 @@ apps/workbench/
 ## Quant pitfalls
 
 **Handled**
-1. A window rebases the starting capital, and a flow on the start date is not counted twice.
+1. A window rebases on the last close before its start (adjacent windows compound to the whole period), and a flow on that base day is starting capital, not counted twice.
 2. Short windows: alpha/beta and the forecast scores show NaN below `min_obs`, with n always displayed. The page explains the n/a using `metrics.min_obs`.
 3. The EWMA re-seeds at the window start (the seed returns are NaN). Expected under rebase, and labelled.
 4. The cache tab shows **raw** prices beside the adjusted ones, so a fake −90% split day is visible, not hidden.
@@ -188,8 +197,8 @@ apps/workbench/
 
 - `uv sync --all-extras --dev --all-packages`, then: `uv run pytest packages` ·
   `uv run pytest apps/portfolio_analyser/tests` · `cd apps/fts && uv run pytest tests` · `uv run pytest apps/workbench/tests`.
-- New tests: `window` (flow on the start date, a 1-value window raises), `calendar_gaps`, `cached_series`,
-  `prepare_review` with a stubbed provider (same figures as the CLI), the demo YAML reconciling offline,
+- New tests: `window` (prior-close base, adjacent windows compound, base-day flow, a 1-value window raises), the
+  demo YAML reconciling offline (W2); `calendar_gaps`, `cached_series`,
   and the `quant_ui` figure tests moved from fts. Workbench smoke tests: each page renders on the stubbed demo
   without an exception (`AppTest`).
 - CLI unchanged: `uv run portfolio-analyser client-review --broker yaml --file examples/demo_ledger.yaml`

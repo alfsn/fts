@@ -15,10 +15,12 @@ Run it with `uv run portfolio-analyser --help` (usage: [HOW_TO_USE.md](HOW_TO_US
 ```
 apps/portfolio_analyser/
 ├── src/portfolio_analyser/
-│   ├── main.py          # Click CLI (`portfolio-analyser` script): analyze, client-review
+│   ├── main.py          # Click CLI (`portfolio-analyser` script): analyze, client-review; prints only
+│   ├── review.py        # Use cases (history, snapshot, review): the one pipeline the CLI and the workbench call
 │   ├── data_layer/      # Market history and FX (CCL), benchmark, ledger replay and reconciliation
 │   └── visualization/   # Maps the data to quant_core metrics and quant_ui figures; writes the HTML report
 ├── tests/
+├── examples/demo_ledger.yaml  # Demo ledger: real tickers and prices, synthetic trades
 └── portfolio.yaml       # Sample snapshot
 ```
 

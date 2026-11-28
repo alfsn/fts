@@ -110,6 +110,26 @@ def test_daily_bars_are_raw(fake):
     assert pre.timestamp == datetime(2024, 6, 6, tzinfo=timezone.utc)
 
 
+def test_a_session_without_prices_is_dropped(fake):
+    """Yahoo sends all-NaN rows (or a NaN volume) for some BYMA sessions; one
+    must not fail the whole download (a missing value is dropped, never filled)."""
+    nan = float("nan")
+    gap = pd.DataFrame(
+        {c: [nan] for c in DAILY.columns}, index=pd.to_datetime(["2024-06-07"])
+    )
+    no_volume = DAILY.iloc[[0]].assign(Volume=nan)
+    no_volume.index = pd.to_datetime(["2024-06-12"])
+    fake.frames["1d"] = pd.concat([DAILY, gap, no_volume]).sort_index()
+
+    bars = YFinanceMarketDataProvider().get_bars(_request("1d"))
+
+    assert [b.timestamp.date().isoformat() for b in bars] == [
+        "2024-06-06",
+        "2024-06-10",
+        "2024-06-11",
+    ]
+
+
 def test_intraday_bars_are_raw_too(fake):
     bars = YFinanceMarketDataProvider().get_bars(_request("1h"))
 

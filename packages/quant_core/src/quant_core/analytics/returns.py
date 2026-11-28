@@ -72,6 +72,55 @@ def _aligned_flows(values: pd.Series, cash_flows: Optional[pd.Series]) -> pd.Ser
     return flows.reindex(values.index, fill_value=0.0)
 
 
+def window_bound(
+    timestamp, index: pd.DatetimeIndex, *, end: bool = False
+) -> pd.Timestamp:
+    """A ``window`` bound in ``index``'s frame. A naive bound takes the index's
+    timezone; an aware one is converted to it (to UTC-naive for a naive index).
+    A date-only ``end`` (midnight) means the whole of that day, so intraday
+    bars after midnight are kept."""
+    timestamp = pd.Timestamp(timestamp)
+    if end and timestamp == timestamp.normalize():
+        timestamp = timestamp + pd.Timedelta(days=1) - pd.Timedelta(1, "ns")
+    if timestamp.tz is None:
+        return timestamp if index.tz is None else timestamp.tz_localize(index.tz)
+    return timestamp.tz_convert(index.tz)
+
+
+def window(
+    values: pd.Series,
+    cash_flows: Optional[pd.Series] = None,
+    start=None,
+    end=None,
+) -> tuple[pd.Series, Optional[pd.Series]]:
+    """
+    ``values`` and ``cash_flows`` from the base row to ``end``, both inclusive.
+    The base is the last priced row strictly before ``start`` (the prior close,
+    as in a calendar-year return), so the first day's move counts and adjacent
+    windows compound to the whole period; without an earlier row it is the
+    first priced row. A flow on the base row is part of the starting capital
+    (``period_returns`` and ``compute_mwr`` drop it). Flows are cut by the same
+    dates, not reindexed, so a flow on an unpriced row in the window still
+    raises downstream. Bounds are read by ``window_bound``.
+    """
+    values = values.sort_index()
+    priced = values.dropna()
+    first = priced.index[0] if len(priced) else None
+    if start is not None and len(priced):
+        before = priced.index[priced.index < window_bound(start, priced.index)]
+        first = before[-1] if len(before) else priced.index[0]
+    last = None if end is None else window_bound(end, values.index, end=True)
+    values = values.loc[first:last]
+    if values.count() < 2:
+        raise ValueError(
+            f"Fewer than 2 valued days between {start} and {end}: no returns."
+        )
+    if cash_flows is None:
+        return values, None
+    flows = cash_flows.sort_index()
+    return values, flows.loc[values.index[0] : values.index[-1]]
+
+
 def period_returns(
     values: pd.Series, cash_flows: Optional[pd.Series] = None
 ) -> pd.Series:

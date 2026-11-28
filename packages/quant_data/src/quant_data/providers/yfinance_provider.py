@@ -155,6 +155,7 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider, CorporateActionProvider
         # A count applies only when no explicit range was requested.
         df_subset = df if request.start_date else df.tail(request.count)
         bars = []
+        skipped = 0
 
         for ts, row in df_subset.iterrows():
             op = float(row["Open"])
@@ -163,8 +164,12 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider, CorporateActionProvider
             cl = float(row["Close"])
             vol = float(row["Volume"])
 
-            # Enforce schemas constraints (gt=0 for prices)
-            if op <= 0 or hi <= 0 or lo <= 0 or cl <= 0:
+            # Enforce schema constraints (gt=0 for prices, ge=0 for volume).
+            # Written so NaN fails too: Yahoo sends NaN rows (or NaN volume)
+            # for some BYMA sessions, and one would reject the whole download.
+            # A missing value is dropped, never filled; the count is logged.
+            if not (op > 0 and hi > 0 and lo > 0 and cl > 0 and vol >= 0):
+                skipped += 1
                 continue
 
             # yfinance index can be datetime index or date index
@@ -193,6 +198,12 @@ class YFinanceMarketDataProvider(BaseMarketDataProvider, CorporateActionProvider
                 )
             )
 
+        if skipped:
+            logger.warning(
+                "%s: skipped %d Yahoo rows with a missing price or volume.",
+                request.instrument_id,
+                skipped,
+            )
         return bars
 
 
