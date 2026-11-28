@@ -3,10 +3,8 @@
 import logging
 from typing import Dict, Optional
 
-from quant_core.enums import OrderSide, OrderStatus
-from sqlalchemy.orm import Session
+from quant_core.enums import Currency, OrderSide, OrderStatus
 
-from ..core.repository import OrderRepository, PositionRepository
 from ..core.schemas import (
     CashBalance,
     ExecutionResult,
@@ -25,6 +23,9 @@ class Portfolio:
     """
     Manages the in-memory state of the bot's positions and balances.
 
+    Nothing here touches a database: fills are the truth and are saved by the
+    execution engine; positions are derived from them (D19).
+
     This class is agnostic to the specific exchange and operates
     purely on the abstract data contracts (schemas). It is responsible
     for tracking assets, calculating P&L, and providing a snapshot
@@ -34,22 +35,18 @@ class Portfolio:
     def __init__(
         self,
         initial_balance: float,
-        quote_currency: str = "USD",
-        pos_repo: Optional[PositionRepository] = None,
-        order_repo: Optional[OrderRepository] = None,
+        quote_currency: str | Currency = Currency.USD,
     ) -> None:
         """
-        Initializes the portfolio with a starting balance and optional repositories.
+        Initializes the portfolio with a starting balance.
 
         :param initial_balance: The total starting capital in the quote currency.
-        :param quote_currency: The primary currency for accounting (e.g., "USD").
-        :param pos_repo: Decoupled repository for Position db operations.
-        :param order_repo: Decoupled repository for Order db operations.
+        :param quote_currency: The accounting currency, one of quant_core's
+            ``Currency`` values (e.g. "USD"); anything else raises ValueError.
         """
+        self.initial_balance: float = initial_balance
         self._cash_balance: float = initial_balance
-        self.quote_currency: str = quote_currency
-        self.pos_repo = pos_repo
-        self.order_repo = order_repo
+        self.quote_currency: str = Currency(quote_currency).value
 
         # In-memory state
         # Key: f"{instrument_id}:{outcome}" if outcome else instrument_id
@@ -63,35 +60,6 @@ class Portfolio:
             f"Portfolio initialized with cash: {initial_balance:.2f} "
             f"{self.quote_currency}"
         )
-
-    def load_positions(self, db: Optional[Session] = None) -> None:
-        """
-        Loads all open positions from the database into memory.
-        This should be called once on startup.
-
-        :param db: The optional SQLAlchemy database session for backwards compatibility.
-        """
-        repo = self.pos_repo or (PositionRepository(db) if db else None)
-        if not repo:
-            logger.warning(
-                "No PositionRepository or Session provided to load_positions."
-            )
-            return
-
-        open_positions = repo.get_open_positions()
-
-        count = 0
-        self._positions.clear()
-        for pos_schema in open_positions:
-            key = (
-                f"{pos_schema.instrument_id}:{pos_schema.outcome}"
-                if pos_schema.outcome
-                else pos_schema.instrument_id
-            )
-            self._positions[key] = pos_schema
-            count += 1
-
-        logger.info(f"Loaded {count} open positions from repository.")
 
     def add_open_order(self, order_id: str, order: OrderRequest) -> None:
         """
@@ -107,31 +75,25 @@ class Portfolio:
         self._open_orders[order_id] = order
         logger.debug(f"Added open order {order_id} to portfolio.")
 
-    def update_order_status(
-        self, db: Optional[Session], result: ExecutionResult
-    ) -> None:
+    def fill_for(self, result: ExecutionResult) -> Optional[OrderRequest]:
+        """The order ``update_order_status(result)`` would fill, without
+        applying anything, so the fill can be saved before the Portfolio
+        changes (fills are the truth)."""
+        if result.status != OrderStatus.FILLED or not result.filled_quantity > 0:
+            return None
+        return self._open_orders.get(result.order_id)
+
+    def update_order_status(self, result: ExecutionResult) -> Optional[OrderRequest]:
         """
         Updates the portfolio state based on an execution result.
         This is the primary method for processing fills, cancels, or failures.
 
-        :param db: The optional SQLAlchemy database session for persistence.
         :param result: The ExecutionResult schema object from the engine.
+        :return: The order whose fill was applied, or None when nothing was
+                 filled (so the caller saves exactly the fills applied here).
         """
-        # Resolve repositories
-        active_pos_repo = self.pos_repo or (PositionRepository(db) if db else None)
-        active_order_repo = self.order_repo or (OrderRepository(db) if db else None)
-
         # Remove order from tracking, whether filled or failed
         order = self._open_orders.pop(result.order_id, None)
-
-        # Update order log in database
-        if active_order_repo:
-            active_order_repo.update_order(
-                order_id=result.order_id,
-                status=result.status,
-                filled_quantity=result.filled_quantity,
-                avg_fill_price=result.avg_price,
-            )
 
         if result.status in (
             OrderStatus.CANCELLED,
@@ -141,7 +103,7 @@ class Portfolio:
             logger.info(
                 f"Order {result.order_id} finalized with status: {result.status}"
             )
-            return
+            return None
 
         if result.status != OrderStatus.FILLED:
             if order:
@@ -150,14 +112,18 @@ class Portfolio:
                 f"Received non-final status {result.status} for {result.order_id}. "
                 "Portfolio will not update until FILLED."
             )
-            return
+            return None
 
         if order is None:
             logger.error(
                 f"Received fill for untracked order {result.order_id}. "
                 "State may be inconsistent."
             )
-            return
+            return None
+
+        if result.filled_quantity <= 0:
+            logger.warning(f"Order {result.order_id} FILLED with no quantity.")
+            return None
 
         # --- Process the Fill (Agnostic / Outcome-aware Logic) ---
         fill_cost = result.filled_quantity * result.avg_price
@@ -188,8 +154,6 @@ class Portfolio:
                 cost_basis=trade_price,
             )
             self._positions[key] = pos
-            if active_pos_repo:
-                active_pos_repo.save_position(pos)
 
         else:  # Modifying an existing position
             old_size = pos.quantity
@@ -228,17 +192,13 @@ class Portfolio:
             # Check if position was closed out
             if abs(new_size) < 1e-9:
                 self._positions.pop(key)
-                if active_pos_repo:
-                    active_pos_repo.save_position(pos, is_delete=True)
-            else:
-                if active_pos_repo:
-                    active_pos_repo.save_position(pos)
 
         logger.info(
             f"Fill processed for order {result.order_id}. "
             f"Market: {key}, New Size: {pos.quantity if pos else 0:.4f}. "
             f"Realized P&L: {realized_pnl:.2f}. New cash: {self._cash_balance:.2f}"
         )
+        return order
 
     # --- Valuation (PR 7b): one price rule for equity ------------------------
 

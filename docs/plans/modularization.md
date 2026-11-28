@@ -54,9 +54,10 @@ For each decision: who knows it today, and who should?
 | D13 | After a search: retrain the best settings on all data before the holdout, score the holdout **once**, and save the model as `candidate` if a pluggable `AcceptanceRule` passes (default `IC > 0`), else as `rejected` with the reason. |
 | D14 | Search budget: 10 minutes on a laptop by default (Optuna `timeout`, median pruner, `max_folds`). |
 | D15 | Existing backtest runs and trial models are **disposable**: new schema, reset, no migration. The reset of `dev.db` still needs the user's go-ahead at that step. |
-| D16 | **One fts research database today; the live book gets its own later.** Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch in `BacktestEngine.run`. Every write of a run goes to the one session passed in. Checked 2026-11-26: `backtests.db` is empty, and the existing backtest rows (980 predictions, 280 orders) are already in `dev.db`. Each store (`RunStore`, `MarketDataRepository`, the model registry, later the live book) gets its session from one place in config, so moving a store to its own file later is a config change. The live book (M6) gets its own database: it's never reset and must be backed up. R2 saves full runs only for the final candidate and holdout; other trials keep their scores in Optuna. (UI-plan D9 updated to match.) |
+| D16 | **One fts research database today; the live book gets its own later.** Drop `BACKTEST_DATABASE_URL` and the `"test"`-in-URL switch in `BacktestEngine.run`. Every write of a run goes to the one session passed in. Checked 2026-11-26: `backtests.db` is empty, and the existing backtest rows (980 predictions, 280 orders) are already in `dev.db`. Each store (`RunStore`, `MarketDataRepository`, the model registry, later the live book) gets its session from one place in config, so moving a store to its own file later is a config change. The live book (M6) gets its own database: it's never reset and must be backed up. R2 saves full runs only for the final candidate and holdout; other trials keep their scores in Optuna. (UI-plan D9 updated to match.) Positions are not stored: they are derived from fills (D19). |
 | D17 | One instrument per model and per search for now. Multi-instrument models are in the backlog under "Future stuff". |
 | D18 | **One price cache shared by both apps**, as the last step of M2. Bars, corporate actions and the cache's market rows move from `dev.db` and `portfolio_analyser.db` into one file (e.g. `market_cache.db`), set by one env var used by both apps and the workbench. fts then has two files (research + cache) because they have different lifecycles: the cache is shared and disposable. The shared cache starts empty and is refilled from the providers, since cache tables are disposable (`AGENTS.md`). That also avoids merging two files whose symbols may come from different vendors. |
+| D19 | **Fills are the truth, positions are derived** (agreed 2026-11-27). No positions table: a backtest checks at the end that replaying its saved fills (`ledger.holdings`, `ledger.cash`) gives the Portfolio's final positions and cash; live checks its fill book against IBKR (M6, D8). A snapshot table is only worth it when replay is slow, which it isn't at our size. Until M6 a restarted live bot starts flat. |
 
 ## PR sequence
 
@@ -78,6 +79,60 @@ For each decision: who knows it today, and who should?
 | **M7** | IBKR paper | One deployment on a paper account, from YAML. | — |
 | **M9** | Shadow backtest + Live page | A workbench button re-runs a deployment over its live period, and the Live page overlays live vs shadow, grouped by strategy line. | — |
 | A1 | Analyser what-if | Weights + `quant_core.rebalance` → `Transaction`s → `ledger.replay` → existing metrics and figures. Costs from the M4 cost models once they exist. | How what-ifs are simulated |
+
+## M1 design: `RunStore` + one database
+
+> Written 2026-11-27 against `b749df3` (W2); the live DBs were read read-only.
+
+**In plain words.** One package, `trading_bot.runs`, knows which tables make up a run. Everyone else asks it
+to "write this fill", "load run X" or "delete run X". There's one database, and fills are the truth (D19).
+
+**What we found**
+- `trade_logs` is never written, so the catalog win rate is always NaN.
+- The 280 orders in `dev.db` have no `run_id`, so deleting a run leaves them behind.
+- `PositionRepository.save_position` ignores `run_id`, and the live bot reloads every open position.
+- `order_logs` has two writers (`ExecutionEngine` and `Portfolio` via `OrderRepository`).
+- The visualizer uses the wall-clock `updated_at` as the trade time.
+- `BacktestEngine.run` swaps sessions, but the Portfolio's repos keep the old one, so a run can end up split across two files.
+- The catalog guesses the model from the run name.
+- The sweep runner reads `TradeLog.realized_pnl`, which doesn't exist.
+
+**Modules** (`apps/fts/src/trading_bot/runs/`)
+
+| Module | Job |
+|---|---|
+| `tables.py` | The run schema, hidden: `RunLog` (run card: kind, strategy, instrument, start, end), `RunSegmentLog` (which model traded from when to when; one row per backtest today, one per fold in R2), `OrderLog`, `TradeLog` (one row per fill, stamped with the bar time), `PredictionLog` and its subclasses, `BacktestEquityLog`. `RUN_TABLES` is the only list of them, parents before children, so deletes run in reverse and never trip a foreign key (`trade_logs` → `order_logs`). |
+| `records.py` | Pydantic records callers see (`extra="forbid"`): `RunHeader` (the card, with `initial_cash`), `Segment`, `EquityPoint`, `Fill`, `Prediction`, `RunRecord`. No ORM objects leave the package. |
+| `recorder.py` | Write side during a run: the `RunRecorder` Protocol and `SqlRunRecorder(run_id, kind)`. Every method takes the session to write into, so one run can't be split across two sessions; it never commits (the loop or the execution engine owns the transaction). A `run_id` is started once: `start` raises `RunExistsError` for a saved run, so a rerun clears it first (`clear_previous_run=True`). |
+| `store.py` | Read/delete side: `RunStore(session_factory)` with `list`, `markets`, `load`, `delete` and `counts`. `markets` reads the predictions, not the card, so the run picker lists a run under every instrument and strategy it predicted. |
+| `integrity.py` | Fills → `quant_core` `Transaction`s (the run card's `initial_cash` is one `DEPOSIT`, the run's cash flow; the instrument key includes the outcome, so YES and NO never merge). The end-of-run check against the Portfolio raises `RunIntegrityError`, and `BacktestEngine` then deletes the run (orders and fills are committed as they happen, so a rollback can't). A run without fills must end flat with its initial cash. |
+| `reset.py` | `python -m trading_bot.runs.reset --db-url <url>` drops the run tables (and the legacy `positions` table) only. |
+
+`ExecutionEngine`, the prediction logger and `BacktestEngine` receive a `RunRecorder`. The readers (`BacktestResult`,
+the catalog, the visualizers, the sweep runner, the dashboard) receive a `RunStore`. `Portfolio` is in-memory only.
+`core/performance.py` takes records, not ORM rows. The bar SQL in the visualizer stays until M2.
+
+**Quant pitfalls.**
+Handled:
+1. Fill time is the bar time.
+2. Win rate counts round trips over fills that now exist.
+3. The outcome is part of the replay key.
+4. The initial balance is a cash flow.
+5. One session per run.
+6. No backtest state can leak into live.
+7. A test checks that `RUN_TABLES` covers every table with a `run_id` column.
+8. A fill is committed before the Portfolio applies it. If that commit fails, the Portfolio is untouched and the order stays open, and the next status check saves and applies it, once (`record_fill` is idempotent per order).
+
+Known limits:
+1. A restarted live bot starts flat until M6.
+2. The replay check compares the final state only.
+3. `Transaction` is dated, so only end-of-run totals are compared, and those don't depend on the order within a day.
+4. The quote currency is one of `quant_core.enums.Currency` (USD, ARS, EUR). `ExecutionRiskSpec` and `Portfolio` refuse anything else up front; adding one (e.g. USDT) means adding it to that enum.
+
+**Tests.**
+1. A fixture backtest lands in one DB, and `delete` empties every run table.
+2. Fills carry the bar time, and the win rate is a number on a closed round trip.
+3. Removing a fill row makes the integrity check raise.
 
 ## Search config (R2, sketch)
 
@@ -183,7 +238,7 @@ can't quietly undo it. A guard arrives **in the PR that makes it true**; adding 
 | Existing (in `pyproject.toml`) | Shared packages never import an app; `quant_core` imports no workspace package; `quant_data` and `quant_ui` never import each other; `quant_ui` never imports a data library (`sqlalchemy`, `yfinance`, `ccxt`) | contracts |
 | W1 | The apps never import each other: `portfolio_analyser` ↛ `trading_bot`/`nets`/`argentina`, and the reverse. The analyser's old top-level names (`main`, `data_layer`, `visualization`) leave the first contract's list | contract |
 | W2 | The analyser CLI reaches the pipeline only through `review`: `portfolio_analyser.main` never imports `portfolio_analyser.data_layer` (the workbench side is checked in W3) | contract |
-| M1 | Only the `RunStore` module imports the run tables (`OrderLog`, `TradeLog`, `Position`, `BacktestEquityLog`, `BacktestPredictionLog`); they move to their own module so this can be a module-level contract. Text test: no `BACKTEST_DATABASE_URL`, no `"test" in` URL checks in `trading_bot/` | contract + test |
+| M1 | Only `trading_bot.runs` imports `trading_bot.runs.tables` (`RunLog`, `RunSegmentLog`, `OrderLog`, `TradeLog`, `PredictionLog`, `BacktestEquityLog`). Text test: no `BACKTEST_DATABASE_URL`, no `"test" in` URL checks, no `PositionRepository` in `trading_bot/` | contract + test |
 | M2 | fts (`trading_bot`, `nets`) never imports `quant_data.db.models` (bars and markets go through the repository); `Base` is re-exported from `quant_data.db` for `trading_bot.core.database`, with `allow_indirect_imports = true` | contract |
 | M2 (cache) | Text test: no hardcoded cache file path; both apps read the one cache env var | test |
 | W3 | `streamlit` is imported only by `workbench` (forbidden for every package and app, `quant_ui` included); `workbench` never imports `quant_data` or `quant_core.analytics` (pages draw, never calculate), and imports the apps only through their use-case modules (`portfolio_analyser.review`, the fts catalog service) | contracts |

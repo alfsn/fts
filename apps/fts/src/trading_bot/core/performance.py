@@ -1,8 +1,9 @@
 # src/trading_bot/core/performance.py
 
 """
-Adapter from persisted backtest logs to quant_core performance analytics.
-All KPI math lives in quant_core; this module only maps ORM rows to its inputs.
+Adapter from a saved run (``trading_bot.runs`` records) to quant_core
+performance analytics. All KPI math lives in quant_core; this module only maps
+the records to its inputs.
 """
 
 from collections import defaultdict
@@ -18,10 +19,10 @@ from quant_core.metrics import (
 )
 from quant_core.models import BenchmarkMetrics, PerformanceMetrics, VolForecastMetrics
 
-from .models import BacktestEquityLog, TradeLog
+from ..runs import EquityPoint, Fill
 
 
-def _log_series(equity_records: Iterable[BacktestEquityLog], column: str) -> pd.Series:
+def _log_series(equity_records: Iterable[EquityPoint], column: str) -> pd.Series:
     records = [e for e in equity_records if e.timestamp is not None]
     return pd.Series(
         [getattr(e, column) for e in records],
@@ -30,12 +31,12 @@ def _log_series(equity_records: Iterable[BacktestEquityLog], column: str) -> pd.
     )
 
 
-def equity_series(equity_records: Iterable[BacktestEquityLog]) -> pd.Series:
+def equity_series(equity_records: Iterable[EquityPoint]) -> pd.Series:
     return _log_series(equity_records, "equity")
 
 
 def build_benchmark_metrics(
-    equity_records: List[BacktestEquityLog],
+    equity_records: List[EquityPoint],
 ) -> BenchmarkMetrics:
     """
     Alpha/beta of the strategy against buy-and-hold of the instrument it
@@ -50,14 +51,14 @@ def build_benchmark_metrics(
     ).metrics
 
 
-def build_vol_forecast(equity_records: List[BacktestEquityLog]) -> VolForecastMetrics:
+def build_vol_forecast(equity_records: List[EquityPoint]) -> VolForecastMetrics:
     """EWMA volatility forecast of the strategy's equity, checked against the
     volatility it then realised (PR 10). Detail view only: it is not worth
     computing for every run in a catalog listing."""
     return compute_vol_forecast(equity_series(equity_records)).metrics
 
 
-def trade_win_rate(trade_records: Iterable[TradeLog]) -> float:
+def trade_win_rate(trade_records: Iterable[Fill]) -> float:
     fills_by_book = defaultdict(list)
     for t in sorted(trade_records, key=lambda t: t.fill_timestamp):
         sign = 1.0 if t.side == OrderSide.BUY else -1.0
@@ -69,7 +70,7 @@ def trade_win_rate(trade_records: Iterable[TradeLog]) -> float:
 
 
 def build_performance_metrics(
-    equity_records: List[BacktestEquityLog], trade_records: List[TradeLog]
+    equity_records: List[EquityPoint], trade_records: List[Fill]
 ) -> PerformanceMetrics:
     metrics = compute_performance_metrics(equity_series(equity_records))
     return metrics.model_copy(

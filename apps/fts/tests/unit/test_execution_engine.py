@@ -11,7 +11,6 @@ from quant_core.enums import OrderSide, OrderStatus
 from quant_core.models import ExecutionResult, OrderRequest
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from trading_bot.core.models import OrderLog as OrderLogModel
 
 # Import classes to be mocked
 from trading_bot.execution.abc import BaseExecutionHandler
@@ -19,6 +18,8 @@ from trading_bot.execution.abc import BaseExecutionHandler
 # Import the class we are testing
 from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.runs import SqlRunRecorder
+from trading_bot.runs.tables import OrderLog as OrderLogModel
 
 # --- Pytest Fixtures ---
 
@@ -33,8 +34,11 @@ def mock_handler() -> MagicMock:
 
 @pytest.fixture
 def mock_portfolio() -> MagicMock:
-    """Mocks the Portfolio."""
-    return MagicMock(spec=Portfolio)
+    """Mocks the Portfolio (it applies no fill, so none is saved)."""
+    portfolio = MagicMock(spec=Portfolio)
+    portfolio.fill_for.return_value = None
+    portfolio.update_order_status.return_value = None
+    return portfolio
 
 
 @pytest.fixture
@@ -64,6 +68,7 @@ def engine(
     return ExecutionEngine(
         execution_handler=mock_handler,
         portfolio=mock_portfolio,
+        recorder=SqlRunRecorder(run_id="test_run", kind="live"),
         max_retry_attempts=3,
         enable_auto_reconciliation=True,
     )
@@ -221,9 +226,7 @@ class TestExecutionEngine:
 
         # 3. Portfolio was updated
         mock_portfolio.add_open_order.assert_not_called()
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, sample_result_filled
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(sample_result_filled)
 
         # 4. Result is correct
         assert result == sample_result_filled
@@ -272,9 +275,7 @@ class TestExecutionEngine:
 
         # 4. Portfolio was updated with the FAILED result
         mock_portfolio.add_open_order.assert_not_called()
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(result)
 
     def test_execute_order_database_failure(
         self,
@@ -370,9 +371,7 @@ class TestExecutionEngine:
         assert mock_db_session.commit.call_count == 2
 
         # 2. Portfolio update was called
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, sample_result_filled
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(sample_result_filled)
 
         # 3. Error was logged
         assert "Portfolio update failed" in caplog.text
@@ -450,9 +449,7 @@ class TestExecutionEngine:
         assert sample_order_log_open.filled_quantity == filled_result.filled_quantity
 
         # 3. Portfolio was updated
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, filled_result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(filled_result)
 
         # 4. Result is correct
         assert result == filled_result
@@ -536,9 +533,7 @@ class TestExecutionEngine:
         assert sample_order_log_open.status == OrderStatus.CANCELLED
 
         # 3. Portfolio was updated
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, cancelled_result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(cancelled_result)
 
         # 4. Result is correct
         assert result == cancelled_result
@@ -578,9 +573,7 @@ class TestExecutionEngine:
         assert sample_order_log_open.status == OrderStatus.FAILED
 
         # 4. Portfolio was updated with FAILED status
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(result)
 
     # --- Reconciliation Queue Test ---
 
@@ -647,11 +640,66 @@ class TestExecutionEngine:
         mock_db_session.commit.assert_called_once()
 
         # 3. Portfolio was updated
-        mock_portfolio.update_order_status.assert_called_once_with(
-            mock_db_session, filled_result
-        )
+        mock_portfolio.update_order_status.assert_called_once_with(filled_result)
 
         # 4. Queue is now empty
         assert len(engine._reconciliation_queue) == 0
         assert recon_results["success"] == 1
         assert recon_results["failed"] == 0
+
+
+def test_a_fill_whose_commit_fails_is_applied_later_exactly_once():
+    """Fills are the truth: the fill is committed before the Portfolio applies
+    it. A failed commit leaves the Portfolio untouched and the order open, and
+    the next status check saves and applies it once."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from trading_bot.core.database import Base
+    from trading_bot.runs.tables import TradeLog
+
+    engine_db = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine_db)
+    db = sessionmaker(bind=engine_db, autoflush=False)()
+
+    order = OrderRequest(
+        instrument_id="MKT_123", side=OrderSide.BUY, quantity=100.0, price=0.5
+    )
+    filled = ExecutionResult(
+        order_id="o1",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        avg_price=0.5,
+        timestamp=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+    handler = MagicMock(spec=BaseExecutionHandler)
+    handler.execute_order.return_value = filled
+    handler.get_order_status.return_value = filled
+    portfolio = Portfolio(initial_balance=1000.0)
+    engine = ExecutionEngine(
+        execution_handler=handler,
+        portfolio=portfolio,
+        recorder=SqlRunRecorder(run_id="live1", kind="live"),
+    )
+
+    # The order row commits; the fill's commit fails
+    real_commit, calls = db.commit, []
+
+    def commit_failing_the_fill():
+        calls.append(1)
+        if len(calls) == 2:
+            raise SQLAlchemyError("database is locked")
+        real_commit()
+
+    db.commit = commit_failing_the_fill
+    engine.execute_order(order, db, "s")
+    assert portfolio.positions == {}
+    assert portfolio.cash_balance == 1000.0
+    assert "o1" in portfolio.open_orders
+    assert db.query(TradeLog).count() == 0
+
+    db.commit = real_commit
+    engine.check_order_status("o1", db)
+    engine.check_order_status("o1", db)  # already applied: nothing more
+    assert portfolio.positions["MKT_123"].quantity == 100.0
+    assert portfolio.cash_balance == pytest.approx(950.0)
+    assert db.query(TradeLog).count() == 1

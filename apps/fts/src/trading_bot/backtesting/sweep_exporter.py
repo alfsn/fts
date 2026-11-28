@@ -5,7 +5,6 @@ import os
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from sqlalchemy.orm import Session
 from trading_bot.backtesting.sweep_results import SweepResult
 from trading_bot.backtesting.sweep_visualizer import SweepVisualizer
 from trading_bot.config import settings
@@ -22,14 +21,12 @@ class BaseSweepExporter(ABC):
         self,
         sweep_result: SweepResult,
         output_path: Optional[str] = None,
-        db_session: Optional[Session] = None,
     ) -> str:
         """
         Exports the parameter sweep visualization.
 
         :param sweep_result: Evaluated SweepResult object.
         :param output_path: Optional file path or directory to write the report to.
-        :param db_session: Optional database session to query trial equity curves.
         :return: Absolute or relative file path of the generated visualization report.
         """
         pass
@@ -55,7 +52,6 @@ class HTMLSweepExporter(BaseSweepExporter):
         self,
         sweep_result: SweepResult,
         output_path: Optional[str] = None,
-        db_session: Optional[Session] = None,
     ) -> str:
         """
         Generates the interactive Plotly sweep charts and writes them out to a standalone HTML file.
@@ -65,7 +61,7 @@ class HTMLSweepExporter(BaseSweepExporter):
                 f"Cannot export empty SweepResult: {sweep_result.sweep_name}"
             )
 
-        fig = self.visualizer.render_charts(sweep_result, db_session=db_session)
+        fig = self.visualizer.render_charts(sweep_result)
 
         filename = f"sweep_report_{sweep_result.sweep_name}.html"
 

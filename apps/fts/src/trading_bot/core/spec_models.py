@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
+from quant_core.enums import Currency
 
 
 class MarketSpec(BaseModel):
@@ -52,8 +53,9 @@ class ExecutionRiskSpec(BaseModel):
     initial_balance: float = Field(
         default=10000.0, gt=0.0, description="Starting cash balance in quote currency"
     )
-    quote_currency: str = Field(
-        default="USD", description="Base portfolio currency denomination"
+    quote_currency: Currency = Field(
+        default=Currency.USD,
+        description="Base portfolio currency (one of quant_core's Currency values)",
     )
     position_size_pct: float = Field(
         default=0.10, gt=0.0, le=1.0, description="Position sizing fraction of equity"

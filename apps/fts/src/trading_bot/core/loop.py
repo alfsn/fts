@@ -3,12 +3,11 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Optional
 
 from sqlalchemy.orm import Session
 
 from ..backtesting.abc import BaseBacktestDataReader
-from .models import BacktestPredictionLog, ModelPredictionLog
 from .pipeline import TradingPipeline
 from .schemas import IngestionEngineOutput, MarketData, MarketDetails
 
@@ -26,10 +25,9 @@ class BaseEventLoop(ABC):
 
     @property
     @abstractmethod
-    def prediction_log_model(self) -> Type[Any]:
-        """
-        Returns the SQLAlchemy ORM model class to use for logging predictions.
-        """
+    def run_kind(self) -> str:
+        """The kind of run this loop drives ("live" or "backtest"), which
+        picks the recorder's prediction rows."""
         pass
 
     @abstractmethod
@@ -50,8 +48,8 @@ class RealTimePollingLoop(BaseEventLoop):
     """
 
     @property
-    def prediction_log_model(self) -> Type[Any]:
-        return ModelPredictionLog
+    def run_kind(self) -> str:
+        return "live"
 
     def __init__(
         self, interval_seconds: float, max_ticks: Optional[int] = None
@@ -111,8 +109,8 @@ class HistoricalReplayLoop(BaseEventLoop):
     """
 
     @property
-    def prediction_log_model(self) -> Type[Any]:
-        return BacktestPredictionLog
+    def run_kind(self) -> str:
+        return "backtest"
 
     def __init__(
         self,

@@ -89,7 +89,6 @@ class Settings(BaseSettings):
     # Example for dev (SQLite): "sqlite+pysqlite:///./dev.db"
     # Example for prod (PostgreSQL): "postgresql+psycopg2://user:pass@db:5432/trading"
     DATABASE_URL: str = "sqlite+pysqlite:///./dev.db"
-    BACKTEST_DATABASE_URL: str = "sqlite+pysqlite:///./backtests.db"
 
     # --- Path Configuration ---
     # Central repository paths, resolved relative to project root
@@ -108,7 +107,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _resolve_database_url(self) -> "Settings":
         """Ensure relative SQLite database URLs resolve relative to project ROOT_DIR."""
-        for field in ("DATABASE_URL", "BACKTEST_DATABASE_URL"):
+        for field in ("DATABASE_URL",):
             val = getattr(self, field, None)
             if not val:
                 continue

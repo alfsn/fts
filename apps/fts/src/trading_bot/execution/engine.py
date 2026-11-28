@@ -6,11 +6,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from quant_core.enums import OrderSide
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ..core.models import OrderLog as OrderLogModel
 from ..core.schemas import (
     ExecutionResult,
     IngestionEngineOutput,
@@ -18,6 +16,7 @@ from ..core.schemas import (
     OrderStatus,
 )
 from ..risk_management.portfolio import Portfolio
+from ..runs import RunRecorder
 from .abc import BaseExecutionHandler
 
 logger = logging.getLogger(__name__)
@@ -33,6 +32,15 @@ class ExecutionErrorType(Enum):
     INVALID_ORDER = "invalid_order"
 
 
+# Statuses after which the exchange never changes an order again
+_FINAL = (
+    OrderStatus.FILLED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REJECTED,
+    OrderStatus.FAILED,
+)
+
+
 class ExecutionEngine:
     """
     Orchestrates order execution, logging, and portfolio updates.
@@ -45,15 +53,16 @@ class ExecutionEngine:
         self,
         execution_handler: BaseExecutionHandler,
         portfolio: Portfolio,
+        recorder: RunRecorder,
         max_retry_attempts: int = 3,
         enable_auto_reconciliation: bool = True,
-        run_id: Optional[str] = None,
     ) -> None:
         """
         Initializes the engine with error handling configuration.
 
         :param execution_handler: BaseExecutionHandler implementation
         :param portfolio: The bot's shared Portfolio object
+        :param recorder: Saves this run's orders and fills (``trading_bot.runs``)
         :param max_retry_attempts: Number of retries for transient failures
         :param enable_auto_reconciliation: Enable automatic state reconciliation
         """
@@ -61,7 +70,7 @@ class ExecutionEngine:
         self.portfolio = portfolio
         self.max_retry_attempts = max_retry_attempts
         self.enable_auto_reconciliation = enable_auto_reconciliation
-        self.run_id = run_id
+        self.recorder = recorder
 
         # Track pending reconciliation items
         self._reconciliation_queue: List[Any] = []
@@ -117,7 +126,7 @@ class ExecutionEngine:
         if result:
             try:
                 # Log order to database and commit
-                self._log_order(db, order, result, strategy_name)
+                self.recorder.record_order(db, order, result, strategy_name)
                 db.commit()
 
                 # Only update portfolio if DB logging succeeded
@@ -165,9 +174,9 @@ class ExecutionEngine:
             result = self.handler.get_order_status(order_id)
 
             # Verify database state
-            log = self._get_order_log(db, order_id)
+            logged_status = self.recorder.order_status(db, order_id)
 
-            if not log:
+            if logged_status is None:
                 logger.warning(
                     f"Order {order_id} exists on exchange but not in database! "
                     f"This indicates a previous logging failure."
@@ -177,16 +186,20 @@ class ExecutionEngine:
                     self._reconcile_missing_order(db, order_id, result)
                 return result
 
-            # Update if status changed
-            if log.status != result.status:
+            # Update if the status changed, or if the order is final but still
+            # open in the Portfolio (a fill whose commit failed earlier)
+            unapplied = result.status in _FINAL and order_id in getattr(
+                self.portfolio, "open_orders", {}
+            )
+            if logged_status != result.status or unapplied:
                 logger.info(
                     f"Status for order {order_id} changed: "
-                    f"{log.status.value} -> {result.status.value}"
+                    f"{logged_status.value} -> {result.status.value}"
                 )
 
                 try:
                     # Log change to database
-                    self._update_order_log(db, log, result)
+                    self.recorder.update_order(db, result)
 
                     # Update portfolio after successful DB update
                     self._safe_portfolio_update(db, None, result)
@@ -195,6 +208,7 @@ class ExecutionEngine:
                     db.commit()
 
                 except SQLAlchemyError as e:
+                    # The order stays open in the Portfolio: retried next check
                     logger.error(
                         f"Failed to update order log for {order_id}: {e}", exc_info=True
                     )
@@ -230,11 +244,7 @@ class ExecutionEngine:
         # Update database and portfolio
         if result:
             try:
-                log = self._get_order_log(db, order_id)
-
-                if log:
-                    self._update_order_log(db, log, result)
-
+                self.recorder.update_order(db, result)
                 self._safe_portfolio_update(db, None, result)
                 db.commit()
 
@@ -274,8 +284,24 @@ class ExecutionEngine:
                             f"to process the fill."
                         )
                         self.portfolio.add_open_order(result.order_id, order)
-                self.portfolio.update_order_status(db, result)
+                # Fills are the truth: commit the fill (with any pending order
+                # row) before the Portfolio applies it. If the commit fails the
+                # Portfolio is untouched and the order stays open, so the next
+                # status check or reconciliation applies it again.
+                to_fill = self.portfolio.fill_for(result)
+                if to_fill is not None:
+                    self.recorder.record_fill(db, to_fill, result)
+                    db.commit()
+                filled = self.portfolio.update_order_status(result)
+                if (filled is None) != (to_fill is None):
+                    raise RuntimeError(
+                        f"Order {result.order_id}: the saved fill and the "
+                        "Portfolio's applied fill disagree."
+                    )
 
+        except SQLAlchemyError:
+            # The caller rolls back; nothing was applied to the Portfolio
+            raise
         except Exception as e:
             logger.error(
                 f"Portfolio update failed for order {result.order_id}: {e}",
@@ -283,59 +309,6 @@ class ExecutionEngine:
             )
             # Don't raise - portfolio can be resynced later
             self._queue_for_reconciliation(result.order_id, order, "portfolio_resync")
-
-    def _get_order_log(self, db: Session, order_id: str) -> Optional[OrderLogModel]:
-        """
-        Safely retrieve an order log with error handling.
-
-        :param db: Database session
-        :param order_id: Order ID to look up
-        :return: OrderLogModel or None
-        """
-        try:
-            return db.query(OrderLogModel).filter_by(order_id=order_id).first()
-        except SQLAlchemyError as e:
-            logger.error(f"Database error fetching order log {order_id}: {e}")
-            return None
-
-    def _log_order(
-        self,
-        db: Session,
-        order: OrderRequest,
-        result: ExecutionResult,
-        strategy_name: str,
-    ):
-        """
-        Logs order to database with better error handling.
-        Raises on failure to ensure transaction rollback.
-        """
-        log = self._get_order_log(db, result.order_id)
-
-        if not log:
-            log = OrderLogModel(
-                order_id=result.order_id,
-                instrument_id=order.instrument_id,
-                strategy_name=strategy_name,
-                side=order.side,
-                requested_quantity=order.quantity,
-                requested_price=order.price,
-                run_id=self.run_id,
-            )
-            db.add(log)
-
-        self._update_order_log(db, log, result)
-
-    def _update_order_log(
-        self, db: Session, log: OrderLogModel, result: ExecutionResult
-    ):
-        """Updates an existing order log entry."""
-        log.status = result.status
-        log.filled_quantity = result.filled_quantity
-        log.avg_fill_price = result.avg_price
-        log.updated_at = datetime.now(timezone.utc)
-        if self.run_id:
-            log.run_id = self.run_id
-        # Don't commit here - let caller control transaction
 
     def _create_failed_result(
         self,
@@ -417,18 +390,7 @@ class ExecutionEngine:
         # This is a best-effort recovery - we're missing the original OrderRequest
         # In production, you might query the exchange API for order details
         try:
-            log = OrderLogModel(
-                order_id=order_id,
-                instrument_id="UNKNOWN_MARKET",  # Would need to fetch from exchange
-                strategy_name="reconciled",
-                side=OrderSide.BUY,  # Would need to fetch from exchange
-                requested_quantity=result.filled_quantity,
-                requested_price=result.avg_price,
-                status=result.status,
-                filled_quantity=result.filled_quantity,
-                avg_fill_price=result.avg_price,
-            )
-            db.add(log)
+            self.recorder.record_unknown_order(db, result)
             db.commit()
             logger.info(f"Successfully reconciled order {order_id}")
 
@@ -487,22 +449,18 @@ class ExecutionEngine:
                 # Check current status on exchange
                 current_result = self.handler.get_order_status(order_id)
 
-                # Update database
-                log = self._get_order_log(db, order_id)
-                if log:
-                    self._update_order_log(db, log, current_result)
-                    db.commit()
-
-                else:
-                    self._reconcile_missing_order(db, order_id, current_result)
-
-                # Update portfolio
-                self.portfolio.update_order_status(db, current_result)
+                # Update the order (or log the unknown one), the portfolio and
+                # the fill it applies, then commit them together
+                if not self.recorder.update_order(db, current_result):
+                    self.recorder.record_unknown_order(db, current_result)
+                self._safe_portfolio_update(db, None, current_result)
+                db.commit()
 
                 results["success"] += 1
                 self._reconciliation_queue.remove(item)
 
             except Exception as e:
+                db.rollback()
                 results["failed"] += 1
                 results["errors"].append(f"{item['order_id']}: {str(e)}")
                 logger.error(f"Reconciliation failed for {item['order_id']}: {e}")

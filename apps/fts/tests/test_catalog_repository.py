@@ -12,13 +12,12 @@ from trading_bot.core.catalog_repository import (
     ModelCatalogRepository,
 )
 from trading_bot.core.database import Base
-from trading_bot.core.models import (
+from trading_bot.core.models import Market, ModelRegistryLog
+from trading_bot.runs.tables import (
     BacktestEquityLog,
-    BacktestPredictionLog,
-    BarDataLog,
-    Market,
-    ModelRegistryLog,
     OrderLog,
+    RunLog,
+    RunSegmentLog,
     TradeLog,
 )
 
@@ -178,11 +177,16 @@ def test_backtest_catalog_repository_metrics(db_session_factory):
             side=OrderSide.BUY,
             quantity=1.0,
             fill_price=10.0,
-            outcome="win",
             fill_timestamp=now + timedelta(minutes=1),
         )
 
-        session.add_all([e1, e2, e3, e4, o1, t1])
+        card = RunLog(
+            run_id="run_test",
+            kind="backtest",
+            strategy_name="TrendStrategy",
+            instrument_id="AAPL",
+        )
+        session.add_all([card, e1, e2, e3, e4, o1, t1])
         session.commit()
 
     runs = repo.list_runs()
@@ -218,67 +222,55 @@ def test_catalog_query_service_summary(db_session_factory):
     assert summary["models"] == 0
 
 
-def test_catalog_query_service_dual_factories():
-    main_engine = create_engine("sqlite:///:memory:")
-    bt_engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(main_engine)
-    Base.metadata.create_all(bt_engine)
-
-    main_factory = sessionmaker(bind=main_engine)
-    bt_factory = sessionmaker(bind=bt_engine)
-
+def test_the_model_comes_from_the_run_segment(db_session_factory):
+    """M1: one database, and the linked model is the run's segment (it used
+    to be guessed from the run name)."""
     now = datetime.now(timezone.utc)
-
-    # Main DB: model registry log
-    with main_factory() as session:
-        m = ModelRegistryLog(
-            model_id="model_001",
-            run_id="bt_run_1",
-            model_type="LSTM",
-            instrument_id="BTC/USDT",
-            interval="1m",
-            horizon=5,
-            onnx_path="/tmp/model.onnx",
-            hyperparameters={"hidden_dim": 64},
-            metrics={},
-            status="candidate",
+    with db_session_factory() as session:
+        session.add_all(
+            [
+                ModelRegistryLog(
+                    model_id="model_001",
+                    model_type="LSTM",
+                    instrument_id="BTC/USDT",
+                    interval="1m",
+                    horizon=5,
+                    onnx_path="/tmp/model.onnx",
+                    hyperparameters={"hidden_dim": 64},
+                    metrics={},
+                    status="candidate",
+                ),
+                RunLog(run_id="run_1", kind="backtest", instrument_id="BTC/USDT"),
+                RunSegmentLog(run_id="run_1", model_id="model_001"),
+                BacktestEquityLog(
+                    run_id="run_1",
+                    timestamp=now,
+                    cash=1000.0,
+                    position=0.0,
+                    close=100.0,
+                    equity=1000.0,
+                ),
+                BacktestEquityLog(
+                    run_id="run_1",
+                    timestamp=now + timedelta(minutes=1),
+                    cash=1050.0,
+                    position=0.0,
+                    close=105.0,
+                    equity=1050.0,
+                ),
+            ]
         )
-        session.add(m)
         session.commit()
 
-    # Backtest DB: backtest equity log
-    with bt_factory() as session:
-        e1 = BacktestEquityLog(
-            run_id="bt_run_1",
-            timestamp=now,
-            cash=1000.0,
-            position=0.0,
-            close=100.0,
-            equity=1000.0,
-        )
-        e2 = BacktestEquityLog(
-            run_id="bt_run_1",
-            timestamp=now + timedelta(minutes=1),
-            cash=1050.0,
-            position=0.0,
-            close=105.0,
-            equity=1050.0,
-        )
-        session.add_all([e1, e2])
-        session.commit()
-
-    service = CatalogQueryService(
-        session_factory=main_factory,
-        backtest_session_factory=bt_factory,
-    )
+    service = CatalogQueryService(session_factory=db_session_factory)
 
     runs = service.backtest_repo.list_runs()
     assert len(runs) == 1
-    assert runs[0].run_id == "bt_run_1"
+    assert runs[0].run_id == "run_1"
     assert runs[0].model_id == "model_001"
     assert runs[0].hyperparameters == {"hidden_dim": 64}
 
-    detail = service.backtest_repo.get_run_details("bt_run_1")
+    detail = service.backtest_repo.get_run_details("run_1")
     assert detail is not None
     assert len(detail.equity_curve) == 2
 

@@ -14,8 +14,6 @@ from quant_core.models import Instrument, TradFiDetails
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.core.database import Base
-from trading_bot.core.models import OrderLog as OrderLogModel
-from trading_bot.core.models import Position as PositionModel
 from trading_bot.core.schemas import (
     ExecutionResult,
     Instrument,
@@ -29,6 +27,9 @@ from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
+from trading_bot.runs import SqlRunRecorder
+from trading_bot.runs.tables import OrderLog as OrderLogModel
+from trading_bot.runs.tables import TradeLog
 
 # tests/integration/test_exec_risk_integration.py
 
@@ -100,6 +101,7 @@ def real_execution_engine(
     return ExecutionEngine(
         execution_handler=mock_handler,
         portfolio=real_portfolio,
+        recorder=SqlRunRecorder(run_id="it_run", kind="live"),
     )
 
 
@@ -261,17 +263,10 @@ def test_full_order_lifecycle_integration(
     assert db_log.status == OrderStatus.FILLED
     assert db_log.filled_quantity == filled_result.filled_quantity
 
-    # Check database: A new PositionModel should be created
-    db_pos = (
-        db.query(PositionModel)
-        .filter_by(
-            instrument_id="MARKET_01",
-        )
-        .first()
-    )
-    assert db_pos is not None
-    assert db_pos.quantity == filled_result.filled_quantity
-    assert db_pos.cost_basis == 0.51
+    # Check database: the fill is saved (positions are derived from fills)
+    db_fill = db.query(TradeLog).filter_by(instrument_id="MARKET_01").one()
+    assert db_fill.quantity == filled_result.filled_quantity
+    assert db_fill.fill_price == 0.51
 
     # Check final portfolio state: Order is closed, position is open
     portfolio_state_filled = real_portfolio.get_state(market_data_map)
