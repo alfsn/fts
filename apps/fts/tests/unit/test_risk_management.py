@@ -18,9 +18,6 @@ from quant_core.models import Portfolio as PortfolioSchema
 from quant_core.models import TradFiDetails
 from sqlalchemy.orm import Session
 
-# Import ORM Models from your project
-from trading_bot.core.models import Position as PositionModel
-
 # Import Schemas from your project
 from trading_bot.core.schemas import (
     ExecutionResult,
@@ -40,6 +37,9 @@ from trading_bot.risk_management.abc import BaseSizingStrategy
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
+
+# Import ORM Models from your project
+
 
 # tests/unit/test_risk_management.py
 
@@ -189,7 +189,7 @@ class TestPortfolio:
             timestamp=datetime.now(timezone.utc),
         )
 
-        base_portfolio.update_order_status(mock_db_session, fill)
+        base_portfolio.update_order_status(fill)
 
         assert base_portfolio._cash_balance == 9900.0  # 10000 - (200 * 0.5)
         assert len(base_portfolio._open_orders) == 0
@@ -198,8 +198,6 @@ class TestPortfolio:
         assert pos_key in base_portfolio._positions
         assert base_portfolio._positions[pos_key].quantity == 200
         assert base_portfolio._positions[pos_key].cost_basis == 0.5
-        mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_sell_new_short(
         self, base_portfolio: Portfolio, mock_db_session
@@ -220,7 +218,7 @@ class TestPortfolio:
             timestamp=datetime.now(timezone.utc),
         )
 
-        base_portfolio.update_order_status(mock_db_session, fill)
+        base_portfolio.update_order_status(fill)
 
         assert base_portfolio._cash_balance == 10060.0  # 10000 + (100 * 0.6)
 
@@ -228,8 +226,6 @@ class TestPortfolio:
         assert pos_key in base_portfolio._positions
         assert base_portfolio._positions[pos_key].quantity == -100
         assert base_portfolio._positions[pos_key].cost_basis == 0.6
-        mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_buy_add_to_long(
         self, base_portfolio: Portfolio, mock_db_session
@@ -256,7 +252,7 @@ class TestPortfolio:
             avg_price=0.6,
             timestamp=datetime.now(timezone.utc),
         )
-        base_portfolio.update_order_status(mock_db_session, fill)
+        base_portfolio.update_order_status(fill)
 
         # Cash = 9960 - (100 * 0.6) = 9900
         assert base_portfolio._cash_balance == 9900.0
@@ -269,7 +265,6 @@ class TestPortfolio:
 
         # Entry = (100 * 0.4 + 100 * 0.6) / 200 = 0.5
         assert base_portfolio._positions[pos_key].cost_basis == 0.5
-        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_sell_close_long(
         self, base_portfolio: Portfolio, mock_db_session
@@ -296,7 +291,7 @@ class TestPortfolio:
             avg_price=0.7,
             timestamp=datetime.now(timezone.utc),
         )
-        base_portfolio.update_order_status(mock_db_session, fill)
+        base_portfolio.update_order_status(fill)
 
         # Realized P&L = 100 * (0.7 - 0.4) = 30
         # Cash = 9960 (start) + 70 (fill value) = 10030
@@ -305,7 +300,6 @@ class TestPortfolio:
         # Position should be closed
         pos_key = "MKT1"
         assert pos_key not in base_portfolio._positions
-        mock_db_session.commit.assert_not_called()
 
     def test_update_order_status_non_fill(self, base_portfolio: Portfolio):
         order = OrderRequest(
@@ -324,7 +318,7 @@ class TestPortfolio:
             timestamp=datetime.now(timezone.utc),
         )
 
-        base_portfolio.update_order_status(MagicMock(), result)
+        base_portfolio.update_order_status(result)
 
         # No change to cash, order removed from open list
         assert base_portfolio._cash_balance == 10000.0
@@ -361,25 +355,6 @@ class TestPortfolio:
         # Short 'YES' P&L = size * (current_price - entry_price)
         #                 = -100 * (0.51 - 0.60) = 9.0
         assert pnl_map["MARKET_01"] == pytest.approx(9.0)
-
-    def test_load_positions(self, base_portfolio: Portfolio, mock_db_session):
-        mock_pos_orm = PositionModel(
-            id=1,
-            instrument_id="MKT_DB",
-            quantity=50,
-            cost_basis=0.2,
-            status=PositionStatus.OPEN,
-        )
-        mock_db_session.query.return_value.filter_by.return_value.all.return_value = [
-            mock_pos_orm
-        ]
-
-        base_portfolio.load_positions(mock_db_session)
-
-        pos_key = "MKT_DB"
-        assert pos_key in base_portfolio._positions
-        assert base_portfolio._positions[pos_key].quantity == 50
-        assert base_portfolio._positions[pos_key].cost_basis == 0.2
 
 
 # --- TestRiskManager Class ---

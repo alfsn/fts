@@ -52,6 +52,10 @@ def init_db(extra_models: list[str] | None = None, bind_engine=None) -> None:
                     f"Failed to import extra models from {module_name}: {e}"
                 ) from e
 
+    # Register every fts table with Base.metadata (imported here: they import Base).
+    from .. import runs  # noqa: F401
+    from . import models  # noqa: F401
+
     target_engine = bind_engine if bind_engine is not None else engine
     Base.metadata.create_all(bind=target_engine)
 

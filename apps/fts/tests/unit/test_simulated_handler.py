@@ -25,6 +25,7 @@ from trading_bot.execution.engine import ExecutionEngine
 from trading_bot.execution.handlers.simulated_handler import SimulatedExecutionHandler
 from trading_bot.execution.slippage import FlatPriceSlip
 from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.runs import SqlRunRecorder
 
 # tests/unit/test_simulated_handler.py
 
@@ -313,9 +314,11 @@ def test_execution_engine_integration():
         side_effect=lambda: portfolio._open_orders
     )
 
+    portfolio.update_order_status.return_value = None  # a mock applies no fill
     engine = ExecutionEngine(
         execution_handler=handler,
         portfolio=portfolio,
+        recorder=SqlRunRecorder(run_id="sim_run", kind="backtest"),
     )
 
     # Place order

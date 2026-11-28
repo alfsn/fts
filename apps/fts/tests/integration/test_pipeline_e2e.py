@@ -15,10 +15,7 @@ from quant_core.models import Instrument, MarketDataRequest, TradFiDetails
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.core.database import Base
-from trading_bot.core.models import OrderLog as OrderLogModel
-from trading_bot.core.models import Position as PositionModel
 from trading_bot.core.pipeline import TradingPipeline
-from trading_bot.core.repository import OrderRepository, PositionRepository
 from trading_bot.core.schemas import (
     BarData,
     IngestionEngineOutput,
@@ -35,6 +32,9 @@ from trading_bot.execution.handlers.polymarket_handler import PolymarketHandler
 from trading_bot.risk_management.manager import RiskManager
 from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.risk_management.sizing.fixed_amount import FixedAmountSizer
+from trading_bot.runs import SqlRunRecorder
+from trading_bot.runs.tables import OrderLog as OrderLogModel
+from trading_bot.runs.tables import TradeLog
 from trading_bot.strategy.abc import BaseStrategy
 from trading_bot.strategy.engine import StrategyEngine
 
@@ -169,18 +169,8 @@ def test_pipeline_e2e_flow_buy_and_sell_with_db(db_session: Session):
     market_provider = FakeMarketProvider(data={instrument_id: market_data})
     fake_strategy = FakeStrategy()
 
-    # Initialize real database repositories
-    pos_repo = PositionRepository(db_session)
-    order_repo = OrderRepository(db_session)
-
-    # Initialize real Portfolio
-    portfolio = Portfolio(
-        initial_balance=10000.0,
-        quote_currency="USD",
-        pos_repo=pos_repo,
-        order_repo=order_repo,
-    )
-    portfolio.load_positions()
+    # Initialize real Portfolio (in memory: positions are derived from fills)
+    portfolio = Portfolio(initial_balance=10000.0, quote_currency="USD")
 
     # Initialize real orchestrations
     ingestion_engine = DataIngestionEngine(
@@ -205,6 +195,7 @@ def test_pipeline_e2e_flow_buy_and_sell_with_db(db_session: Session):
     execution_engine = ExecutionEngine(
         execution_handler=execution_handler,
         portfolio=portfolio,
+        recorder=SqlRunRecorder(run_id="e2e_run", kind="live"),
     )
 
     # Bind unified TradingPipeline
@@ -252,14 +243,11 @@ def test_pipeline_e2e_flow_buy_and_sell_with_db(db_session: Session):
     assert db_order.requested_price == 50200.0
     assert db_order.filled_quantity == pytest.approx(0.1)
 
-    # Database checks: position log should be persisted as OPEN
-    db_positions = db_session.query(PositionModel).all()
-    assert len(db_positions) == 1
-    db_pos = db_positions[0]
-    assert db_pos.instrument_id == instrument_id
-    assert db_pos.quantity == pytest.approx(0.1)
-    assert db_pos.cost_basis == 50200.0
-    assert db_pos.status == PositionStatus.OPEN
+    # Database checks: the fill is saved, stamped with the run
+    db_fill = db_session.query(TradeLog).one()
+    assert db_fill.run_id == "e2e_run"
+    assert db_fill.quantity == pytest.approx(0.1)
+    assert db_fill.fill_price == 50200.0
 
     # --- 4. EXECUTE FLOW 2: SELL TICK ---
 
@@ -298,10 +286,5 @@ def test_pipeline_e2e_flow_buy_and_sell_with_db(db_session: Session):
     assert sell_order.requested_price == 52000.0
     assert sell_order.filled_quantity == pytest.approx(0.1)
 
-    # Database checks: position status should be CLOSED in DB (or size updated to 0.0 depending on save_position implementation)
-    db_pos_final = (
-        db_session.query(PositionModel).filter_by(instrument_id=instrument_id).first()
-    )
-    assert db_pos_final is not None
-    assert db_pos_final.status == PositionStatus.CLOSED
-    assert db_pos_final.quantity == 0.0
+    # Database checks: both fills are saved
+    assert db_session.query(TradeLog).count() == 2

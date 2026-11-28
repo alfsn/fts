@@ -77,6 +77,28 @@ forbidden_modules = ["portfolio_analyser.data_layer"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
+name = "Only trading_bot.runs knows the run tables (M1)"
+type = "forbidden"
+source_modules = [
+    "trading_bot.__main__",
+    "trading_bot.backtesting",
+    "trading_bot.config",
+    "trading_bot.core",
+    "trading_bot.dashboard",
+    "trading_bot.data_ingestion",
+    "trading_bot.execution",
+    "trading_bot.monitoring",
+    "trading_bot.risk_management",
+    "trading_bot.strategy",
+    "trading_bot.utils",
+    "nets",
+    "argentina",
+]
+forbidden_modules = ["trading_bot.runs.tables"]
+# Callers reach the tables through RunRecorder / RunStore by design.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
 name = "quant_core imports no other workspace package"
 type = "forbidden"
 source_modules = ["quant_core"]

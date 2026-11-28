@@ -76,8 +76,19 @@ def test_sweep_result_serialization(sample_sweep_result, tmp_path):
     assert loaded_sweep.trials[1].oos_sharpe == 2.40
 
 
-def test_sweep_visualizer_render(sample_sweep_result):
-    visualizer = SweepVisualizer(db_url="sqlite:///:memory:")
+@pytest.fixture
+def research_db_url(tmp_path):
+    """An empty research database with the fts tables (no saved trial runs)."""
+    from sqlalchemy import create_engine
+    from trading_bot.core.database import init_db
+
+    url = f"sqlite:///{tmp_path / 'research.db'}"
+    init_db(bind_engine=create_engine(url))
+    return url
+
+
+def test_sweep_visualizer_render(sample_sweep_result, research_db_url):
+    visualizer = SweepVisualizer(db_url=research_db_url)
     fig = visualizer.render_charts(sample_sweep_result)
     assert fig is not None
     # Check Plotly figure data & titles
@@ -86,8 +97,8 @@ def test_sweep_visualizer_render(sample_sweep_result):
     assert len(fig.data) >= 4
 
 
-def test_html_sweep_exporter(sample_sweep_result, tmp_path):
-    exporter = HTMLSweepExporter(db_url="sqlite:///:memory:")
+def test_html_sweep_exporter(sample_sweep_result, tmp_path, research_db_url):
+    exporter = HTMLSweepExporter(db_url=research_db_url)
     output_file = tmp_path / "sweep_report.html"
 
     report_path = exporter.export(sample_sweep_result, output_path=str(output_file))

@@ -1,23 +1,24 @@
 # tests/unit/test_architecture_cleanup.py
 
 import os
+import re
+from pathlib import Path
 
 import pytest
-from quant_core.enums import OrderSide, OrderStatus, PositionStatus
-from quant_core.models import Position as PositionSchema
+from quant_core.enums import OrderSide, OrderStatus
+from quant_core.models import ExecutionResult, OrderRequest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trading_bot.core.database import Base, create_db_session, init_db
-from trading_bot.core.models import (
+from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.runs import RunHeader, SqlRunRecorder
+from trading_bot.runs.tables import (
     BacktestPredictionLog,
     ModelPredictionLog,
-)
-from trading_bot.core.models import Position as PositionModel
-from trading_bot.core.models import (
     PredictionLog,
+    RunLog,
+    TradeLog,
 )
-from trading_bot.core.repository import PositionRepository
-from trading_bot.risk_management.portfolio import Portfolio
 
 
 def test_dynamic_db_session_and_init():
@@ -37,7 +38,7 @@ def test_dynamic_db_session_and_init():
         init_db(bind_engine=session.bind)
 
         # Check table creation by running simple query
-        assert session.query(PositionModel).count() == 0
+        assert session.query(RunLog).count() == 0
         session.close()
     finally:
         if os.path.exists(test_db_file):
@@ -127,8 +128,9 @@ def test_portfolio_public_property_accessors():
     assert isinstance(portfolio.open_orders, dict)
 
 
-def test_decoupled_repository_transactions():
-    """Verifies that repositories no longer auto-commit or rollback transactions."""
+def test_the_run_recorder_never_commits():
+    """The recorder writes into the caller's transaction; the loop or the
+    execution engine decides when to commit."""
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -139,43 +141,86 @@ def test_decoupled_repository_transactions():
 
         from trading_bot.core.models import Market
 
-        # Add market
-        market = Market(
-            instrument_id="AAPL",
-            name="Apple Stock",
-            end_date=datetime.now(timezone.utc),
-            resolution_source="test",
+        db.add(
+            Market(
+                instrument_id="AAPL",
+                name="Apple Stock",
+                end_date=datetime.now(timezone.utc),
+                resolution_source="test",
+            )
         )
-        db.add(market)
         db.commit()
 
-        repo = PositionRepository(db)
-
-        pos_schema = PositionSchema(
-            instrument_id="AAPL",
-            quantity=10.0,
-            cost_basis=150.0,
-            run_id="test_run",
+        recorder = SqlRunRecorder(run_id="test_run", kind="backtest")
+        order = OrderRequest(
+            instrument_id="AAPL", side=OrderSide.BUY, quantity=10.0, price=150.0
+        )
+        result = ExecutionResult(
+            order_id="o1",
+            status=OrderStatus.FILLED,
+            filled_quantity=10.0,
+            avg_price=150.0,
+            timestamp=datetime(2026, 1, 2, tzinfo=timezone.utc),
         )
 
-        # Call save_position (which does not call commit internally anymore)
-        repo.save_position(pos_schema)
+        recorder.start(db, RunHeader(run_id="test_run", kind="backtest"))
+        recorder.record_fill(db, order, result)
+        assert db.query(TradeLog).count() == 1
 
-        # In-transaction query should see the position
-        assert db.query(PositionModel).count() == 1
-
-        # Roll back transaction - should remove it (proving it wasn't committed)
         db.rollback()
-        assert db.query(PositionModel).count() == 0
-
-        # Now save and commit explicitly from caller
-        repo.save_position(pos_schema)
-        db.commit()
-
-        # Verify it is fully persisted now after rollback
-        db.rollback()
-        assert db.query(PositionModel).count() == 1
-
+        assert db.query(TradeLog).count() == 0
+        assert db.query(RunLog).count() == 0
     finally:
         db.close()
         Base.metadata.drop_all(engine)
+
+
+# --- M1 guards (text tests; the import rule is an import-linter contract) ---
+
+SRC = Path(__file__).resolve().parents[2] / "src" / "trading_bot"
+
+
+def _source_hits(pattern: str):
+    rx = re.compile(pattern)
+    return [
+        f"{p.relative_to(SRC)}:{i}"
+        for p in SRC.rglob("*.py")
+        for i, line in enumerate(p.read_text().splitlines(), 1)
+        if rx.search(line)
+    ]
+
+
+def test_one_database_no_backtest_url_or_test_switch():
+    """D16: no second backtest database and no "test"-in-URL switch."""
+    assert _source_hits(r"BACKTEST_DATABASE_URL") == []
+    assert _source_hits(r"""["']test["']\s+in\s+\w*url""") == []
+
+
+def test_positions_are_not_stored():
+    """D19: positions are derived from fills; nothing persists them."""
+    assert _source_hits(r"\bPositionRepository\b|__tablename__ = \"positions\"") == []
+
+
+def test_run_reset_drops_only_run_tables(tmp_path):
+    """The reset drops the run tables and the retired ``positions`` table,
+    never what they point at (``markets``) or the model registry."""
+    from sqlalchemy import inspect, text
+    from trading_bot.runs.reset import reset_runs
+    from trading_bot.runs.tables import RUN_TABLES
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'research.db'}")
+    init_db(bind_engine=engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE positions (id INTEGER PRIMARY KEY, instrument_id "
+                "VARCHAR REFERENCES markets (instrument_id))"
+            )
+        )
+
+    reset_runs(engine)
+
+    tables = set(inspect(engine).get_table_names())
+    assert "positions" not in tables
+    assert {"markets", "model_registry", "bar_data_logs"} <= tables
+    assert {t.name for t in RUN_TABLES} <= tables

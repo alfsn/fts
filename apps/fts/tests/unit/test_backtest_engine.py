@@ -2,21 +2,15 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from quant_core.enums import AssetType, Geography, OrderStatus
-from quant_core.models import Instrument, TradFiDetails
-from sqlalchemy import create_engine
+from quant_core.enums import AssetType, Geography, OrderSide, OrderStatus
+from quant_core.models import ExecutionResult, OrderRequest, TradFiDetails
+from quant_data.db.models import Market
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.backtesting.abc import BaseBacktestDataReader
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.backtesting.results import BacktestResult
 from trading_bot.core.database import Base
-from trading_bot.core.models import (
-    BacktestEquityLog,
-    BacktestPredictionLog,
-    OrderLog,
-    Position,
-    TradeLog,
-)
 from trading_bot.core.pipeline import TradingPipeline
 from trading_bot.core.schemas import (
     BarData,
@@ -24,8 +18,26 @@ from trading_bot.core.schemas import (
     Instrument,
     MarketData,
 )
-from trading_bot.core.schemas import Position as PositionSchema
 from trading_bot.risk_management.portfolio import Portfolio
+from trading_bot.runs import (
+    EquityPoint,
+    Fill,
+    RunExistsError,
+    RunHeader,
+    RunIntegrityError,
+    RunRecord,
+    RunStore,
+    SqlRunRecorder,
+    delete_run,
+)
+from trading_bot.runs.tables import (
+    RUN_TABLES,
+    BacktestEquityLog,
+    BacktestPredictionLog,
+    OrderLog,
+    RunLog,
+    TradeLog,
+)
 
 # tests/unit/test_backtest_engine.py
 
@@ -105,7 +117,40 @@ def create_mock_tick(
     )
 
 
-def test_backtest_result_metrics_calculation(sql_db_session: Session):
+def _fill(pipeline, db, ts, side, quantity, price, order_id):
+    """Trade the way ExecutionEngine does: the Portfolio applies the fill and
+    the run's recorder saves exactly that fill, at the bar time."""
+    order = OrderRequest(
+        instrument_id=pipeline.instrument_id,
+        side=side,
+        quantity=quantity,
+        price=price,
+    )
+    result = ExecutionResult(
+        order_id=order_id,
+        status=OrderStatus.FILLED,
+        filled_quantity=quantity,
+        avg_price=price,
+        timestamp=ts,
+    )
+    pipeline.portfolio.add_open_order(order_id, order)
+    applied = pipeline.portfolio.update_order_status(result)
+    pipeline.execution.recorder.record_fill(db, applied, result)
+
+
+def _pipeline(portfolio, instrument_id, strategy_name="test_strat"):
+    strategy = MagicMock()
+    strategy.name = strategy_name
+    pipeline = MagicMock(spec=TradingPipeline)
+    pipeline.portfolio = portfolio
+    pipeline.strategy = MagicMock(strategies=[strategy])
+    pipeline.prediction_logger = MagicMock()
+    pipeline.execution = MagicMock()
+    pipeline.instrument_id = instrument_id
+    return pipeline
+
+
+def test_backtest_result_metrics_calculation():
     """
     Verifies that BacktestResult computes cumulative return, drawdown, and Sharpe ratio correctly.
     """
@@ -113,75 +158,46 @@ def test_backtest_result_metrics_calculation(sql_db_session: Session):
     instrument_id = "BTC/USDT"
     strategy_name = "test_strat"
 
-    # Seed some filled trades to the database to check trade count calculation
-    order1 = OrderLog(
-        order_id="ord_1",
-        run_id=run_id,
-        instrument_id=instrument_id,
-        strategy_name=strategy_name,
-        side="BUY",
-        status=OrderStatus.FILLED,
-        requested_price=50000.0,
-        requested_quantity=0.1,
-        filled_quantity=0.1,
-    )
-    order2 = OrderLog(
-        order_id="ord_2",
-        run_id=run_id,
-        instrument_id=instrument_id,
-        strategy_name=strategy_name,
-        side="SELL",
-        status=OrderStatus.FILLED,
-        requested_price=55000.0,
-        requested_quantity=0.1,
-        filled_quantity=0.1,
-    )
-    sql_db_session.add_all([order1, order2])
-    sql_db_session.commit()
-
-    # Seed BacktestEquityLog records to the database representing the simulated equity curve
     base_time = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    log1 = BacktestEquityLog(
-        run_id=run_id,
-        timestamp=base_time,
-        cash=10000.0,
-        position=0.0,
-        close=50000.0,
-        equity=10000.0,
+    record = RunRecord(
+        header=RunHeader(run_id=run_id, kind="backtest", initial_cash=10000.0),
+        equity=[
+            EquityPoint(
+                timestamp=base_time + timedelta(days=i),
+                cash=e,
+                position=0.0,
+                close=c,
+                equity=e,
+            )
+            for i, (e, c) in enumerate(
+                [
+                    (10000.0, 50000.0),
+                    (10200.0, 51000.0),
+                    (10100.0, 50500.0),
+                    (10500.0, 52500.0),
+                ]
+            )
+        ],
+        fills=[
+            Fill(
+                instrument_id=instrument_id,
+                side=side,
+                quantity=0.1,
+                fill_price=price,
+                fill_timestamp=base_time + timedelta(days=day),
+            )
+            for side, price, day in [
+                (OrderSide.BUY, 50000.0, 0),
+                (OrderSide.SELL, 55000.0, 3),
+            ]
+        ],
     )
-    log2 = BacktestEquityLog(
-        run_id=run_id,
-        timestamp=base_time + timedelta(days=1),
-        cash=10200.0,
-        position=0.0,
-        close=51000.0,
-        equity=10200.0,
-    )
-    log3 = BacktestEquityLog(
-        run_id=run_id,
-        timestamp=base_time + timedelta(days=2),
-        cash=10100.0,
-        position=0.0,
-        close=50500.0,
-        equity=10100.0,
-    )
-    log4 = BacktestEquityLog(
-        run_id=run_id,
-        timestamp=base_time + timedelta(days=3),
-        cash=10500.0,
-        position=0.0,
-        close=52500.0,
-        equity=10500.0,
-    )
-
-    sql_db_session.add_all([log1, log2, log3, log4])
-    sql_db_session.commit()
 
     result = BacktestResult(
         run_id=run_id,
         instrument_id=instrument_id,
         strategy_name=strategy_name,
-        db_session=sql_db_session,
+        record=record,
     )
 
     summary = result.to_dict()
@@ -200,6 +216,9 @@ def test_backtest_result_metrics_calculation(sql_db_session: Session):
     assert summary["total_trades"] == 2
     # Ensure Sharpe ratio can be calculated and is a float
     assert isinstance(summary["sharpe_ratio"], float)
+    # One closed round trip, a winner: the win rate is a number (it was NaN
+    # before M1, when no fill rows were ever written)
+    assert result.metrics.win_rate == 1.0
 
 
 def test_backtest_engine_run_flow(sql_db_session: Session):
@@ -237,24 +256,11 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
     )
     assert sql_db_session.query(BacktestEquityLog).filter_by(run_id=run_id).count() == 1
 
-    # Mock Pipeline and subcomponents
     # A real Portfolio: the engine logs its single valuation (PR 7b)
     mock_portfolio = Portfolio(initial_balance=10000.0)
-
-    mock_strategy = MagicMock()
-    mock_strategy_instance = MagicMock()
-    mock_strategy_instance.name = strategy_name
-    mock_strategy.strategies = [mock_strategy_instance]
-
-    mock_prediction_logger = MagicMock()
-
-    mock_execution = MagicMock()
-
-    pipeline = MagicMock(spec=TradingPipeline)
-    pipeline.portfolio = mock_portfolio
-    pipeline.strategy = mock_strategy
-    pipeline.prediction_logger = mock_prediction_logger
-    pipeline.execution = mock_execution
+    pipeline = _pipeline(mock_portfolio, instrument_id, strategy_name)
+    mock_prediction_logger = pipeline.prediction_logger
+    mock_execution = pipeline.execution
 
     # Define historical ticks
     base_time = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -277,10 +283,7 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
         # Tick 1: Buy 0.1 BTC (cash = 5000.0, position = 0.1 BTC)
         # Tick 2: Cash remains 5000.0, price rises to 51000.0
         if ingestion_output.timestamp == base_time:
-            mock_portfolio._cash_balance = 5000.0
-            mock_portfolio._positions[instrument_id] = PositionSchema(
-                instrument_id=instrument_id, quantity=0.1, cost_basis=50000.0
-            )
+            _fill(pipeline, db, base_time, OrderSide.BUY, 0.1, 50000.0, "o1")
 
     pipeline.execute_single_tick.side_effect = simulate_pipeline_execution
 
@@ -301,10 +304,15 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
     assert equity_db_logs[0].equity == 10000.0
     assert equity_db_logs[1].equity == 10100.0
 
-    # 2. Pipeline components were configured with correct run_id
-    assert mock_prediction_logger.run_id == run_id
+    # 2. Pipeline components write through the run's recorder and session
+    assert mock_prediction_logger.recorder.run_id == run_id
+    assert mock_prediction_logger.db is sql_db_session
     assert mock_prediction_logger.commit is False
-    assert mock_execution.run_id == run_id
+    assert mock_execution.recorder is mock_prediction_logger.recorder
+
+    # 2b. The fill row carries the bar time, not the wall clock (M1)
+    fill = sql_db_session.query(TradeLog).filter_by(run_id=run_id).one()
+    assert fill.fill_timestamp.replace(tzinfo=timezone.utc) == base_time
 
     # 3. Pipeline tick was executed twice
     assert pipeline.execute_single_tick.call_count == 2
@@ -325,18 +333,12 @@ def test_backtest_engine_run_flow(sql_db_session: Session):
 
 def _run_engine(sql_db_session, ticks, instrument_id, buy_at):
     """Engine over ``ticks`` with a real Portfolio that buys 0.1 at ``buy_at``."""
-    portfolio = Portfolio(initial_balance=10000.0)
+    pipeline = _pipeline(Portfolio(initial_balance=10000.0), instrument_id)
 
     def buy_on_first_tick(db, ingestion_output):
         if ingestion_output.timestamp == ticks[0].timestamp:
-            portfolio._cash_balance = 10000.0 - 0.1 * buy_at
-            portfolio._positions[instrument_id] = PositionSchema(
-                instrument_id=instrument_id, quantity=0.1, cost_basis=buy_at
-            )
+            _fill(pipeline, db, ticks[0].timestamp, OrderSide.BUY, 0.1, buy_at, "o1")
 
-    pipeline = MagicMock(spec=TradingPipeline)
-    pipeline.portfolio = portfolio
-    pipeline.strategy = MagicMock(strategies=[MagicMock()])
     pipeline.execute_single_tick.side_effect = buy_on_first_tick
     engine = BacktestEngine(
         pipeline=pipeline,
@@ -376,3 +378,157 @@ def test_ticks_before_the_first_bar_are_not_logged(sql_db_session: Session):
 
     assert len(result.equity_curve) == 1
     assert result.equity_curve[0]["close"] == 50000.0
+
+
+# --- M1: one store per run --------------------------------------------------
+
+
+def test_run_tables_cover_every_table_with_a_run_id():
+    """A new table with a run_id must join RUN_TABLES, or delete and reset
+    would silently leave its rows behind. (``model_registry.run_id`` is the
+    training run, not a backtest run.)"""
+    with_run_id = {
+        t.name
+        for t in Base.metadata.sorted_tables
+        if "run_id" in t.c and t.name != "model_registry"
+    }
+    assert with_run_id == {t.name for t in RUN_TABLES}
+
+
+def test_a_run_lands_in_one_db_and_delete_removes_every_row(sql_db_session):
+    instrument_id = "BTC/USDT"
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    ticks = [
+        create_mock_tick(t0, instrument_id, 50000.0),
+        create_mock_tick(t0 + timedelta(days=1), instrument_id, 51000.0),
+    ]
+    _run_engine(sql_db_session, ticks, instrument_id, buy_at=50000.0)
+
+    store = RunStore(sessionmaker(bind=sql_db_session.bind))
+    record = store.load("pr7b")
+    assert record.header.strategy_name is not None
+    assert len(record.segments) == 1
+    assert len(record.equity) == 2
+    assert len(record.fills) == 1
+
+    store.delete("pr7b")
+    for table in RUN_TABLES:
+        n = sql_db_session.scalar(
+            select(func.count()).select_from(table).where(table.c.run_id == "pr7b")
+        )
+        assert n == 0, table.name
+
+
+def test_a_missing_fill_row_fails_the_run(sql_db_session):
+    """Fills are the truth (D19): a fill the Portfolio applied but the run
+    didn't save makes the end-of-run replay disagree."""
+    instrument_id = "BTC/USDT"
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    pipeline = _pipeline(Portfolio(initial_balance=10000.0), instrument_id)
+
+    def buy_without_saving(db, ingestion_output):
+        if ingestion_output.timestamp == t0:
+            order = OrderRequest(
+                instrument_id=instrument_id,
+                side=OrderSide.BUY,
+                quantity=0.1,
+                price=50000.0,
+            )
+            pipeline.portfolio.add_open_order("o1", order)
+            pipeline.portfolio.update_order_status(
+                ExecutionResult(
+                    order_id="o1",
+                    status=OrderStatus.FILLED,
+                    filled_quantity=0.1,
+                    avg_price=50000.0,
+                    timestamp=t0,
+                )
+            )
+
+    pipeline.execute_single_tick.side_effect = buy_without_saving
+    engine = BacktestEngine(
+        pipeline=pipeline,
+        data_reader=DummyDataReader(
+            instrument_id, [create_mock_tick(t0, instrument_id, 50000.0)]
+        ),
+        db=sql_db_session,
+        instrument_id=instrument_id,
+    )
+    with pytest.raises(RunIntegrityError):
+        engine.run(run_id="missing_fill")
+    # The failed run is deleted, not left behind as a wrong record
+    assert RunStore(sessionmaker(bind=sql_db_session.bind)).load("missing_fill") is None
+
+
+def test_a_run_that_never_prices_or_trades_returns_an_empty_result(sql_db_session):
+    """No ticks: no equity, no fills. The check passes (flat, cash untouched)
+    instead of crashing on a missing first timestamp."""
+    pipeline = _pipeline(Portfolio(initial_balance=10000.0), "BTC/USDT")
+    engine = BacktestEngine(
+        pipeline=pipeline,
+        data_reader=DummyDataReader("BTC/USDT", []),
+        db=sql_db_session,
+        instrument_id="BTC/USDT",
+    )
+    result = engine.run(run_id="empty")
+    assert result.equity_curve == []
+    assert result.record.fills == []
+
+
+def test_a_run_id_is_never_reused_without_clearing(sql_db_session):
+    """Re-running under the same run_id would add a second run's fills and
+    equity to the first one's."""
+    instrument_id = "BTC/USDT"
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    ticks = [create_mock_tick(t0, instrument_id, 50000.0)]
+    _run_engine(sql_db_session, ticks, instrument_id, buy_at=50000.0)
+
+    pipeline = _pipeline(Portfolio(initial_balance=10000.0), instrument_id)
+    engine = BacktestEngine(
+        pipeline=pipeline,
+        data_reader=DummyDataReader(instrument_id, ticks),
+        db=sql_db_session,
+        instrument_id=instrument_id,
+    )
+    with pytest.raises(RunExistsError):
+        engine.run(run_id="pr7b")
+
+
+def test_delete_run_respects_foreign_keys():
+    """Postgres enforces trade_logs -> order_logs; SQLite only with the pragma."""
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    event.listen(
+        engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON")
+    )
+    Base.metadata.create_all(engine)
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        db.add(Market(instrument_id="BTC/USDT", name="BTC"))
+        db.add(RunLog(run_id="r1", kind="backtest"))
+        db.add(
+            OrderLog(
+                order_id="o1",
+                run_id="r1",
+                instrument_id="BTC/USDT",
+                strategy_name="s",
+                side=OrderSide.BUY,
+                requested_quantity=1.0,
+                requested_price=1.0,
+                status=OrderStatus.FILLED,
+            )
+        )
+        db.add(
+            TradeLog(
+                run_id="r1",
+                order_id="o1",
+                instrument_id="BTC/USDT",
+                side=OrderSide.BUY,
+                quantity=1.0,
+                fill_price=1.0,
+                fill_timestamp=t0,
+            )
+        )
+        db.commit()
+        delete_run(db, "r1")
+        db.commit()
+        assert db.scalar(select(func.count()).select_from(OrderLog)) == 0

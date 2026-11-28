@@ -33,7 +33,7 @@ def test_portfolio_accounting_long_reduce():
         timestamp=MagicMock(),
     )
     portfolio.add_open_order("order-1", buy_order)
-    portfolio.update_order_status(db=None, result=buy_result)
+    portfolio.update_order_status(buy_result)
 
     assert portfolio._cash_balance == 0.0
     assert "BTC-USD" in portfolio._positions
@@ -55,7 +55,7 @@ def test_portfolio_accounting_long_reduce():
         timestamp=MagicMock(),
     )
     portfolio.add_open_order("order-2", sell_order)
-    portfolio.update_order_status(db=None, result=sell_result)
+    portfolio.update_order_status(sell_result)
 
     # Cash balance MUST be $600 (not $700, which would happen if P&L was double counted)
     assert portfolio._cash_balance == 600.0
@@ -85,7 +85,7 @@ def test_portfolio_accounting_short_reduce():
         timestamp=MagicMock(),
     )
     portfolio.add_open_order("order-1", short_order)
-    portfolio.update_order_status(db=None, result=short_result)
+    portfolio.update_order_status(short_result)
 
     assert portfolio._cash_balance == 2000.0
     assert "BTC-USD" in portfolio._positions
@@ -107,7 +107,7 @@ def test_portfolio_accounting_short_reduce():
         timestamp=MagicMock(),
     )
     portfolio.add_open_order("order-2", cover_order)
-    portfolio.update_order_status(db=None, result=cover_result)
+    portfolio.update_order_status(cover_result)
 
     # Cash balance MUST be $1600 (not $1700, which would happen if P&L was double counted)
     assert portfolio._cash_balance == 1600.0
@@ -137,7 +137,7 @@ def test_portfolio_accounting_long_flip():
         timestamp=MagicMock(),
     )
     portfolio.add_open_order("order-1", buy_order)
-    portfolio.update_order_status(db=None, result=buy_result)
+    portfolio.update_order_status(buy_result)
 
     # 2. Sell 15 shares at $120 (flips to Short of -5, cash should be $1800)
     flip_order = OrderRequest(
@@ -154,7 +154,7 @@ def test_portfolio_accounting_long_flip():
         timestamp=MagicMock(),
     )
     portfolio.add_open_order("order-2", flip_order)
-    portfolio.update_order_status(db=None, result=flip_result)
+    portfolio.update_order_status(flip_result)
 
     # Cash balance MUST be $1800 (not $2000, which would happen if P&L was double counted)
     assert portfolio._cash_balance == 1800.0
@@ -187,3 +187,16 @@ def test_real_time_polling_loop_drift_correction():
     # If there was drift (sleeping standard 0.1s on top of tick), total time would be ~0.28s.
     # We assert that the total elapsed time is close to 0.20s (tolerating small OS scheduling differences).
     assert total_elapsed < 0.26
+
+
+def test_the_quote_currency_must_be_a_quant_core_currency():
+    """The ledger replay only knows quant_core's Currency values, so anything
+    else is refused up front rather than at the end of a backtest."""
+    from pydantic import ValidationError
+    from trading_bot.core.spec_models import ExecutionRiskSpec
+
+    assert Portfolio(initial_balance=1.0, quote_currency="EUR").quote_currency == "EUR"
+    with pytest.raises(ValueError):
+        Portfolio(initial_balance=1.0, quote_currency="USDT")
+    with pytest.raises(ValidationError):
+        ExecutionRiskSpec(quote_currency="USDT")

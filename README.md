@@ -55,10 +55,11 @@ Data Ingestion (Bars) → Strategy Engine (TradeSignal) → Risk Manager (OrderR
 
 1. **Data Ingestion** (`trading_bot/data_ingestion/`): Market data provider registry and bar resampling.
 2. **Strategy Engine** (`trading_bot/strategy/`): Signal generation and investable universe filtering.
-3. **Risk & Position Management** (`trading_bot/risk_management/`): Single market-close portfolio equity tracking, allocation limits, and sizing (Fixed amount, Fixed %, Kelly Criterion).
+3. **Risk & Position Management** (`trading_bot/risk_management/`): Single market-close portfolio equity tracking (in memory; positions are derived from fills, never stored), allocation limits, and sizing (Fixed amount, Fixed %, Kelly Criterion).
 4. **Execution Engine** (`trading_bot/execution/`): Order routing, bar-delay simulation, slippage models, and handlers (Simulated, Polymarket CLOB).
 5. **Monitoring** (`trading_bot/monitoring/`): Structured logging and SQLite prediction tracking (`DatabasePredictionLogger`).
-6. **Backtesting & Dashboard** (`trading_bot/backtesting/`, `trading_bot/dashboard/`): Historical replay loop, HTML report/sweep exporters, and a Streamlit explorer for the model registry and backtest runs.
+6. **Runs** (`trading_bot/runs/`): The only module that knows the run tables. `RunRecorder` writes a run (run card, model segments, orders, one row per fill at its bar time, predictions, equity); `RunStore` lists, loads and deletes whole runs. Everything lives in the one research database (`DATABASE_URL`). Each backtest ends by replaying its saved fills, which must give the Portfolio's final positions and cash.
+7. **Backtesting & Dashboard** (`trading_bot/backtesting/`, `trading_bot/dashboard/`): Historical replay loop, HTML report/sweep exporters, and a Streamlit explorer for the model registry and backtest runs.
 
 Plugins in `apps/fts/src/plugins/`:
 * **`nets`**: PyTorch/sklearn/XGBoost training (`LSTM`, `RNN`, `CNN`, `LinearRegression`, `XGBoost`), Optuna hyperparameter search, ONNX export & inference, and confidence sizing.
