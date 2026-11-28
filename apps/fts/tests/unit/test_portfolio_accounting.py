@@ -187,3 +187,16 @@ def test_real_time_polling_loop_drift_correction():
     # If there was drift (sleeping standard 0.1s on top of tick), total time would be ~0.28s.
     # We assert that the total elapsed time is close to 0.20s (tolerating small OS scheduling differences).
     assert total_elapsed < 0.26
+
+
+def test_the_quote_currency_must_be_a_quant_core_currency():
+    """The ledger replay only knows quant_core's Currency values, so anything
+    else is refused up front rather than at the end of a backtest."""
+    from pydantic import ValidationError
+    from trading_bot.core.spec_models import ExecutionRiskSpec
+
+    assert Portfolio(initial_balance=1.0, quote_currency="EUR").quote_currency == "EUR"
+    with pytest.raises(ValueError):
+        Portfolio(initial_balance=1.0, quote_currency="USDT")
+    with pytest.raises(ValidationError):
+        ExecutionRiskSpec(quote_currency="USDT")

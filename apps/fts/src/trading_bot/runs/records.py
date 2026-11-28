@@ -27,6 +27,15 @@ class RunHeader(_Record):
     end_time: Optional[datetime] = None
 
 
+class RunMarket(_Record):
+    """One instrument and strategy a run made predictions for. A run can
+    have several; its card only names the first."""
+
+    run_id: str
+    instrument_id: str
+    strategy_name: str
+
+
 class Segment(_Record):
     """Which model traded the run from ``start_time`` to ``end_time``."""
 

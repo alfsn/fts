@@ -65,6 +65,10 @@ class RunRecorder(Protocol):
     ) -> None: ...
 
 
+class RunExistsError(ValueError):
+    """A run with this run_id is already saved."""
+
+
 class SqlRunRecorder:
     """Writes one run's rows, all stamped with ``run_id``."""
 
@@ -77,9 +81,16 @@ class SqlRunRecorder:
     # --- the run card ----------------------------------------------------------
 
     def start(self, db: Session, header: RunHeader) -> None:
+        """Write the run card. A run_id is used once: starting it again would
+        add a second run's orders, fills and equity to the first one's."""
         if header.run_id != self.run_id or header.kind != self.kind:
             raise ValueError("The header belongs to another run.")
-        db.merge(RunLog(**header.model_dump()))
+        if db.get(RunLog, self.run_id) is not None:
+            raise RunExistsError(
+                f"Run {self.run_id} already exists. Delete it first "
+                "(RunStore.delete, or BacktestEngine.run(clear_previous_run=True))."
+            )
+        db.add(RunLog(**header.model_dump()))
 
     def finish(
         self, db: Session, start_time: Optional[datetime], end_time: Optional[datetime]
@@ -157,7 +168,17 @@ class SqlRunRecorder:
     def record_fill(
         self, db: Session, order: OrderRequest, result: ExecutionResult
     ) -> None:
-        """One row per fill the Portfolio applied, at the fill's bar time."""
+        """One row per fill the Portfolio applied, at the fill's bar time.
+
+        Idempotent per order: the Portfolio fills an order once, so a retried
+        save (reconciliation after a failed commit) never adds a second row."""
+        exists = (
+            db.query(TradeLog.id)
+            .filter_by(run_id=self.run_id, order_id=result.order_id)
+            .first()
+        )
+        if exists is not None:
+            return
         db.add(
             TradeLog(
                 run_id=self.run_id,

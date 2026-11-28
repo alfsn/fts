@@ -30,15 +30,20 @@ def position_key(instrument_id: str, outcome) -> str:
 
 def to_transactions(record: RunRecord, currency: str) -> List[Transaction]:
     """The run as ledger lines: the initial cash as one deposit, then one
-    buy or sell per fill (keyed like the Portfolio, so outcomes never merge)."""
-    ccy = Currency(currency)  # an unknown quote currency raises here
+    buy or sell per fill (keyed like the Portfolio, so outcomes never merge).
+
+    A run without fills has no ledger lines: there is nothing to replay."""
+    ccy = Currency(currency)  # the Portfolio only accepts Currency values
     if record.header.initial_cash is None:
         raise RunIntegrityError(f"Run {record.header.run_id} has no initial cash.")
+    if not record.fills:
+        return []
+    # The deposit lands at the run's earliest timestamp, so it is never dated
+    # after a trade it pays for.
     first = min(
         [f.fill_timestamp for f in record.fills]
         + [p.timestamp for p in record.equity]
-        + ([record.header.start_time] if record.header.start_time else []),
-        default=None,
+        + ([record.header.start_time] if record.header.start_time else [])
     )
     lines: List[Transaction] = []
     if record.header.initial_cash > 0:
@@ -78,6 +83,11 @@ def check_fills_match(
     ``positions`` (Portfolio key -> quantity) and ``cash``."""
     lines = to_transactions(record, currency)
     if not lines:
+        # No fills: the Portfolio must be flat and still hold its initial cash
+        _raise_if_problems(
+            record,
+            _compare({}, record.header.initial_cash or 0.0, dict(positions), cash),
+        )
         return
     dates = pd.DatetimeIndex(sorted({pd.Timestamp(t.date) for t in lines}))
     held = ledger.holdings(lines, {}, dates).iloc[-1]
@@ -87,13 +97,28 @@ def check_fills_match(
     balances = ledger.cash(lines, dates).iloc[-1]
     replayed_cash = float(balances.sum())
 
+    _raise_if_problems(record, _compare(replayed, replayed_cash, dict(positions), cash))
+
+
+def _compare(
+    replayed: Mapping[str, float],
+    replayed_cash: float,
+    positions: Mapping[str, float],
+    cash: float,
+) -> List[str]:
+    """What the fills give against what the Portfolio holds, within the
+    ledger's tolerances."""
     problems = []
     for key in sorted(set(replayed) | set(positions)):
         a, b = replayed.get(key, 0.0), positions.get(key, 0.0)
-        if abs(a - b) > ledger.QUANTITY_TOLERANCE:
+        if not abs(a - b) <= ledger.QUANTITY_TOLERANCE:  # NaN fails too
             problems.append(f"{key}: fills give {a}, portfolio holds {b}")
-    if abs(replayed_cash - cash) > ledger.CASH_TOLERANCE:
+    if not abs(replayed_cash - cash) <= ledger.CASH_TOLERANCE:
         problems.append(f"cash: fills give {replayed_cash}, portfolio has {cash}")
+    return problems
+
+
+def _raise_if_problems(record: RunRecord, problems: List[str]) -> None:
     if problems:
         raise RunIntegrityError(
             f"Run {record.header.run_id}: saved fills don't match the portfolio. "

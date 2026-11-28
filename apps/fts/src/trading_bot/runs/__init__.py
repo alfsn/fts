@@ -7,13 +7,14 @@ with ``RunStore``. Nothing outside this package imports ``runs.tables``.
 """
 
 from .integrity import RunIntegrityError, check_fills_match, position_key
-from .recorder import RunRecorder, SqlRunRecorder
+from .recorder import RunExistsError, RunRecorder, SqlRunRecorder
 from .records import (
     EquityPoint,
     Fill,
     Prediction,
     RunHeader,
     RunKind,
+    RunMarket,
     RunRecord,
     Segment,
 )
@@ -24,8 +25,10 @@ __all__ = [
     "Fill",
     "Prediction",
     "RunHeader",
+    "RunExistsError",
     "RunIntegrityError",
     "RunKind",
+    "RunMarket",
     "RunRecord",
     "RunRecorder",
     "RunStore",

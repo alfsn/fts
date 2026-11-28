@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from quant_core.enums import AssetType, Geography, OrderSide, OrderStatus
 from quant_core.models import ExecutionResult, OrderRequest, TradFiDetails
-from sqlalchemy import create_engine, func, select
+from quant_data.db.models import Market
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from trading_bot.backtesting.abc import BaseBacktestDataReader
 from trading_bot.backtesting.engine import BacktestEngine
@@ -21,16 +22,20 @@ from trading_bot.risk_management.portfolio import Portfolio
 from trading_bot.runs import (
     EquityPoint,
     Fill,
+    RunExistsError,
     RunHeader,
     RunIntegrityError,
     RunRecord,
     RunStore,
     SqlRunRecorder,
+    delete_run,
 )
 from trading_bot.runs.tables import (
     RUN_TABLES,
     BacktestEquityLog,
     BacktestPredictionLog,
+    OrderLog,
+    RunLog,
     TradeLog,
 )
 
@@ -451,3 +456,79 @@ def test_a_missing_fill_row_fails_the_run(sql_db_session):
     )
     with pytest.raises(RunIntegrityError):
         engine.run(run_id="missing_fill")
+    # The failed run is deleted, not left behind as a wrong record
+    assert RunStore(sessionmaker(bind=sql_db_session.bind)).load("missing_fill") is None
+
+
+def test_a_run_that_never_prices_or_trades_returns_an_empty_result(sql_db_session):
+    """No ticks: no equity, no fills. The check passes (flat, cash untouched)
+    instead of crashing on a missing first timestamp."""
+    pipeline = _pipeline(Portfolio(initial_balance=10000.0), "BTC/USDT")
+    engine = BacktestEngine(
+        pipeline=pipeline,
+        data_reader=DummyDataReader("BTC/USDT", []),
+        db=sql_db_session,
+        instrument_id="BTC/USDT",
+    )
+    result = engine.run(run_id="empty")
+    assert result.equity_curve == []
+    assert result.record.fills == []
+
+
+def test_a_run_id_is_never_reused_without_clearing(sql_db_session):
+    """Re-running under the same run_id would add a second run's fills and
+    equity to the first one's."""
+    instrument_id = "BTC/USDT"
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    ticks = [create_mock_tick(t0, instrument_id, 50000.0)]
+    _run_engine(sql_db_session, ticks, instrument_id, buy_at=50000.0)
+
+    pipeline = _pipeline(Portfolio(initial_balance=10000.0), instrument_id)
+    engine = BacktestEngine(
+        pipeline=pipeline,
+        data_reader=DummyDataReader(instrument_id, ticks),
+        db=sql_db_session,
+        instrument_id=instrument_id,
+    )
+    with pytest.raises(RunExistsError):
+        engine.run(run_id="pr7b")
+
+
+def test_delete_run_respects_foreign_keys():
+    """Postgres enforces trade_logs -> order_logs; SQLite only with the pragma."""
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    event.listen(
+        engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON")
+    )
+    Base.metadata.create_all(engine)
+    t0 = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        db.add(Market(instrument_id="BTC/USDT", name="BTC"))
+        db.add(RunLog(run_id="r1", kind="backtest"))
+        db.add(
+            OrderLog(
+                order_id="o1",
+                run_id="r1",
+                instrument_id="BTC/USDT",
+                strategy_name="s",
+                side=OrderSide.BUY,
+                requested_quantity=1.0,
+                requested_price=1.0,
+                status=OrderStatus.FILLED,
+            )
+        )
+        db.add(
+            TradeLog(
+                run_id="r1",
+                order_id="o1",
+                instrument_id="BTC/USDT",
+                side=OrderSide.BUY,
+                quantity=1.0,
+                fill_price=1.0,
+                fill_timestamp=t0,
+            )
+        )
+        db.commit()
+        delete_run(db, "r1")
+        db.commit()
+        assert db.scalar(select(func.count()).select_from(OrderLog)) == 0

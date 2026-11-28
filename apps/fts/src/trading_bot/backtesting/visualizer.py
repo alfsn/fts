@@ -158,26 +158,30 @@ class BacktestVisualizer:
     def get_available_runs(
         self, instrument_id: str, strategy_name: Optional[str] = None
     ) -> List[str]:
-        """Backtest run_ids for a market (and strategy), newest first."""
+        """Backtest run_ids that predicted this market (and strategy),
+        newest first."""
         if strategy_name == "None":
             strategy_name = None
-        return [
-            h.run_id
-            for h in self.store.list(kind="backtest", instrument_id=instrument_id)
-            if not strategy_name or h.strategy_name == strategy_name
-        ]
+        run_ids: List[str] = []
+        for m in self.store.markets(kind="backtest"):
+            if m.instrument_id != instrument_id:
+                continue
+            if strategy_name and m.strategy_name != strategy_name:
+                continue
+            if m.run_id not in run_ids:
+                run_ids.append(m.run_id)
+        return run_ids
 
     def get_available_markets_and_strategies(self) -> Dict[str, List[str]]:
-        """Markets with backtest runs and their strategies; without runs, the
-        cached markets."""
+        """Markets backtest runs predicted and their strategies; without runs,
+        the cached markets."""
         result: Dict[str, List[str]] = {}
-        for h in self.store.list(kind="backtest"):
-            if h.instrument_id:
-                names = result.setdefault(h.instrument_id, [])
-                if h.strategy_name and h.strategy_name not in names:
-                    names.append(h.strategy_name)
+        for m in self.store.markets(kind="backtest"):
+            names = result.setdefault(m.instrument_id, [])
+            if m.strategy_name not in names:
+                names.append(m.strategy_name)
         if result:
-            return {m: names or ["None"] for m, names in result.items()}
+            return result
         with self.engine.connect() as conn:
             df_m = pd.read_sql(
                 text("SELECT DISTINCT instrument_id FROM bar_data_logs"), conn

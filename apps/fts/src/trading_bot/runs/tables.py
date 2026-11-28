@@ -273,11 +273,14 @@ class BacktestEquityLog(Base):
 
 
 # The one list of run tables: delete, reset and the coverage test use it.
-RUN_TABLES = (
+# Parents come before children (trade_logs points at order_logs), so deleting
+# in reverse never trips a foreign key.
+_RUN_TABLE_SET = {
     RunLog.__table__,
     RunSegmentLog.__table__,
     OrderLog.__table__,
     TradeLog.__table__,
     PredictionLog.__table__,
     BacktestEquityLog.__table__,
-)
+}
+RUN_TABLES = tuple(t for t in Base.metadata.sorted_tables if t in _RUN_TABLE_SET)

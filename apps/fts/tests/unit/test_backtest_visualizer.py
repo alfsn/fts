@@ -109,6 +109,38 @@ def test_backtest_visualizer_get_available_runs(db_url):
     assert runs == ["run_123"]
 
 
+def test_the_picker_lists_a_run_under_every_market_and_strategy_it_predicted(
+    db_url,
+):
+    """The card names one instrument and the first strategy; the picker reads
+    the predictions, so a second market or strategy is not hidden."""
+    engine = create_engine(db_url)
+    t = datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
+    with sessionmaker(bind=engine)() as db:
+        db.add(Market(instrument_id="ETH/USDT", name="Ether / Tether"))
+        for iid, strat in [("BTC/USDT", "lstm"), ("ETH/USDT", "cnn")]:
+            db.add(
+                BacktestPredictionLog(
+                    instrument_id=iid,
+                    timestamp=t,
+                    strategy_name=strat,
+                    predicted_signal="BUY",
+                    confidence=0.5,
+                    run_id="run_123",
+                )
+            )
+        db.commit()
+    engine.dispose()
+
+    viz = BacktestVisualizer(db_url=db_url)
+    assert viz.get_available_markets_and_strategies() == {
+        "BTC/USDT": ["cnn", "lstm"],
+        "ETH/USDT": ["cnn"],
+    }
+    assert viz.get_available_runs("ETH/USDT", "cnn") == ["run_123"]
+    assert viz.get_available_runs("BTC/USDT", "lstm") == ["run_123"]
+
+
 def test_calculate_pnl_compounds_across_gaps_and_is_nan_when_undefined():
     import numpy as np
     import pandas as pd

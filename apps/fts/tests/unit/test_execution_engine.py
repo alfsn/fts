@@ -36,6 +36,7 @@ def mock_handler() -> MagicMock:
 def mock_portfolio() -> MagicMock:
     """Mocks the Portfolio (it applies no fill, so none is saved)."""
     portfolio = MagicMock(spec=Portfolio)
+    portfolio.fill_for.return_value = None
     portfolio.update_order_status.return_value = None
     return portfolio
 
@@ -645,3 +646,60 @@ class TestExecutionEngine:
         assert len(engine._reconciliation_queue) == 0
         assert recon_results["success"] == 1
         assert recon_results["failed"] == 0
+
+
+def test_a_fill_whose_commit_fails_is_applied_later_exactly_once():
+    """Fills are the truth: the fill is committed before the Portfolio applies
+    it. A failed commit leaves the Portfolio untouched and the order open, and
+    the next status check saves and applies it once."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from trading_bot.core.database import Base
+    from trading_bot.runs.tables import TradeLog
+
+    engine_db = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine_db)
+    db = sessionmaker(bind=engine_db, autoflush=False)()
+
+    order = OrderRequest(
+        instrument_id="MKT_123", side=OrderSide.BUY, quantity=100.0, price=0.5
+    )
+    filled = ExecutionResult(
+        order_id="o1",
+        status=OrderStatus.FILLED,
+        filled_quantity=100.0,
+        avg_price=0.5,
+        timestamp=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+    handler = MagicMock(spec=BaseExecutionHandler)
+    handler.execute_order.return_value = filled
+    handler.get_order_status.return_value = filled
+    portfolio = Portfolio(initial_balance=1000.0)
+    engine = ExecutionEngine(
+        execution_handler=handler,
+        portfolio=portfolio,
+        recorder=SqlRunRecorder(run_id="live1", kind="live"),
+    )
+
+    # The order row commits; the fill's commit fails
+    real_commit, calls = db.commit, []
+
+    def commit_failing_the_fill():
+        calls.append(1)
+        if len(calls) == 2:
+            raise SQLAlchemyError("database is locked")
+        real_commit()
+
+    db.commit = commit_failing_the_fill
+    engine.execute_order(order, db, "s")
+    assert portfolio.positions == {}
+    assert portfolio.cash_balance == 1000.0
+    assert "o1" in portfolio.open_orders
+    assert db.query(TradeLog).count() == 0
+
+    db.commit = real_commit
+    engine.check_order_status("o1", db)
+    engine.check_order_status("o1", db)  # already applied: nothing more
+    assert portfolio.positions["MKT_123"].quantity == 100.0
+    assert portfolio.cash_balance == pytest.approx(950.0)
+    assert db.query(TradeLog).count() == 1

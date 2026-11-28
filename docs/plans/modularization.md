@@ -101,11 +101,11 @@ to "write this fill", "load run X" or "delete run X". There's one database, and 
 
 | Module | Job |
 |---|---|
-| `tables.py` | The run schema, hidden: `RunLog` (run card: kind, strategy, instrument, start, end), `RunSegmentLog` (which model traded from when to when; one row per backtest today, one per fold in R2), `OrderLog`, `TradeLog` (one row per fill, stamped with the bar time), `PredictionLog` and its subclasses, `BacktestEquityLog`. `RUN_TABLES` is the only list of them. |
+| `tables.py` | The run schema, hidden: `RunLog` (run card: kind, strategy, instrument, start, end), `RunSegmentLog` (which model traded from when to when; one row per backtest today, one per fold in R2), `OrderLog`, `TradeLog` (one row per fill, stamped with the bar time), `PredictionLog` and its subclasses, `BacktestEquityLog`. `RUN_TABLES` is the only list of them, parents before children, so deletes run in reverse and never trip a foreign key (`trade_logs` → `order_logs`). |
 | `records.py` | Pydantic records callers see (`extra="forbid"`): `RunHeader` (the card, with `initial_cash`), `Segment`, `EquityPoint`, `Fill`, `Prediction`, `RunRecord`. No ORM objects leave the package. |
-| `recorder.py` | Write side during a run: the `RunRecorder` Protocol and `SqlRunRecorder(run_id, kind)`. Every method takes the session to write into, so one run can't be split across two sessions; it never commits (the loop or the execution engine owns the transaction). |
-| `store.py` | Read/delete side: `RunStore(session_factory)` with `list`, `load`, `delete` and `counts`. |
-| `integrity.py` | Fills → `quant_core` `Transaction`s (the run card's `initial_cash` is one `DEPOSIT`, the run's cash flow; the instrument key includes the outcome, so YES and NO never merge). The end-of-run check against the Portfolio raises `RunIntegrityError`. |
+| `recorder.py` | Write side during a run: the `RunRecorder` Protocol and `SqlRunRecorder(run_id, kind)`. Every method takes the session to write into, so one run can't be split across two sessions; it never commits (the loop or the execution engine owns the transaction). A `run_id` is started once: `start` raises `RunExistsError` for a saved run, so a rerun clears it first (`clear_previous_run=True`). |
+| `store.py` | Read/delete side: `RunStore(session_factory)` with `list`, `markets`, `load`, `delete` and `counts`. `markets` reads the predictions, not the card, so the run picker lists a run under every instrument and strategy it predicted. |
+| `integrity.py` | Fills → `quant_core` `Transaction`s (the run card's `initial_cash` is one `DEPOSIT`, the run's cash flow; the instrument key includes the outcome, so YES and NO never merge). The end-of-run check against the Portfolio raises `RunIntegrityError`, and `BacktestEngine` then deletes the run (orders and fills are committed as they happen, so a rollback can't). A run without fills must end flat with its initial cash. |
 | `reset.py` | `python -m trading_bot.runs.reset --db-url <url>` drops the run tables (and the legacy `positions` table) only. |
 
 `ExecutionEngine`, the prediction logger and `BacktestEngine` receive a `RunRecorder`. The readers (`BacktestResult`,
@@ -121,12 +121,13 @@ Handled:
 5. One session per run.
 6. No backtest state can leak into live.
 7. A test checks that `RUN_TABLES` covers every table with a `run_id` column.
+8. A fill is committed before the Portfolio applies it. If that commit fails, the Portfolio is untouched and the order stays open, and the next status check saves and applies it, once (`record_fill` is idempotent per order).
 
 Known limits:
 1. A restarted live bot starts flat until M6.
 2. The replay check compares the final state only.
 3. `Transaction` is dated, so only end-of-run totals are compared, and those don't depend on the order within a day.
-4. Other quote currencies than USD/ARS/EUR raise.
+4. The quote currency is one of `quant_core.enums.Currency` (USD, ARS, EUR). `ExecutionRiskSpec` and `Portfolio` refuse anything else up front; adding one (e.g. USDT) means adding it to that enum.
 
 **Tests.**
 1. A fixture backtest lands in one DB, and `delete` empties every run table.

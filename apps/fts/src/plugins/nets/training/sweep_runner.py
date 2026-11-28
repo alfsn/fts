@@ -117,7 +117,7 @@ def run_model_backtest(
         # Build Portfolio & Risk Management
         portfolio = Portfolio(
             initial_balance=backtest_params.get("initial_balance", 10000.0),
-            quote_currency="USD",
+            quote_currency=backtest_params.get("quote_currency", "USD"),
         )
         sizer = FixedPercentageSizer(
             default_percentage=backtest_params.get("position_size_pct", 0.10)

@@ -13,6 +13,7 @@ from ..core.pipeline import TradingPipeline
 from ..runs import (
     EquityPoint,
     RunHeader,
+    RunIntegrityError,
     Segment,
     SqlRunRecorder,
     check_fills_match,
@@ -156,14 +157,22 @@ class BacktestEngine:
         recorder.finish(self.db, start, end)
         self.db.commit()
 
-        # Fills are the truth (D19): they must replay to the final portfolio
+        # Fills are the truth (D19): they must replay to the final portfolio.
+        # Orders and fills are committed as they happen, so a run that fails
+        # the check is deleted rather than left behind as a wrong record.
         record = load_record(self.db, run_id, predictions=False)
-        check_fills_match(
-            record,
-            positions={k: p.quantity for k, p in portfolio.positions.items()},
-            cash=portfolio.cash_balance,
-            currency=portfolio.quote_currency,
-        )
+        try:
+            check_fills_match(
+                record,
+                positions={k: p.quantity for k, p in portfolio.positions.items()},
+                cash=portfolio.cash_balance,
+                currency=portfolio.quote_currency,
+            )
+        except RunIntegrityError:
+            logger.error(f"Run {run_id} failed the fills check; deleting its rows.")
+            delete_run(self.db, run_id)
+            self.db.commit()
+            raise
 
         return BacktestResult(
             run_id=run_id,

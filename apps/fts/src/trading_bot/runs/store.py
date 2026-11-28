@@ -12,6 +12,7 @@ from .records import (
     Prediction,
     RunHeader,
     RunKind,
+    RunMarket,
     RunRecord,
     Segment,
 )
@@ -114,8 +115,9 @@ def load_record(
 
 
 def delete_run(session: Session, run_id: str) -> None:
-    """Remove every row of the run from every run table (no commit)."""
-    for table in RUN_TABLES:
+    """Remove every row of the run from every run table (no commit),
+    children first so no foreign key is ever left dangling."""
+    for table in reversed(RUN_TABLES):
         session.execute(delete(table).where(table.c.run_id == run_id))
 
 
@@ -135,6 +137,37 @@ class RunStore:
         with self.session_factory() as session:
             runs = session.scalars(stmt.order_by(RunLog.created_at.desc())).all()
             return [_header(r) for r in runs]
+
+    def markets(self, kind: RunKind = "backtest") -> List[RunMarket]:
+        """Every (run, instrument, strategy) with predictions, newest run
+        first. Read from the predictions, not the card, so a run with several
+        instruments or strategies is listed under each of them."""
+        stmt = (
+            select(
+                PredictionLog.run_id,
+                PredictionLog.instrument_id,
+                PredictionLog.strategy_name,
+            )
+            .join(RunLog, RunLog.run_id == PredictionLog.run_id)
+            .where(RunLog.kind == kind)
+            .group_by(
+                PredictionLog.run_id,
+                PredictionLog.instrument_id,
+                PredictionLog.strategy_name,
+                RunLog.created_at,
+            )
+            .order_by(
+                RunLog.created_at.desc(),
+                PredictionLog.run_id.desc(),
+                PredictionLog.instrument_id,
+                PredictionLog.strategy_name,
+            )
+        )
+        with self.session_factory() as session:
+            return [
+                RunMarket(run_id=r, instrument_id=i, strategy_name=s)
+                for r, i, s in session.execute(stmt)
+            ]
 
     def load(self, run_id: str, predictions: bool = True) -> Optional[RunRecord]:
         with self.session_factory() as session:

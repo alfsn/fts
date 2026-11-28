@@ -32,6 +32,15 @@ class ExecutionErrorType(Enum):
     INVALID_ORDER = "invalid_order"
 
 
+# Statuses after which the exchange never changes an order again
+_FINAL = (
+    OrderStatus.FILLED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REJECTED,
+    OrderStatus.FAILED,
+)
+
+
 class ExecutionEngine:
     """
     Orchestrates order execution, logging, and portfolio updates.
@@ -177,8 +186,12 @@ class ExecutionEngine:
                     self._reconcile_missing_order(db, order_id, result)
                 return result
 
-            # Update if status changed
-            if logged_status != result.status:
+            # Update if the status changed, or if the order is final but still
+            # open in the Portfolio (a fill whose commit failed earlier)
+            unapplied = result.status in _FINAL and order_id in getattr(
+                self.portfolio, "open_orders", {}
+            )
+            if logged_status != result.status or unapplied:
                 logger.info(
                     f"Status for order {order_id} changed: "
                     f"{logged_status.value} -> {result.status.value}"
@@ -195,6 +208,7 @@ class ExecutionEngine:
                     db.commit()
 
                 except SQLAlchemyError as e:
+                    # The order stays open in the Portfolio: retried next check
                     logger.error(
                         f"Failed to update order log for {order_id}: {e}", exc_info=True
                     )
@@ -270,11 +284,24 @@ class ExecutionEngine:
                             f"to process the fill."
                         )
                         self.portfolio.add_open_order(result.order_id, order)
+                # Fills are the truth: commit the fill (with any pending order
+                # row) before the Portfolio applies it. If the commit fails the
+                # Portfolio is untouched and the order stays open, so the next
+                # status check or reconciliation applies it again.
+                to_fill = self.portfolio.fill_for(result)
+                if to_fill is not None:
+                    self.recorder.record_fill(db, to_fill, result)
+                    db.commit()
                 filled = self.portfolio.update_order_status(result)
-                if filled is not None:
-                    # Saved exactly when the portfolio applied it (fills are the truth)
-                    self.recorder.record_fill(db, filled, result)
+                if (filled is None) != (to_fill is None):
+                    raise RuntimeError(
+                        f"Order {result.order_id}: the saved fill and the "
+                        "Portfolio's applied fill disagree."
+                    )
 
+        except SQLAlchemyError:
+            # The caller rolls back; nothing was applied to the Portfolio
+            raise
         except Exception as e:
             logger.error(
                 f"Portfolio update failed for order {result.order_id}: {e}",
@@ -433,6 +460,7 @@ class ExecutionEngine:
                 self._reconciliation_queue.remove(item)
 
             except Exception as e:
+                db.rollback()
                 results["failed"] += 1
                 results["errors"].append(f"{item['order_id']}: {str(e)}")
                 logger.error(f"Reconciliation failed for {item['order_id']}: {e}")

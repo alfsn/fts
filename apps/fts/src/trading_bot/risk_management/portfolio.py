@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, Optional
 
-from quant_core.enums import OrderSide, OrderStatus
+from quant_core.enums import Currency, OrderSide, OrderStatus
 
 from ..core.schemas import (
     CashBalance,
@@ -35,17 +35,18 @@ class Portfolio:
     def __init__(
         self,
         initial_balance: float,
-        quote_currency: str = "USD",
+        quote_currency: str | Currency = Currency.USD,
     ) -> None:
         """
         Initializes the portfolio with a starting balance.
 
         :param initial_balance: The total starting capital in the quote currency.
-        :param quote_currency: The primary currency for accounting (e.g., "USD").
+        :param quote_currency: The accounting currency, one of quant_core's
+            ``Currency`` values (e.g. "USD"); anything else raises ValueError.
         """
         self.initial_balance: float = initial_balance
         self._cash_balance: float = initial_balance
-        self.quote_currency: str = quote_currency
+        self.quote_currency: str = Currency(quote_currency).value
 
         # In-memory state
         # Key: f"{instrument_id}:{outcome}" if outcome else instrument_id
@@ -73,6 +74,14 @@ class Portfolio:
             return
         self._open_orders[order_id] = order
         logger.debug(f"Added open order {order_id} to portfolio.")
+
+    def fill_for(self, result: ExecutionResult) -> Optional[OrderRequest]:
+        """The order ``update_order_status(result)`` would fill, without
+        applying anything, so the fill can be saved before the Portfolio
+        changes (fills are the truth)."""
+        if result.status != OrderStatus.FILLED or not result.filled_quantity > 0:
+            return None
+        return self._open_orders.get(result.order_id)
 
     def update_order_status(self, result: ExecutionResult) -> Optional[OrderRequest]:
         """
