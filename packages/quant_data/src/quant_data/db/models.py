@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from quant_core.enums import BarType, CorporateActionType, Currency, RateType
+from quant_core.enums import BarType, CorporateActionType
 from sqlalchemy import (
     DateTime,
     Enum,
@@ -72,35 +72,6 @@ class BarDataLog(Base):
     source: Mapped[str] = mapped_column(String, nullable=False)
 
     market: Mapped["Market"] = relationship("Market", back_populates="bars")
-
-
-class FXRateRecord(Base):
-    __tablename__ = "fx_rates"
-
-    __table_args__ = (
-        UniqueConstraint(
-            "base_currency",
-            "quote_currency",
-            "rate_type",
-            "timestamp",
-            name="uq_fx_rate",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    base_currency: Mapped[Currency] = mapped_column(
-        Enum(Currency), index=True, nullable=False
-    )
-    quote_currency: Mapped[Currency] = mapped_column(
-        Enum(Currency), index=True, nullable=False
-    )
-    rate_type: Mapped[RateType] = mapped_column(
-        Enum(RateType), index=True, nullable=False
-    )
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), index=True, nullable=False
-    )
-    rate: Mapped[float] = mapped_column(nullable=False)
 
 
 class CorporateActionRecord(Base):

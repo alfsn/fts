@@ -1,9 +1,9 @@
 """
 Reset the shared market-data cache (D10, D18).
 
-Only the cache tables (``markets``, ``bar_data_logs``, ``corporate_actions``,
-``fx_rates``) are dropped and recreated; anything else in the same file is
-untouched. The cache is ``market_cache.db`` in the workspace root unless
+Only the cache tables (``markets``, ``bar_data_logs``, ``corporate_actions``)
+are dropped and recreated, and retired cache tables (``fx_rates``, W4) are
+dropped; anything else in the same file is untouched. The cache is ``market_cache.db`` in the workspace root unless
 ``MARKET_CACHE_URL`` or ``--db-url`` says otherwise.
 
     uv run python -m quant_data.db.reset
@@ -11,15 +11,29 @@ untouched. The cache is ``market_cache.db`` in the workspace root unless
 
 import argparse
 
-from sqlalchemy import func, inspect, select
+from sqlalchemy import MetaData, Table, func, inspect, select
 from sqlalchemy.engine import Engine
 
 from .cache import CACHE_TABLES, cache_url
 from .models import Base
 
+# The CCL is recomputed from the GGAL/YPF pairs, so nothing wrote fx_rates (W4).
+RETIRED_TABLES = ("fx_rates",)
+
+
+def _retired(engine: Engine) -> list[Table]:
+    """Retired tables still in the file, reflected (no FK pull-in)."""
+    existing = set(inspect(engine).get_table_names())
+    return [
+        Table(name, MetaData(), autoload_with=engine, resolve_fks=False)
+        for name in RETIRED_TABLES
+        if name in existing
+    ]
+
 
 def cache_row_counts(engine: Engine) -> dict[str, int]:
-    """Rows per cache table; 0 for a table that doesn't exist yet."""
+    """Rows per cache table (0 if it doesn't exist yet), plus each retired
+    table still in the file."""
     existing = set(inspect(engine).get_table_names())
     counts = {}
     with engine.connect() as conn:
@@ -29,11 +43,18 @@ def cache_row_counts(engine: Engine) -> dict[str, int]:
                 if table.name in existing
                 else 0
             )
+        for table in _retired(engine):
+            counts[table.name] = conn.execute(
+                select(func.count()).select_from(table)
+            ).scalar_one()
     return counts
 
 
 def reset_market_cache(engine: Engine) -> None:
-    """Drop and recreate exactly ``CACHE_TABLES`` with the current schema."""
+    """Drop the retired tables, then drop and recreate exactly ``CACHE_TABLES``
+    with the current schema."""
+    for table in _retired(engine):
+        table.drop(engine)
     Base.metadata.drop_all(engine, tables=list(CACHE_TABLES), checkfirst=True)
     Base.metadata.create_all(engine, tables=list(CACHE_TABLES))
 

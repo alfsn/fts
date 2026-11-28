@@ -261,45 +261,18 @@ class BacktestVisualizer:
 
     def calculate_pnl(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculates cumulative strategy returns vs buy-and-hold baseline.
+        Cumulative buy-and-hold return of the close and, when the run logged
+        its equity, the strategy's cumulative return from that equity (UI-plan
+        D14). A run without an equity log gets no strategy line: replaying the
+        signals would ignore fees and sizing, and is not what the engine ran.
         """
         df = df.copy()
-        df["raw_return"] = df["close"].pct_change().fillna(0.0)
-
-        # Simple backtest simulation from signals:
-        # BUY signal -> long position (+1)
-        # SELL signal -> short position (-1)
-        # FLAT/HOLD signal -> flat position (0)
-        df["position"] = 0.0
-        if "predicted_signal" in df.columns:
-            df["position"] = (
-                df["predicted_signal"]
-                .str.lower()
-                .map(
-                    {
-                        SignalType.BUY.value: 1.0,
-                        SignalType.SELL.value: -1.0,
-                        SignalType.FLAT.value: 0.0,
-                        SignalType.HOLD.value: 0.0,
-                    }
-                )
-                .ffill()
-                .fillna(0.0)
-            )
-
-        # Cumulative P&L (buy-and-hold baseline and logged equity) from quant_core
         df["cum_baseline_return"] = _cumulative_return(df["close"])
 
         if "actual_equity" in df.columns and not df["actual_equity"].isnull().all():
             df["cum_strat_return"] = _cumulative_return(df["actual_equity"])
-
             if "equity_position" in df.columns:
                 df["strat_position"] = df["equity_position"]
-        else:
-            # Fall back to signal-based simulated returns
-            df["strat_position"] = df["position"].shift(1).fillna(0.0)
-            df["strat_return"] = df["strat_position"] * df["raw_return"]
-            df["cum_strat_return"] = (1.0 + df["strat_return"]).cumprod() - 1.0
 
         return df
 

@@ -97,7 +97,8 @@ def test_html_exporter(db_url, tmp_path):
         assert "Plotly" in html_content or "plotly" in html_content.lower()
         assert "BTC" in html_content
         assert "USDT" in html_content
-        assert "simulated from signals" in html_content
+        # No equity log in this run: no made-up strategy line (UI-plan D14).
+        assert "Strategy P&L" not in html_content
 
 
 def test_html_exporter_directory_output(db_url, tmp_path):
